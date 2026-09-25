@@ -313,6 +313,25 @@ window.__ModuleLoader__.load({
 				".dbt-listrow{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--dbt-separator);transition:background .18s var(--dbt-ease);}",
 				".dbt-listrow:last-child{border-bottom:none;}",
 				".dbt-listrow:hover{background:var(--dbt-surface-strong);}",
+				/* Navicat 式对象树：行、chevron 旋转、名称省略 */
+				".dbt-tree{display:flex;flex-direction:column;}",
+				".dbt-treerow{display:flex;gap:6px;align-items:center;padding:7px 12px;font-size:13px;border-bottom:1px solid var(--dbt-separator);cursor:pointer;user-select:none;transition:background .18s var(--dbt-ease);}",
+				".dbt-treerow:last-child{border-bottom:none;}",
+				".dbt-treerow:hover{background:var(--dbt-surface-strong);}",
+				".dbt-treerow.active{color:var(--dbt-accent);font-weight:600;}",
+				".dbt-chev{flex:none;font-size:10px;color:var(--dbt-muted);transition:transform .18s var(--dbt-ease);line-height:1;}",
+				".dbt-chev.open{transform:rotate(90deg);}",
+				".dbt-chev.leaf{visibility:hidden;}",
+				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				"/* ===== Navicat 式对象树（数据浏览） ===== */",
+				".dbt-treerow{display:flex;gap:6px;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;user-select:none;border-bottom:1px solid var(--dbt-separator);transition:background .15s var(--dbt-ease);}",
+				".dbt-treerow:last-child{border-bottom:none;}",
+				".dbt-treerow:hover{background:var(--dbt-surface-strong);}",
+				".dbt-treerow.active{color:var(--dbt-accent);font-weight:600;}",
+				".dbt-chev{flex:none;width:12px;text-align:center;color:var(--dbt-muted);font-size:10px;line-height:1;transition:transform .18s var(--dbt-ease);}",
+				".dbt-chev.open{transform:rotate(90deg);}",
+				".dbt-chev.leaf{visibility:hidden;}",
+				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
 				"/* ===== 视图切换入场（仅 transform/opacity；reduced-motion 全局已禁） ===== */",
 				"@keyframes dbt-in{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}",
 				".dbt-view{display:flex;flex-direction:column;gap:10px;animation:dbt-in .22s var(--dbt-ease);}",
@@ -692,82 +711,111 @@ window.__ModuleLoader__.load({
 		/* ---------------- 数据浏览 ---------------- */
 		function BrowseView(props) {
 			const { conns, projectPath } = props;
-			const [connId, setConnId] = React.useState("");
-			const [database, setDatabase] = React.useState("");
-			const [databases, setDatabases] = React.useState([]);
-			const [tables, setTables] = React.useState([]);
-			const [table, setTable] = React.useState(null); // TableInfo
+			// Navicat 式对象树：连接 ▸ 库/schema ▸ 表，懒加载展开
+			const [open, setOpen] = React.useState({}); // "c:<id>" | "d:<id>/<db>" -> bool
+			const [loading, setLoading] = React.useState({});
+			const [dbs, setDbs] = React.useState({}); // connId -> string[]
+			const [tablesMap, setTablesMap] = React.useState({}); // "<connId>/<db>" -> TableInfo[]
+			const [sel, setSel] = React.useState(null); // {connId, db, table: TableInfo}
 			const [schema, setSchema] = React.useState([]);
 			const [preview, setPreview] = React.useState(null); // QueryResult
 			const [page, setPage] = React.useState(1);
 			const [busy, setBusy] = React.useState("");
 			const [view, setView] = React.useState("structure"); // structure | preview（纯视图切换，不影响数据加载）
 
+			// 会话项目切换 / 连接列表变化时清空树缓存，避免陈旧授权下的旧数据
 			React.useEffect(() => {
-				if (!connId || !projectPath) { setDatabases([]); return; }
-				let cancelled = false;
-				api("databases" + qs({ project: projectPath, connId }))
-					.then((list) => { if (cancelled) return; setDatabases(list || []); setDatabase((list || [])[0] || ""); })
-					.catch((e) => { if (!cancelled) props.onError(e); });
-				return () => { cancelled = true; };
-			}, [connId, projectPath]);
-			React.useEffect(() => {
-				if (!connId || !projectPath) { setTables([]); return; }
-				let cancelled = false;
-				api("tables" + qs({ project: projectPath, connId, database }))
-					.then((list) => { if (cancelled) return; setTables(list || []); setTable(null); setSchema([]); setPreview(null); })
-					.catch((e) => { if (!cancelled) props.onError(e); });
-				return () => { cancelled = true; };
-			}, [connId, database, projectPath]);
-			const openTable = React.useCallback((tb, pg) => {
-				if (!tb || !connId || !projectPath) return;
+				setOpen({}); setLoading({}); setDbs({}); setTablesMap({}); setSel(null); setSchema([]); setPreview(null);
+			}, [projectPath]);
+
+			function toggle(key, load) {
+				const isOpen = !!open[key];
+				setOpen((o) => Object.assign({}, o, { [key]: !isOpen }));
+				if (isOpen || !load || loading[key]) return;
+				setLoading((s) => Object.assign({}, s, { [key]: true }));
+				load()
+					.catch((e) => props.onError(e))
+					.finally(() => setLoading((s) => Object.assign({}, s, { [key]: false })));
+			}
+			function toggleConn(c) {
+				if (!projectPath) return;
+				toggle("c:" + c.id, () =>
+					api("databases" + qs({ project: projectPath, connId: c.id })).then((list) => {
+						setDbs((m) => Object.assign({}, m, { [c.id]: list || [] }));
+					}));
+			}
+			function toggleDb(c, d) {
+				if (!projectPath) return;
+				toggle("d:" + c.id + "/" + d, () =>
+					api("tables" + qs({ project: projectPath, connId: c.id, database: d })).then((list) => {
+						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + d]: list || [] }));
+					}));
+			}
+			const openTable = React.useCallback((s, pg) => {
+				if (!s || !projectPath) return;
 				setBusy("open");
 				Promise.all([
-					api("schema" + qs({ project: projectPath, connId, database, table: tb.name })),
-					api("preview" + qs({ project: projectPath, connId, database, table: tb.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
+					api("schema" + qs({ project: projectPath, connId: s.connId, database: s.db, table: s.table.name })),
+					api("preview" + qs({ project: projectPath, connId: s.connId, database: s.db, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
 				])
 					.then(([sch, prev]) => { setSchema(sch || []); setPreview(prev); setPage(pg || 1); })
 					.catch((e) => props.onError(e))
 					.finally(() => setBusy(""));
-			}, [connId, database, projectPath]);
-			React.useEffect(() => { if (table) openTable(table, 1); }, [table]); // eslint-disable-line
+			}, [projectPath]);
+			React.useEffect(() => { if (sel) openTable(sel, 1); }, [sel]); // eslint-disable-line
 
 			function cellTitle(_row, cell) { return cell === null ? "NULL" : String(cell); }
+
+			// 树行：chevron（▸ 展开旋转 90°）+ 名称 + 可选右侧标注
+			function treerow(key, level, isOpen, leaf, label, onClick, active, extra) {
+				return React.createElement(
+					"div",
+					{ className: "dbt-treerow" + (active ? " active" : ""), key, onClick: onClick || undefined, style: { paddingLeft: 12 + level * 16 } },
+					React.createElement("span", { className: "dbt-chev" + (isOpen ? " open" : "") + (leaf ? " leaf" : "") }, "▶"),
+					React.createElement("span", { className: "dbt-treename" }, label),
+					extra || null,
+				);
+			}
+
+			// 组装树：连接 → 库/schema → 表（懒加载缓存，未加载完成显示 …）
+			const treeRows = [];
+			for (const c of conns) {
+				const ck = "c:" + c.id;
+				const isOpen = !!open[ck];
+				treeRows.push(treerow(ck, 0, isOpen, false, c.name || c.id, () => toggleConn(c), false,
+					React.createElement("span", { className: "dbt-muted", style: { flex: "none", fontSize: 11 } }, c.kind)));
+				if (!isOpen) continue;
+				const list = dbs[c.id];
+				if (loading[ck]) { treeRows.push(treerow(ck + ":l", 1, false, true, "…")); continue; }
+				if (!list) continue;
+				if (list.length === 0) { treeRows.push(treerow(ck + ":e", 1, false, true, t("noDatabases"))); continue; }
+				for (const d of list) {
+					const dk = "d:" + c.id + "/" + d;
+					const dOpen = !!open[dk];
+					treeRows.push(treerow(dk, 1, dOpen, false, d, () => toggleDb(c, d)));
+					if (!dOpen) continue;
+					const tkey = c.id + "/" + d;
+					const tlist = tablesMap[tkey];
+					if (loading[dk]) { treeRows.push(treerow(dk + ":l", 2, false, true, "…")); continue; }
+					if (!tlist) continue;
+					if (tlist.length === 0) { treeRows.push(treerow(dk + ":e", 2, false, true, t("noTables"))); continue; }
+					for (const tb of tlist) {
+						const active = !!sel && sel.connId === c.id && sel.db === d && sel.table.name === tb.name;
+						treeRows.push(treerow("t:" + tkey + "/" + tb.name, 2, false, true,
+							tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
+							() => setSel({ connId: c.id, db: d, table: tb }), active));
+					}
+				}
+			}
 
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
-				// 选择器：inset grouped 每行一个控件（连接 / 数据库）
-				React.createElement(
-					"div",
-					{ className: "dbt-group" },
-					React.createElement(
-						"div",
-						{ className: "dbt-listrow" },
-						React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
-							React.createElement("option", { value: "" }, t("viewManage") + "…"),
-							conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
-					),
-					React.createElement(
-						"div",
-						{ className: "dbt-listrow" },
-						React.createElement("select", { value: database, disabled: !connId, onChange: (e) => setDatabase(e.target.value) },
-							databases.length === 0 ? React.createElement("option", { value: "" }, t("noDatabases")) :
-								databases.map((d) => React.createElement("option", { key: d, value: d }, d))),
-					),
-				),
-				// 表选择器：填充式 select（option 文案带 type 标注）
-				tables.length === 0 ? React.createElement("div", { className: "dbt-muted" }, connId ? t("noTables") : "") :
-					React.createElement("select",
-						{
-							value: table ? table.name : "",
-							disabled: !connId || busy === "open",
-							onChange: (e) => { const tb = tables.find((x) => x.name === e.target.value); if (tb) setTable(tb); },
-						},
-						React.createElement("option", { value: "" }, ""),
-						tables.map((tb) => React.createElement("option", { key: tb.name, value: tb.name }, tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""))),
-					),
-				table
+				// Navicat 式对象树：点击展开连接/库，点击表查看结构/预览
+				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
+					React.createElement("div", { className: "dbt-group" },
+						React.createElement("div", { className: "dbt-tree" }, treeRows)),
+				sel
 					? React.createElement(
 						"div",
 						{ style: { display: "flex", flexDirection: "column", gap: 8 } },
@@ -778,7 +826,7 @@ window.__ModuleLoader__.load({
 							["structure", "preview"].map((v) =>
 								React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) }, v === "structure" ? t("structure") : t("preview"))),
 						),
-						React.createElement("strong", null, (view === "structure" ? t("structure") : t("preview")) + " · " + table.name),
+						React.createElement("strong", null, (view === "structure" ? t("structure") : t("preview")) + " · " + sel.db + " / " + sel.table.name),
 						view === "structure"
 							? resultTable(
 								[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],
@@ -792,9 +840,9 @@ window.__ModuleLoader__.load({
 								React.createElement(
 									"div",
 									{ className: "dbt-row", style: { justifyContent: "space-between" } },
-									React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(table, page - 1) }, "‹ " + t("prevPage")),
+									React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1) }, "‹ " + t("prevPage")),
 									React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
-									React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(table, page + 1) }, t("nextPage") + " ›"),
+									React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(sel, page + 1) }, t("nextPage") + " ›"),
 								),
 								preview && preview.truncated ? React.createElement("div", { className: "dbt-muted" }, t("previewTruncated")) : null,
 							),
