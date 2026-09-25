@@ -268,34 +268,56 @@ window.__ModuleLoader__.load({
 			if (styleEl) return;
 			styleEl = document.createElement("style");
 			styleEl.textContent = [
-				".dbt-panel{font-size:13px;display:flex;flex-direction:column;gap:8px;padding:10px;height:100%;box-sizing:border-box;overflow-y:auto;}",
-				".dbt-tabs{display:flex;gap:4px;flex-wrap:wrap;}",
-				".dbt-tabs button{border:1px solid var(--dsh-border,rgba(128,128,128,.35));background:transparent;color:inherit;padding:3px 10px;border-radius:6px;cursor:pointer;font-size:12px;}",
-				".dbt-tabs button.active{background:var(--dsh-accent,#3b82f6);color:#fff;border-color:transparent;}",
-				".dbt-card{border:1px solid var(--dsh-border,rgba(128,128,128,.35));border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;}",
-				".dbt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}",
-				".dbt-row input,.dbt-row select,.dbt-card input,.dbt-card select,.dbt-card textarea{flex:1;min-width:60px;background:transparent;border:1px solid var(--dsh-border,rgba(128,128,128,.35));color:inherit;border-radius:6px;padding:4px 6px;font-size:12px;font-family:inherit;}",
-				".dbt-card textarea{font-family:ui-monospace,Menlo,Consolas,monospace;min-height:72px;resize:vertical;}",
-				".dbt-btn{border:1px solid var(--dsh-border,rgba(128,128,128,.35));background:transparent;color:inherit;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;white-space:nowrap;}",
-				".dbt-btn.primary{background:var(--dsh-accent,#3b82f6);color:#fff;border-color:transparent;}",
-				".dbt-btn.danger{color:#ef4444;border-color:#ef4444;}",
-				".dbt-btn:disabled{opacity:.5;cursor:default;}",
-				".dbt-muted{opacity:.6;font-size:11px;}",
-				".dbt-err{color:#ef4444;font-size:12px;white-space:pre-wrap;}",
-				".dbt-msg{color:#22c55e;font-size:12px;white-space:pre-wrap;}",
+				"/* ===== Apple-style Design Tokens（dark 基线，light 经 media query 反转） ===== */",
+				".dbt-panel{--dbt-accent:var(--dsh-accent,#0a84ff);--dbt-bg:transparent;--dbt-surface:rgba(120,120,128,.12);--dbt-surface-strong:rgba(120,120,128,.18);--dbt-separator:rgba(120,120,128,.24);--dbt-text-secondary:rgba(235,235,245,.6);--dbt-danger:#ff453a;--dbt-success:#30d158;--dbt-warning:#ffd60a;--dbt-dialog-bg:rgba(40,40,44,.85);--dbt-th-bg:rgba(30,30,32,.72);--dbt-seg-active:rgba(255,255,255,.14);--dbt-shadow:0 8px 32px rgba(0,0,0,.28);--dbt-radius-card:12px;--dbt-radius-ctrl:8px;--dbt-radius-pill:6px;--dbt-ease:cubic-bezier(.25,.1,.25,1);--dbt-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;}",
+				"@media (prefers-color-scheme: light){.dbt-panel{--dbt-accent:var(--dsh-accent,#007aff);--dbt-surface:rgba(120,120,128,.08);--dbt-surface-strong:rgba(120,120,128,.14);--dbt-separator:rgba(60,60,67,.18);--dbt-text-secondary:rgba(60,60,67,.6);--dbt-danger:#ff3b30;--dbt-success:#34c759;--dbt-warning:#ff9f0a;--dbt-dialog-bg:rgba(252,252,252,.9);--dbt-th-bg:rgba(255,255,255,.72);--dbt-seg-active:rgba(255,255,255,.9);--dbt-shadow:0 8px 32px rgba(0,0,0,.12);}}",
+				"/* ===== 根容器 ===== */",
+				".dbt-panel{font-size:13px;line-height:1.45;display:flex;flex-direction:column;gap:12px;padding:16px;height:100%;box-sizing:border-box;overflow-y:auto;}",
+				"/* ===== iOS segmented control（顶部 tab） ===== */",
+				".dbt-tabs{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;}",
+				".dbt-tabs button{flex:1;border:none;background:transparent;color:inherit;border-radius:var(--dbt-radius-pill);padding:5px 8px;font-size:12px;font-weight:500;cursor:pointer;transition:all .18s var(--dbt-ease);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+				".dbt-tabs button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
+				"/* ===== inset grouped 卡片 ===== */",
+				".dbt-card{background:var(--dbt-surface);border:none;border-radius:var(--dbt-radius-card);padding:12px;display:flex;flex-direction:column;gap:10px;}",
+				".dbt-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}",
+				"/* ===== 填充式无边框输入 ===== */",
+				".dbt-row input,.dbt-row select,.dbt-card input,.dbt-card select,.dbt-card textarea{flex:1;min-width:60px;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:6px 10px;font-size:13px;font-family:inherit;transition:all .18s var(--dbt-ease);}",
+				".dbt-row input:focus,.dbt-row select:focus,.dbt-card input:focus,.dbt-card select:focus,.dbt-card textarea:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
+				".dbt-card textarea{font-family:var(--dbt-mono);min-height:96px;resize:vertical;}",
+				"/* ===== 按钮 ===== */",
+				".dbt-btn{border:none;background:var(--dbt-surface);color:inherit;border-radius:var(--dbt-radius-ctrl);padding:5px 12px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .18s var(--dbt-ease);}",
+				".dbt-btn:hover{background:var(--dbt-surface-strong);}",
+				".dbt-btn:active{transform:scale(.97);}",
+				".dbt-btn.primary{background:var(--dbt-accent);color:#fff;}",
+				".dbt-btn.primary:hover{filter:brightness(1.1);}",
+				".dbt-btn.danger{color:var(--dbt-danger);background:transparent;border:1px solid var(--dbt-danger);}",
+				".dbt-btn.danger:hover{background:rgba(255,69,58,.12);}",
+				".dbt-btn:disabled{opacity:.4;cursor:default;transform:none;}",
+				"/* ===== 文本反馈 ===== */",
+				".dbt-muted{color:var(--dbt-text-secondary);font-size:11px;}",
+				".dbt-err{color:var(--dbt-danger);font-size:12px;white-space:pre-wrap;}",
+				".dbt-msg{color:var(--dbt-success);font-size:12px;white-space:pre-wrap;}",
+				"/* ===== 行 hairline 表格 + 毛玻璃 sticky 表头 ===== */",
 				".dbt-table{width:100%;border-collapse:collapse;font-size:12px;}",
-				".dbt-table th,.dbt-table td{border:1px solid var(--dsh-border,rgba(128,128,128,.35));padding:3px 6px;text-align:left;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
-				".dbt-table th{position:sticky;top:0;background:var(--dsh-bg,inherit);font-weight:600;}",
-				".dbt-tablewrap{overflow:auto;max-height:320px;border:1px solid var(--dsh-border,rgba(128,128,128,.35));border-radius:6px;}",
-				".dbt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;}",
-				".dbt-dialog{background:var(--dsh-bg,#1e1e1e);color:inherit;border:1px solid var(--dsh-border,rgba(128,128,128,.35));border-radius:10px;padding:14px;max-width:460px;width:90%;display:flex;flex-direction:column;gap:8px;font-size:13px;}",
-				".dbt-dialog pre{background:rgba(128,128,128,.12);border-radius:6px;padding:8px;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto;}",
-				".dbt-grant{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px dashed var(--dsh-border,rgba(128,128,128,.25));}",
-				".dbt-seg{display:flex;gap:0;}",
-				".dbt-seg button{border:1px solid var(--dsh-border,rgba(128,128,128,.35));background:transparent;color:inherit;font-size:11px;padding:2px 8px;cursor:pointer;}",
-				".dbt-seg button:first-child{border-radius:6px 0 0 6px;}",
-				".dbt-seg button:last-child{border-radius:0 6px 6px 0;border-left:none;}",
-				".dbt-seg button.active{background:var(--dsh-accent,#3b82f6);color:#fff;}",
+				".dbt-table th,.dbt-table td{border:none;border-bottom:1px solid var(--dbt-separator);padding:6px 8px;text-align:left;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				".dbt-table th{position:sticky;top:0;z-index:1;background:var(--dbt-th-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);font-weight:600;font-size:11px;}",
+				".dbt-table td{font-family:var(--dbt-mono);}",
+				".dbt-tablewrap{border:none;border-radius:var(--dbt-radius-card);overflow:auto;max-height:320px;background:var(--dbt-surface);}",
+				"/* ===== 对话框（macOS alert 材质） ===== */",
+				".dbt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:9999;}",
+				".dbt-dialog{background:var(--dbt-dialog-bg);color:inherit;border:1px solid var(--dbt-separator);border-radius:14px;padding:16px;max-width:460px;width:90%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;font-size:13px;-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);box-shadow:var(--dbt-shadow);}",
+				".dbt-dialog pre{background:var(--dbt-surface-strong);border-radius:var(--dbt-radius-pill);padding:8px;font-family:var(--dbt-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto;}",
+				".dbt-dialog .dbt-row{justify-content:flex-end;}",
+				"/* ===== 授权列表行（实 hairline） ===== */",
+				".dbt-grant{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--dbt-separator);}",
+				"/* ===== mini segmented（ro/rw 等切换） ===== */",
+				".dbt-seg{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;}",
+				".dbt-seg button{flex:none;border:none;background:transparent;color:inherit;font-size:11px;padding:3px 10px;border-radius:var(--dbt-radius-pill);cursor:pointer;transition:all .18s var(--dbt-ease);}",
+				".dbt-seg button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
+				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
+				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog{backdrop-filter:none;-webkit-backdrop-filter:none;background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}}",
+				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog{background:#f5f5f7;}.dbt-table th{background:#f2f2f7;}}",
+				"@media (prefers-reduced-motion: reduce){.dbt-panel *{transition:none!important;animation:none!important;}.dbt-btn:active{transform:none;}}",
 			].join("\n");
 			document.head.appendChild(styleEl);
 		}
@@ -309,7 +331,8 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-dialog", onClick: (e) => e.stopPropagation() },
-					React.createElement("strong", null, "⚠️ " + t("needConfirmTitle")),
+					// macOS alert 风格：纯文字标题 + danger 色，不用 emoji
+					React.createElement("strong", { style: { color: "var(--dbt-danger, #ff453a)" } }, t("needConfirmTitle")),
 					React.createElement("pre", null, ch.statement || "(?)"),
 					React.createElement(
 						"div",
@@ -319,7 +342,7 @@ window.__ModuleLoader__.load({
 					React.createElement("div", { className: "dbt-muted" }, t("confirmHint")),
 					React.createElement(
 						"div",
-						{ className: "dbt-row" },
+						{ className: "dbt-row", style: { justifyContent: "flex-end" } },
 						React.createElement("button", { className: "dbt-btn danger", onClick: () => done(true) }, t("confirmRun")),
 						React.createElement("button", { className: "dbt-btn", onClick: () => done(false) }, t("confirmCancel")),
 					),
@@ -350,7 +373,8 @@ window.__ModuleLoader__.load({
 							React.createElement("tr", { key: i },
 								row.map((cell, j) =>
 									React.createElement("td", { key: j, title: cellTitles ? cellTitles(row, cell, j) : cell === null ? "NULL" : String(cell) },
-										cell === null ? "NULL" : String(cell)))),
+										// NULL 用 muted 弱化；其余保持 String(cell) 渲染语义不变
+										cell === null ? React.createElement("span", { className: "dbt-muted" }, "NULL") : String(cell)))),
 						),
 					),
 				),
@@ -389,6 +413,7 @@ window.__ModuleLoader__.load({
 				"div",
 				{ className: "dbt-card" },
 				React.createElement("strong", null, props.initial ? t("editConn") : t("newConn")),
+				// 分组 1：基本属性（kind / name / id / ssl）
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
@@ -396,18 +421,15 @@ window.__ModuleLoader__.load({
 						DB_KINDS.map((k) => React.createElement("option", { key: k, value: k }, k))),
 					React.createElement("input", { placeholder: t("connName"), value: form.name, onChange: (e) => patch({ name: e.target.value }) }),
 					React.createElement("input", { placeholder: t("connId") + "（" + t("idAutoHint") + "）", value: form.id, disabled: !!props.initial, onChange: (e) => patch({ id: e.target.value }) }),
-				),
-				React.createElement(
-					"div",
-					{ className: "dbt-row" },
 					React.createElement("label", { className: "dbt-row", style: { flex: "none" } },
 						React.createElement("input", { type: "checkbox", checked: !!form.ssl, onChange: (e) => patch({ ssl: e.target.checked }) }), t("ssl")),
 				),
+				// 分组 2：连接目标 —— 模式切换用 .dbt-seg mini segmented
 				React.createElement(
 					"div",
-					{ className: "dbt-row" },
-					React.createElement("button", { className: "dbt-btn" + (form.mode === "url" ? " primary" : ""), onClick: () => patch({ mode: "url" }) }, t("urlMode")),
-					React.createElement("button", { className: "dbt-btn" + (form.mode === "fields" ? " primary" : ""), onClick: () => patch({ mode: "fields" }) }, t("fieldsMode")),
+					{ className: "dbt-seg" },
+					React.createElement("button", { className: form.mode === "url" ? "active" : "", onClick: () => patch({ mode: "url" }) }, t("urlMode")),
+					React.createElement("button", { className: form.mode === "fields" ? "active" : "", onClick: () => patch({ mode: "fields" }) }, t("fieldsMode")),
 				),
 				form.mode === "url"
 					? React.createElement("input", { placeholder: t("url"), value: form.url, onChange: (e) => patch({ url: e.target.value }) })
@@ -422,6 +444,7 @@ window.__ModuleLoader__.load({
 							React.createElement("input", { placeholder: t("fieldsUser"), value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
 							React.createElement("input", { type: "password", placeholder: t("fieldsPassword"), value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
 					),
+				// 分组 3：操作
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
@@ -486,24 +509,33 @@ window.__ModuleLoader__.load({
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
+				// 顶部操作行：审计在左，「新建连接」主按钮置右侧
 				React.createElement(
 					"div",
-					{ className: "dbt-row" },
-					React.createElement("button", { className: "dbt-btn primary", onClick: () => setEditing("new") }, t("newConn")),
+					{ className: "dbt-row", style: { justifyContent: "space-between" } },
 					React.createElement("button", { className: "dbt-btn", onClick: loadAudit }, t("auditTitle", { n: 50 }).split("（")[0].split(" (")[0]),
+					React.createElement("button", { className: "dbt-btn primary", onClick: () => setEditing("new") }, t("newConn")),
 				),
 				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) : null,
 				conns.map((c) =>
 					React.createElement(
 						"div",
 						{ className: "dbt-card", key: c.id },
+						// 行 1：kind 徽标 pill（surface 底 / 6px 圆角 / 等宽 11px）+ 名称 13px semibold
 						React.createElement(
 							"div",
 							{ className: "dbt-row" },
-							React.createElement("strong", null, c.name || c.id),
-							React.createElement("span", { className: "dbt-muted" }, c.kind + (c.safeUrl ? " · " + c.safeUrl : c.host ? " · " + c.host + ":" + (c.port || "") : "")),
+							React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: "11px", lineHeight: 1.45 } }, c.kind),
+							React.createElement("strong", { style: { fontSize: 13, fontWeight: 600 } }, c.name || c.id),
 						),
+						// 行 2：safeUrl 等宽 11px muted（无 url 时回退 host:port）
+						(c.safeUrl || c.host) ? React.createElement(
+							"div",
+							{ className: "dbt-muted", style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 11, wordBreak: "break-all" } },
+							c.safeUrl || (c.host + ":" + (c.port || "")),
+						) : null,
 						testInfo[c.id] ? React.createElement("div", { className: "dbt-muted" }, testInfo[c.id]) : null,
+						// 行 3：次要按钮 + 删除（danger 语义）
 						React.createElement(
 							"div",
 							{ className: "dbt-row" },
@@ -550,11 +582,16 @@ window.__ModuleLoader__.load({
 					return React.createElement(
 						"div",
 						{ className: "dbt-grant", key: c.id },
-						React.createElement("span", { style: { flex: 1 } }, (c.name || c.id) + " "), 
-						React.createElement("span", { className: "dbt-muted" }, c.kind),
+						// 列表行式：名称 13px semibold 主行 + kind muted 副行，右侧 mini segmented
 						React.createElement(
 							"div",
-							{ className: "dbt-seg" },
+							{ style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 } },
+							React.createElement("span", { style: { fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
+							React.createElement("span", { className: "dbt-muted" }, c.kind),
+						),
+						React.createElement(
+							"div",
+							{ className: "dbt-seg", "aria-label": c.name || c.id },
 							["", "ro", "rw"].map((mode) =>
 								React.createElement("button", {
 									key: mode || "none",
@@ -581,6 +618,7 @@ window.__ModuleLoader__.load({
 			const [preview, setPreview] = React.useState(null); // QueryResult
 			const [page, setPage] = React.useState(1);
 			const [busy, setBusy] = React.useState("");
+			const [view, setView] = React.useState("structure"); // structure | preview（纯视图切换，不影响数据加载）
 
 			React.useEffect(() => {
 				if (!connId || !projectPath) { setDatabases([]); return; }
@@ -611,21 +649,7 @@ window.__ModuleLoader__.load({
 			}, [connId, database, projectPath]);
 			React.useEffect(() => { if (table) openTable(table, 1); }, [table]); // eslint-disable-line
 
-			function renderResult(r) {
-				if (!r) return null;
-				return React.createElement(
-					"div",
-					{ className: "dbt-tablewrap" },
-					React.createElement(
-						"table",
-						{ className: "dbt-table" },
-						React.createElement("thead", null, React.createElement("tr", null, (r.columns || []).map((c, i) => React.createElement("th", { key: i }, c)))),
-						React.createElement("tbody", null, (r.rows || []).map((row, i) =>
-							React.createElement("tr", { key: i }, row.map((cell, j) =>
-								React.createElement("td", { key: j, title: cell === null ? "NULL" : String(cell) }, cell === null ? "NULL" : String(cell)))))),
-					),
-				);
-			}
+			function cellTitle(_row, cell) { return cell === null ? "NULL" : String(cell); }
 
 			return React.createElement(
 				"div",
@@ -640,64 +664,56 @@ window.__ModuleLoader__.load({
 						databases.length === 0 ? React.createElement("option", { value: "" }, t("noDatabases")) :
 							databases.map((d) => React.createElement("option", { key: d, value: d }, d))),
 				),
+				// 表选择器：填充式 select（option 文案带 type 标注）
 				tables.length === 0 ? React.createElement("div", { className: "dbt-muted" }, connId ? t("noTables") : "") :
-					React.createElement(
-						"div",
-						{ className: "dbt-tablewrap", style: { maxHeight: 160 } },
-						React.createElement(
-							"table",
-							{ className: "dbt-table" },
-							React.createElement("tbody", null, tables.map((tb) =>
-								React.createElement("tr", { key: tb.name, style: { cursor: "pointer", background: table && table.name === tb.name ? "rgba(59,130,246,.18)" : "transparent" }, onClick: () => setTable(tb) },
-									React.createElement("td", null, tb.name),
-									React.createElement("td", { className: "dbt-muted" }, tb.type || ""),
-								))),
-						),
+					React.createElement("select",
+						{
+							value: table ? table.name : "",
+							disabled: !connId || busy === "open",
+							onChange: (e) => { const tb = tables.find((x) => x.name === e.target.value); if (tb) setTable(tb); },
+						},
+						React.createElement("option", { value: "" }, ""),
+						tables.map((tb) => React.createElement("option", { key: tb.name, value: tb.name }, tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""))),
 					),
 				table
 					? React.createElement(
 						"div",
 						{ style: { display: "flex", flexDirection: "column", gap: 8 } },
-						React.createElement("strong", null, t("structure") + " · " + table.name),
+						// 结构/预览：mini segmented 切换（复用现有 i18n key，不新增）
 						React.createElement(
 							"div",
-							{ className: "dbt-tablewrap", style: { maxHeight: 180 } },
-							React.createElement(
-								"table",
-								{ className: "dbt-table" },
-								React.createElement("thead", null, React.createElement("tr", null,
-									React.createElement("th", null, t("column")),
-									React.createElement("th", null, t("dataType")),
-									React.createElement("th", null, t("nullable")),
-									React.createElement("th", null, t("keyCol")),
-									React.createElement("th", null, t("defaultVal")),
-									React.createElement("th", null, t("comment")))),
-								React.createElement("tbody", null, schema.map((col, i) =>
-									React.createElement("tr", { key: i },
-										React.createElement("td", null, col.name),
-										React.createElement("td", null, col.dataType),
-										React.createElement("td", null, col.nullable ? "YES" : "NO"),
-										React.createElement("td", null, col.key || ""),
-										React.createElement("td", null, col.default === null || col.default === undefined ? "" : String(col.default)),
-										React.createElement("td", null, col.comment || "")))),
+							{ className: "dbt-seg", style: { alignSelf: "flex-start" } },
+							["structure", "preview"].map((v) =>
+								React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) }, v === "structure" ? t("structure") : t("preview"))),
+						),
+						React.createElement("strong", null, (view === "structure" ? t("structure") : t("preview")) + " · " + table.name),
+						view === "structure"
+							? resultTable(
+								[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],
+								schema.map((col) => [col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || ""]),
+								cellTitle,
+							)
+							: React.createElement(
+								React.Fragment,
+								null,
+								preview ? resultTable(preview.columns, preview.rows, cellTitle) : null,
+								React.createElement(
+									"div",
+									{ className: "dbt-row", style: { justifyContent: "space-between" } },
+									React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(table, page - 1) }, "‹ " + t("prevPage")),
+									React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
+									React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(table, page + 1) }, t("nextPage") + " ›"),
+								),
+								preview && preview.truncated ? React.createElement("div", { className: "dbt-muted" }, t("previewTruncated")) : null,
 							),
-						),
-						React.createElement("strong", null, t("preview") + " · " + table.name),
-						preview ? renderResult(preview) : null,
-						React.createElement(
-							"div",
-							{ className: "dbt-row" },
-							React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(table, page - 1) }, "← " + t("prevPage")),
-							React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
-							React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(table, page + 1) }, t("nextPage") + " →"),
-							preview && preview.truncated ? React.createElement("span", { className: "dbt-muted" }, t("previewTruncated")) : null,
-						),
 					)
 					: null,
 			);
 		}
 
 		/* ---------------- SQL 控制台 ---------------- */
+		// Apple 等宽字体栈（规范 §1）：SQL 与参数输入共用
+		const MONO_FONT = "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace";
 		function ConsoleView(props) {
 			const { conns, projectPath, askConfirm } = props;
 			const [connId, setConnId] = React.useState("");
@@ -748,26 +764,16 @@ window.__ModuleLoader__.load({
 				}
 				const r = result.data;
 				return React.createElement(
-					"div",
-					{ style: { display: "flex", flexDirection: "column", gap: 4 } },
+					React.Fragment,
+					null,
 					React.createElement("span", { className: "dbt-muted" }, t("rowsResult", { n: r.rowCount }) + (r.truncated ? " · " + t("previewTruncated") : "")),
-					React.createElement(
-						"div",
-						{ className: "dbt-tablewrap" },
-						React.createElement(
-							"table",
-							{ className: "dbt-table" },
-							React.createElement("thead", null, React.createElement("tr", null, (r.columns || []).map((c, i) => React.createElement("th", { key: i }, c)))),
-							React.createElement("tbody", null, (r.rows || []).map((row, i) =>
-								React.createElement("tr", { key: i }, row.map((cell, j) =>
-									React.createElement("td", { key: j, title: cell === null ? "NULL" : String(cell) }, cell === null ? "NULL" : String(cell)))))),
-						),
-					),
+					// 公共 resultTable：新 table 契约（hairline 行/sticky 表头/等宽数据列）由样式层承担
+					resultTable(r.columns || [], r.rows || []),
 				);
 			}
 			return React.createElement(
 				"div",
-				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
+				{ className: "dbt-card" },
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
@@ -779,13 +785,14 @@ window.__ModuleLoader__.load({
 						React.createElement("option", { value: "execute" }, t("modeExecute")),
 						React.createElement("option", { value: "script" }, t("modeScript"))),
 				),
+				// SQL 输入：等宽字体 + 填充式输入（背景/focus ring 由样式层承担），min-height 加大
 				React.createElement("textarea", {
 					placeholder: mode === "script" ? t("scriptPlaceholder") : t("sqlPlaceholder"),
 					value: sql, onChange: (e) => setSql(e.target.value),
-					style: mode === "script" ? { minHeight: 120 } : undefined,
+					style: { fontFamily: MONO_FONT, minHeight: mode === "script" ? 160 : 96 },
 				}),
 				mode !== "script"
-					? React.createElement("input", { placeholder: t("paramsJson"), value: params, onChange: (e) => setParams(e.target.value), style: { fontFamily: "ui-monospace,Menlo,Consolas,monospace" } })
+					? React.createElement("input", { placeholder: t("paramsJson"), value: params, onChange: (e) => setParams(e.target.value), style: { fontFamily: MONO_FONT } })
 					: null,
 				React.createElement(
 					"div",
@@ -848,14 +855,27 @@ window.__ModuleLoader__.load({
 						React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) }, label)),
 				),
 				(projectEdited || !projectPath)
-					? React.createElement("input", {
-						className: "dbt-card", style: { padding: "4px 6px" },
-						placeholder: t("projectPathPlaceholder"), value: projectPath,
-						onChange: (e) => setProjectPath(e.target.value), onBlur: () => setProjectEdited(false),
-					})
+					? React.createElement(
+						"div",
+						{ className: "dbt-row" },
+						// 填充式输入：裸 input 命中样式层 .dbt-row input 契约（去掉旧 dbt-card + 内联 padding hack）
+						React.createElement("input", {
+							placeholder: t("projectPathPlaceholder"), value: projectPath,
+							onChange: (e) => setProjectPath(e.target.value), onBlur: () => setProjectEdited(false),
+						}),
+					)
 					: React.createElement("div", { className: "dbt-row" },
 						React.createElement("span", { className: "dbt-muted" }, t("projectLabel", { path: projectPath })),
-						React.createElement("button", { className: "dbt-btn", onClick: () => setProjectEdited(true) }, "✎")),
+						// 编辑图标：极简铅笔 SVG（验收要求无 emoji；svg aria-hidden，按钮 aria-label 提供语义）
+						React.createElement("button", {
+							className: "dbt-btn", onClick: () => setProjectEdited(true), "aria-label": "edit",
+						},
+							React.createElement("svg", { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": "true" },
+								React.createElement("path", {
+									d: "M8.6 1.4 L10.6 3.4 L4.2 9.8 L1.6 10.4 L2.2 7.8 Z",
+									stroke: "currentColor", strokeWidth: 1.2, strokeLinejoin: "round",
+								})),
+						)),
 				error ? React.createElement("div", { className: "dbt-err" }, t("error") + ": " + error) : null,
 				message ? React.createElement("div", { className: "dbt-msg" }, message) : null,
 				view === "manage" ? React.createElement(ManageView, shared) : null,
