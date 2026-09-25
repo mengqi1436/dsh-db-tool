@@ -149,4 +149,7 @@ export function apply(ctx: DshContext): void {
   log.info?.('[db-tool] 插件已加载（DatabaseManager 工具 + /dsh-db-tool/api 挂载）');
 }
 
-export default apply;
+// 注意：不要提供 default export。
+// cordis-plugin-loader 的 unwrapExports() 会优先取 exports.default，
+// 裸函数形态会丢失 named export 的 inject 声明，导致
+// "cannot get property "webServer" without inject" 且插件无法激活。
