@@ -52,4 +52,24 @@ describe('normalizeProjectKey', () => {
       expect(normalizeProjectKey('../sibling')).not.toBe(normalizeProjectKey('/tmp/proj'));
     }
   });
+
+  it('盘符根目录去尾：C:\\ → c:（尾分隔符必须移除）', () => {
+    if (process.platform !== 'win32') return;
+    expect(normalizeProjectKey('C:\\')).toBe('c:');
+  });
+
+  it('POSIX 根目录长度为 1，不得去尾', () => {
+    if (process.platform === 'win32') return;
+    expect(normalizeProjectKey('/')).toBe('/');
+  });
+
+  it('win32 设备路径前缀（\\\\?\\）内的盘符不误转小写', () => {
+    if (process.platform !== 'win32') return;
+    expect(normalizeProjectKey('\\\\?\\C:\\x')).toBe('//?/C:/x');
+  });
+
+  it('仅路径开头的盘符冒号转小写；中部大写冒号段（POSIX）不受影响', () => {
+    if (process.platform === 'win32') return;
+    expect(normalizeProjectKey('c:/x/D:y')).toBe('c:/x/D:y');
+  });
 });

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readJson, writeJsonAtomic } from '../../lib/store/io.js';
+import { chmodBestEffort, readJson, writeJsonAtomic } from '../../lib/store/io.js';
 import { DbToolStore } from '../../lib/store/index.js';
 import { cleanupDir, makeTempHome, readStoreFile } from './helpers.js';
 
@@ -74,5 +74,30 @@ describe('io：原子写与损坏容错', () => {
     if (process.platform === 'win32') return;
     const mode = fs.statSync(path.join(home, 'db-tool')).mode & 0o777;
     expect(mode).toBe(0o700);
+  });
+
+  it('writeJsonAtomic 的 fileMode 生效：0o444 只读落盘；缺省不得收紧权限', () => {
+    const ro = path.join(home, 'ro.json');
+    writeJsonAtomic(ro, { v: 1 }, 0o444);
+    expect(fs.statSync(ro).mode & 0o222).toBe(0); // 跨平台：写位全清
+
+    // 权限是真实生效的：恢复后可覆盖重写
+    fs.chmodSync(ro, 0o666);
+    writeJsonAtomic(ro, { v: 2 });
+    expect(JSON.parse(fs.readFileSync(ro, 'utf8'))).toEqual({ v: 2 });
+
+    const rw = path.join(home, 'rw.json');
+    writeJsonAtomic(rw, { v: 1 }); // 未指定 fileMode：保持可写
+    expect((fs.statSync(rw).mode & 0o200) !== 0).toBe(true);
+  });
+
+  it('chmodBestEffort：设置/恢复权限，目标不存在时静默', () => {
+    const file = path.join(home, 'mode.json');
+    fs.writeFileSync(file, '{}', 'utf8');
+    chmodBestEffort(file, 0o444);
+    expect(fs.statSync(file).mode & 0o222).toBe(0);
+    chmodBestEffort(file, 0o666);
+    expect((fs.statSync(file).mode & 0o200) !== 0).toBe(true);
+    expect(() => chmodBestEffort(path.join(home, 'nope.json'), 0o600)).not.toThrow();
   });
 });

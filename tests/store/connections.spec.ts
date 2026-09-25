@@ -120,4 +120,13 @@ describe('ConnectionStore', () => {
     expect(redactUrl('mysql://user@h/db')).toBe('mysql://user@h/db'); // 有用户无密码
     expect(redactUrl('sqlite:///data/app.db')).toBe('sqlite:///data/app.db'); // 非 URL 凭证形态
   });
+
+  it('redactUrl 边界：密码含 @ 或 ?、主机端口、非 URL 文本', () => {
+    expect(redactUrl('mysql://u:p@ss@h/db')).toBe('mysql://u:***@h/db'); // 以最后一个 @ 为界，整个 userinfo 段脱敏
+    expect(redactUrl('mysql://u:p?x@h/db')).toBe('mysql://u:p?x@h/db'); // 密码含 ?：凭证段在 ? 截断，@ 不在段内 → 原样
+    expect(redactUrl('mysql://u:pa/ss@h/db')).toBe('mysql://u:pa/ss@h/db'); // 密码含 /：定位不到凭证段，原样返回
+    expect(redactUrl('mysql://h:3306/db')).toBe('mysql://h:3306/db'); // 主机:端口不误脱敏
+    expect(redactUrl('see mysql://u:pw@h/db please')).toBe('see mysql://u:pw@h/db please'); // 仅识别开头的 URL
+    expect(redactUrl('random text no url')).toBe('random text no url'); // 非 URL 原样返回不抛错
+  });
 });

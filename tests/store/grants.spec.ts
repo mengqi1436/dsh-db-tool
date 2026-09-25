@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { normalizeProjectKey } from '../../lib/store/normalize.js';
 import { DbToolStore } from '../../lib/store/index.js';
@@ -51,5 +53,39 @@ describe('GrantStore', () => {
 
   it('grantsFor 未授权项目返回空数组', () => {
     expect(store.grants.grantsFor(p1)).toEqual([]);
+  });
+
+  it('无变化操作不落盘：revoke 未命中 / removeConn 未命中时文件字节保持原样', () => {
+    const file = path.join(home, 'db-tool', 'grants.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const raw = '{"grants":{"k1":[],"k2":[{"connId":"a","mode":"ro","grantedAt":"T"}]}}';
+    fs.writeFileSync(file, raw, 'utf8');
+    store = new DbToolStore(home);
+
+    store.grants.revoke('k2', 'ghost'); // 长度未变 → 不得重写（含空数组键 k1 不得被清理）
+    store.grants.removeConn('ghost'); // 全键未变 → 不得重写
+    expect(fs.readFileSync(file, 'utf8')).toBe(raw);
+
+    // 真正删除：k2 整键删除，空数组键 k1 原样保留
+    store.grants.removeConn('a');
+    const after = JSON.parse(fs.readFileSync(file, 'utf8')) as { grants: Record<string, unknown> };
+    expect(Object.keys(after.grants).sort()).toEqual(['k1']);
+    expect(after.grants.k1).toEqual([]);
+  });
+
+  it('revoke 清空最后一项时整键从 grants.json 删除', () => {
+    store.grants.grant('rkey', 'only', 'ro');
+    store.grants.revoke('rkey', 'only');
+    expect(store.grants.grantsFor('rkey')).toEqual([]);
+    const data = JSON.parse(fs.readFileSync(path.join(home, 'db-tool', 'grants.json'), 'utf8')) as {
+      grants: Record<string, unknown>;
+    };
+    expect('rkey' in data.grants).toBe(false); // 空列表键必须删掉，而非残留 [] 永久占位
+  });
+
+  it('空库 removeConn 未命中时不产生 grants.json', () => {
+    expect(fs.existsSync(path.join(home, 'db-tool', 'grants.json'))).toBe(false);
+    store.grants.removeConn('nobody');
+    expect(fs.existsSync(path.join(home, 'db-tool', 'grants.json'))).toBe(false);
   });
 });
