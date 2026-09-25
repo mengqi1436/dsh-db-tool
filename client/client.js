@@ -281,8 +281,8 @@ window.__ModuleLoader__.load({
 				".dbt-card{background:var(--dbt-surface);border:none;border-radius:var(--dbt-radius-card);padding:12px;display:flex;flex-direction:column;gap:10px;}",
 				".dbt-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}",
 				"/* ===== 填充式无边框输入 ===== */",
-				".dbt-row input,.dbt-row select,.dbt-card input,.dbt-card select,.dbt-card textarea{flex:1;min-width:60px;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:6px 10px;font-size:13px;font-family:inherit;transition:all .18s var(--dbt-ease);}",
-				".dbt-row input:focus,.dbt-row select:focus,.dbt-card input:focus,.dbt-card select:focus,.dbt-card textarea:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
+				".dbt-row input,.dbt-row select,.dbt-card input,.dbt-card select,.dbt-card textarea,.dbt-group input,.dbt-group select{flex:1;min-width:60px;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:6px 10px;font-size:13px;font-family:inherit;transition:all .18s var(--dbt-ease);}",
+				".dbt-row input:focus,.dbt-row select:focus,.dbt-card input:focus,.dbt-card select:focus,.dbt-card textarea:focus,.dbt-group input:focus,.dbt-group select:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
 				".dbt-card textarea{font-family:var(--dbt-mono);min-height:96px;resize:vertical;}",
 				"/* ===== 按钮 ===== */",
 				".dbt-btn{border:none;background:var(--dbt-surface);color:inherit;border-radius:var(--dbt-radius-ctrl);padding:5px 12px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .18s var(--dbt-ease);}",
@@ -308,12 +308,19 @@ window.__ModuleLoader__.load({
 				".dbt-dialog{background:var(--dbt-dialog-bg);color:inherit;border:1px solid var(--dbt-separator);border-radius:14px;padding:16px;max-width:460px;width:90%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;font-size:13px;-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);box-shadow:var(--dbt-shadow);}",
 				".dbt-dialog pre{background:var(--dbt-surface-strong);border-radius:var(--dbt-radius-pill);padding:8px;font-family:var(--dbt-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto;}",
 				".dbt-dialog .dbt-row{justify-content:flex-end;}",
-				"/* ===== 授权列表行（实 hairline） ===== */",
-				".dbt-grant{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--dbt-separator);}",
+				"/* ===== 授权/连接列表：inset grouped（一张卡多行 hairline） ===== */",
+				".dbt-group{background:var(--dbt-surface);border-radius:var(--dbt-radius-card);overflow:hidden;display:flex;flex-direction:column;}",
+				".dbt-listrow{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--dbt-separator);transition:background .18s var(--dbt-ease);}",
+				".dbt-listrow:last-child{border-bottom:none;}",
+				".dbt-listrow:hover{background:var(--dbt-surface-strong);}",
+				"/* ===== 视图切换入场（仅 transform/opacity；reduced-motion 全局已禁） ===== */",
+				"@keyframes dbt-in{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}",
+				".dbt-view{display:flex;flex-direction:column;gap:10px;animation:dbt-in .22s var(--dbt-ease);}",
 				"/* ===== mini segmented（ro/rw 等切换） ===== */",
 				".dbt-seg{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;}",
 				".dbt-seg button{flex:none;border:none;background:transparent;color:inherit;font-size:11px;padding:3px 10px;border-radius:var(--dbt-radius-pill);cursor:pointer;transition:all .18s var(--dbt-ease);}",
 				".dbt-seg button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
+				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
 				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
 				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog{backdrop-filter:none;-webkit-backdrop-filter:none;background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}}",
 				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog{background:#f5f5f7;}.dbt-table th{background:#f2f2f7;}}",
@@ -579,35 +586,43 @@ window.__ModuleLoader__.load({
 					React.createElement("button", { className: "dbt-btn", onClick: loadAudit }, t("auditTitle", { n: 50 }).split("（")[0].split(" (")[0]),
 					React.createElement("button", { className: "dbt-btn primary", onClick: () => setEditing("new") }, t("newConn")),
 				),
-				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) : null,
-				conns.map((c) =>
+				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
+					// iOS inset grouped：一张卡装全部连接，行间 hairline 分隔
 					React.createElement(
 						"div",
-						{ className: "dbt-card", key: c.id },
-						// 行 1：kind 徽标 pill（surface 底 / 6px 圆角 / 等宽 11px）+ 名称 13px semibold
-						React.createElement(
-							"div",
-							{ className: "dbt-row" },
-							React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: "11px", lineHeight: 1.45 } }, c.kind),
-							React.createElement("strong", { style: { fontSize: 13, fontWeight: 600 } }, c.name || c.id),
-						),
-						// 行 2：safeUrl 等宽 11px muted（无 url 时回退 host:port）
-						(c.safeUrl || c.host) ? React.createElement(
-							"div",
-							{ className: "dbt-muted", style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 11, wordBreak: "break-all" } },
-							c.safeUrl || (c.host + ":" + (c.port || "")),
-						) : null,
-						testInfo[c.id] ? React.createElement("div", { className: "dbt-muted" }, testInfo[c.id]) : null,
-						// 行 3：次要按钮 + 删除（danger 语义）
-						React.createElement(
-							"div",
-							{ className: "dbt-row" },
-							React.createElement("button", { className: "dbt-btn", disabled: busy === "test", onClick: () => testConn(c.id) }, t("test")),
-							React.createElement("button", { className: "dbt-btn", onClick: () => setEditing(c) }, t("edit")),
-							React.createElement("button", { className: "dbt-btn danger", disabled: busy === "del", onClick: () => delConn(c) }, t("delete")),
+						{ className: "dbt-group" },
+						conns.map((c) =>
+							React.createElement(
+								"div",
+								{ className: "dbt-listrow", key: c.id },
+								// 左列：kind 徽标 pill + 名称主行，safeUrl 等宽副行
+								React.createElement(
+									"div",
+									{ style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 } },
+									React.createElement(
+										"div",
+										{ className: "dbt-row" },
+										React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: "11px", lineHeight: 1.45 } }, c.kind),
+										React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
+									),
+									(c.safeUrl || c.host) ? React.createElement(
+										"div",
+										{ className: "dbt-muted", style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 11, wordBreak: "break-all" } },
+										c.safeUrl || (c.host + ":" + (c.port || "")),
+									) : null,
+									testInfo[c.id] ? React.createElement("div", { className: "dbt-muted" }, testInfo[c.id]) : null,
+								),
+								// 右列：动作按钮（次要语义，danger 仅删除）
+								React.createElement(
+									"div",
+									{ className: "dbt-row", style: { flex: "none" } },
+									React.createElement("button", { className: "dbt-btn", disabled: busy === "test", onClick: () => testConn(c.id) }, t("test")),
+									React.createElement("button", { className: "dbt-btn", onClick: () => setEditing(c) }, t("edit")),
+									React.createElement("button", { className: "dbt-btn danger", disabled: busy === "del", onClick: () => delConn(c) }, t("delete")),
+								),
+							),
 						),
 					),
-				),
 				auditOpen
 					? React.createElement(
 						"div",
@@ -639,33 +654,38 @@ window.__ModuleLoader__.load({
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
 				React.createElement("div", { className: "dbt-muted" }, t("grantsHint")),
-				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) : null,
-				conns.map((c) => {
-					const m = modeOf(c.id);
-					return React.createElement(
+				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
+					// iOS inset grouped：授权行装一张卡，行间 hairline（授权链路：seg 点击 → PUT/DELETE /grants）
+					React.createElement(
 						"div",
-						{ className: "dbt-grant", key: c.id },
-						// 列表行式：名称 13px semibold 主行 + kind muted 副行，右侧 mini segmented
-						React.createElement(
-							"div",
-							{ style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 } },
-							React.createElement("span", { style: { fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
-							React.createElement("span", { className: "dbt-muted" }, c.kind),
-						),
-						React.createElement(
-							"div",
-							{ className: "dbt-seg", "aria-label": c.name || c.id },
-							["", "ro", "rw"].map((mode) =>
-								React.createElement("button", {
-									key: mode || "none",
-									className: mode === m ? "active" : "",
-									disabled: props.busy === "grant",
-									onClick: () => setGrant(c.id, mode),
-								}, mode === "" ? t("modeNone") : mode === "ro" ? t("modeRo") : t("modeRw")),
-							),
-						),
-					);
-				}),
+						{ className: "dbt-group" },
+						conns.map((c) => {
+							const m = modeOf(c.id);
+							return React.createElement(
+								"div",
+								{ className: "dbt-listrow", key: c.id },
+								// 列表行式：名称 13px semibold 主行 + kind muted 副行，右侧 mini segmented
+								React.createElement(
+									"div",
+									{ style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 } },
+									React.createElement("span", { style: { fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
+									React.createElement("span", { className: "dbt-muted" }, c.kind),
+								),
+								React.createElement(
+									"div",
+									{ className: "dbt-seg", "aria-label": c.name || c.id },
+									["", "ro", "rw"].map((mode) =>
+										React.createElement("button", {
+											key: mode || "none",
+											className: mode === m ? "active" : "",
+											disabled: props.busy === "grant",
+											onClick: () => setGrant(c.id, mode),
+										}, mode === "" ? t("modeNone") : mode === "ro" ? t("modeRo") : t("modeRw")),
+									),
+								),
+							);
+						}),
+					),
 			);
 		}
 
@@ -717,15 +737,24 @@ window.__ModuleLoader__.load({
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
+				// 选择器：inset grouped 每行一个控件（连接 / 数据库）
 				React.createElement(
 					"div",
-					{ className: "dbt-row" },
-					React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
-						React.createElement("option", { value: "" }, t("viewManage") + "…"),
-						conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
-					React.createElement("select", { value: database, disabled: !connId, onChange: (e) => setDatabase(e.target.value) },
-						databases.length === 0 ? React.createElement("option", { value: "" }, t("noDatabases")) :
-							databases.map((d) => React.createElement("option", { key: d, value: d }, d))),
+					{ className: "dbt-group" },
+					React.createElement(
+						"div",
+						{ className: "dbt-listrow" },
+						React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
+							React.createElement("option", { value: "" }, t("viewManage") + "…"),
+							conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
+					),
+					React.createElement(
+						"div",
+						{ className: "dbt-listrow" },
+						React.createElement("select", { value: database, disabled: !connId, onChange: (e) => setDatabase(e.target.value) },
+							databases.length === 0 ? React.createElement("option", { value: "" }, t("noDatabases")) :
+								databases.map((d) => React.createElement("option", { key: d, value: d }, d))),
+					),
 				),
 				// 表选择器：填充式 select（option 文案带 type 标注）
 				tables.length === 0 ? React.createElement("div", { className: "dbt-muted" }, connId ? t("noTables") : "") :
@@ -837,16 +866,25 @@ window.__ModuleLoader__.load({
 			return React.createElement(
 				"div",
 				{ className: "dbt-card" },
+				// 选择器：inset grouped 每行一个控件（连接 / 模式）
 				React.createElement(
 					"div",
-					{ className: "dbt-row" },
-					React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
-						React.createElement("option", { value: "" }, t("viewManage") + "…"),
-						conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
-					React.createElement("select", { value: mode, onChange: (e) => setMode(e.target.value) },
-						React.createElement("option", { value: "query" }, t("modeQuery")),
-						React.createElement("option", { value: "execute" }, t("modeExecute")),
-						React.createElement("option", { value: "script" }, t("modeScript"))),
+					{ className: "dbt-group" },
+					React.createElement(
+						"div",
+						{ className: "dbt-listrow" },
+						React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
+							React.createElement("option", { value: "" }, t("viewManage") + "…"),
+							conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
+					),
+					React.createElement(
+						"div",
+						{ className: "dbt-listrow" },
+						React.createElement("select", { value: mode, onChange: (e) => setMode(e.target.value) },
+							React.createElement("option", { value: "query" }, t("modeQuery")),
+							React.createElement("option", { value: "execute" }, t("modeExecute")),
+							React.createElement("option", { value: "script" }, t("modeScript"))),
+					),
 				),
 				// SQL 输入：等宽字体 + 填充式输入（背景/focus ring 由样式层承担），min-height 加大
 				React.createElement("textarea", {
@@ -963,10 +1001,13 @@ window.__ModuleLoader__.load({
 						)),
 				error ? React.createElement("div", { className: "dbt-err" }, t("error") + ": " + error) : null,
 				message ? React.createElement("div", { className: "dbt-msg" }, message) : null,
-				view === "manage" ? React.createElement(ManageView, shared) : null,
-				view === "grants" ? React.createElement(GrantsView, shared) : null,
-				view === "browse" ? React.createElement(BrowseView, shared) : null,
-				view === "console" ? React.createElement(ConsoleView, Object.assign({}, shared, { askConfirm })) : null,
+				// 视图切换：key=view 触发 dbt-in 进入动画（opacity + 4px 上移，.22s）
+				React.createElement("div", { className: "dbt-view", key: view },
+					view === "manage" ? React.createElement(ManageView, shared) : null,
+					view === "grants" ? React.createElement(GrantsView, shared) : null,
+					view === "browse" ? React.createElement(BrowseView, shared) : null,
+					view === "console" ? React.createElement(ConsoleView, Object.assign({}, shared, { askConfirm })) : null,
+				),
 				React.createElement("div", { className: "dbt-muted" }, t("footerHint")),
 				confirmReq ? React.createElement(DangerDialog, { challenge: confirmReq, onClose: () => setConfirmReq(null) }) : null,
 			);
