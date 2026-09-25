@@ -872,8 +872,7 @@ window.__ModuleLoader__.load({
 			const scope = props.scope || {};
 			const [view, setView] = React.useState("manage");
 			const [projectPath, setProjectPath] = React.useState(scope.cwd || scope.workspacePath || "");
-			const [projectEdited, setProjectEdited] = React.useState(!(scope.cwd || scope.workspacePath));
-			const [conns, setConns] = React.useState([]);
+			const [projectEdited, setProjectEdited] = React.useState(!(scope.cwd || scope.workspacePath));			const [conns, setConns] = React.useState([]);
 			const [grants, setGrants] = React.useState([]);
 			const [busy, setBusy] = React.useState("");
 			const [error, setError] = React.useState("");
@@ -883,6 +882,24 @@ window.__ModuleLoader__.load({
 			const askConfirm = React.useCallback((info) => new Promise((resolve) => {
 				setConfirmReq(Object.assign({}, info, { resolve }));
 			}), []);
+
+			// 项目路径权威解析（对齐 dsh-ssh-tunnel getProjectContext）：
+			// host 端以会话 header.cwd 为准归一化出 projectPathKey，前端不自拼 key。
+			// scope.cwd/sessionId 变化（切换会话）时自动重新解析；用户手填（projectEdited）时不覆盖。
+			const sessionKey = scope.sessionId || "";
+			const scopeCwd = scope.cwd || scope.workspacePath || "";
+			const resolvedRef = React.useRef("");
+			React.useEffect(() => {
+				if (!visible || projectEdited) return;
+				api("project-context", { method: "POST", body: { sessionId: sessionKey, cwd: scopeCwd } })
+					.then((r) => {
+						if (r && r.hasProject && r.projectPathKey) {
+							resolvedRef.current = r.projectPathKey;
+							setProjectPath(r.projectPathKey);
+						}
+					})
+					.catch(() => { /* 解析失败保留现值，仍可手填 */ });
+			}, [visible, sessionKey, scopeCwd, projectEdited]);
 
 			const reload = React.useCallback(async () => {
 				const [c, g] = await Promise.all([
@@ -924,7 +941,12 @@ window.__ModuleLoader__.load({
 						// 填充式输入：裸 input 命中样式层 .dbt-row input 契约（去掉旧 dbt-card + 内联 padding hack）
 						React.createElement("input", {
 							placeholder: t("projectPathPlaceholder"), value: projectPath,
-							onChange: (e) => setProjectPath(e.target.value), onBlur: () => setProjectEdited(false),
+							onChange: (e) => setProjectPath(e.target.value),
+							// 失焦时：输入与权威解析一致才收回自动跟随；用户填了自己的路径则保持手填态（不被权威值打回）
+							onBlur: (e) => {
+								const v = (e.target.value || "").trim();
+								if (!v || v === resolvedRef.current) setProjectEdited(false);
+							},
 						}),
 					)
 					: React.createElement("div", { className: "dbt-row" },

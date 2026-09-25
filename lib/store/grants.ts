@@ -28,7 +28,8 @@ export class GrantStore {
   }
 
   private save(data: GrantsFile): void {
-    writeJsonAtomic(this.file, data);
+    // 0600 对齐 dsh-ssh-tunnel：授权关系本身也是敏感面（泄露项目↔库映射）
+    writeJsonAtomic(this.file, data, 0o600);
   }
 
   /** 某项目的全部授权（不含 grantedAt，展示层无需时间戳） */

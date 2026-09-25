@@ -26,6 +26,16 @@ describe('GrantStore', () => {
     expect(store.grants.check(p2, 'conn-a')).toBeUndefined(); // 其它项目不受影响
   });
 
+  it('grants.json 以 0600 落盘（对齐 dsh-ssh-tunnel；Windows chmod 仅只读位，仅 posix 断言）', () => {
+    store.grants.grant(p1, 'conn-a', 'ro');
+    const file = path.join(home, 'db-tool', 'grants.json');
+    expect(fs.existsSync(file)).toBe(true);
+    if (process.platform !== 'win32') {
+      // eslint-disable-next-line no-bitwise
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    }
+  });
+
   it('同连接重复授权更新模式（ro → rw）', () => {
     store.grants.grant(p1, 'conn-a', 'ro');
     store.grants.grant(p1, 'conn-a', 'rw');

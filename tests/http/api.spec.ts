@@ -131,6 +131,7 @@ async function callHandler(
   headers: Record<string, string>,
   body?: unknown,
   trustedHosts?: string[],
+  resolveProject?: (sessionId: string, fallbackCwd: string) => { projectPathKey: string; hasProject: boolean },
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const { fx } = await ensureStarted();
   const res = new MockRes();
@@ -138,7 +139,7 @@ async function callHandler(
     mockReq(method, url, headers, body),
     res as unknown as ServerResponse,
     fx.service,
-    { trustedHosts },
+    { ...(trustedHosts ? { trustedHosts } : {}), ...(resolveProject ? { resolveProject } : {}) },
   );
   return { status: res.statusCode, body: JSON.parse(res.body || '{}') as Record<string, unknown> };
 }
@@ -184,6 +185,25 @@ describe('handleDbToolRequest 直调（prefix 挂载形态 + trust）', () => {
     expect(isTrustedRequest(req('localhost:3080'))).toBe(true);
     expect(isTrustedRequest(req())).toBe(false);
     expect(isTrustedRequest(req('127.0.0.1', 'http://[::1]:9'))).toBe(false);
+  });
+
+  it('POST /api/project-context：resolveProject 权威解析（sessionId 优先语义由 host 端保证）', async () => {
+    const r = await callHandler('POST', '/api/project-context', { host: '127.0.0.1:3080' },
+      { sessionId: 's1', cwd: 'E:\\Code\\my-app' }, undefined,
+      (sid, fb) => {
+        expect(sid).toBe('s1');
+        // host 端模拟「会话命中」，返回归一化 key
+        return sid ? { projectPathKey: 'e:/code/real-session', hasProject: true } : { projectPathKey: fb, hasProject: !!fb };
+      });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ sessionId: 's1', projectPathKey: 'e:/code/real-session', hasProject: true });
+  });
+
+  it('POST /api/project-context：未提供 resolveProject → 回退 service.projectKey 归一化', async () => {
+    const r = await callHandler('POST', '/api/project-context', { host: '127.0.0.1:3080' },
+      { cwd: 'E:\\Code\\My-App\\' });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ projectPathKey: 'e:/Code/My-App', hasProject: true });
   });
 
   it('POST body 直打：query 路由经 handler 正常返回', async () => {

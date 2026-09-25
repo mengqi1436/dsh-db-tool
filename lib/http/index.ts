@@ -78,6 +78,13 @@ export function isTrustedRequest(req: Pick<IncomingMessage, 'headers'>, trustedH
 export interface DbToolRequestOptions {
   /** 受信主机列表（通常来自 ctx.webRuntime.trustedHosts） */
   trustedHosts?: string[];
+  /**
+   * 项目上下文权威解析（对齐 dsh-ssh-tunnel 的 getProjectContext）：
+   * host 端以会话 header.cwd 为准（sessionId 优先，客户端 cwd 仅回退），
+   * 并做 normalizeProjectKey 归一化——前端不自行拼 key，避免授权与
+   * 模型工具两端的项目键错位。
+   */
+  resolveProject?: (sessionId: string, fallbackCwd: string) => { projectPathKey: string; hasProject: boolean };
 }
 
 /**
@@ -121,7 +128,7 @@ export async function handleDbToolRequest(
     const path = rawPath.replace(/\/+$/, '') || '/';
     const q = url.searchParams;
 
-    await route(req, res, service, path, q);
+    await route(req, res, service, path, q, opts);
   } catch (e) {
     sendError(res, e);
   }
@@ -133,7 +140,21 @@ async function route(
   service: DbToolService,
   path: string,
   q: URLSearchParams,
+  opts?: DbToolRequestOptions,
 ): Promise<void> {
+  // 项目上下文权威解析：host 端会话 header.cwd 优先（对齐 ssh-tunnel getProjectContext 语义）
+  if (path === '/api/project-context' && req.method === 'POST') {
+    const b = await readBody(req);
+    const sessionId = str(b['sessionId'] ?? b['session_id']);
+    const fallbackCwd = str(b['cwd'] ?? b['projectPath'] ?? '');
+    if (!opts?.resolveProject) {
+      // 未提供解析器（如独立测试挂载）：仅归一化回退值
+      const key = fallbackCwd ? service.projectKey(fallbackCwd) : '';
+      return sendOk(res, { sessionId, projectPathKey: key, hasProject: key !== '' });
+    }
+    return sendOk(res, { sessionId, ...opts.resolveProject(sessionId, fallbackCwd) });
+  }
+
   if (path === '/api/connections') {
     if (req.method === 'GET') return sendOk(res, service.listConnections());
     if (req.method === 'POST') {

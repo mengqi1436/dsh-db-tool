@@ -92,7 +92,20 @@ export function apply(ctx: DshContext): void {
             req as import('node:http').IncomingMessage,
             res as import('node:http').ServerResponse,
             service,
-            { trustedHosts: trustedHosts() },
+            {
+              trustedHosts: trustedHosts(),
+              // 项目上下文权威解析：会话 header.cwd 优先，回退前端 cwd（对齐 ssh-tunnel getProjectContext）
+              resolveProject: (sessionId, fallbackCwd) => {
+                let cwd = '';
+                try {
+                  cwd = sessionId !== '' ? ctx.sessions?.get?.(sessionId)?.header?.cwd ?? '' : '';
+                } catch {
+                  // 会话不可得时用前端回退值
+                }
+                const key = service.projectKey(cwd || fallbackCwd || '');
+                return { projectPathKey: key, hasProject: key !== '' };
+              },
+            },
           );
         },
       }) ?? (() => {}),

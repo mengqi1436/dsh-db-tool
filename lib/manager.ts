@@ -164,6 +164,11 @@ export class DbToolService {
 
   /* -- 授权管理 -- */
 
+  /** 项目路径归一化（/api/project-context 无会话解析器时的回退路径） */
+  projectKey(projectPath: string): string {
+    return normalizeProjectKey(projectPath);
+  }
+
   grantsFor(projectPath: string): { connId: string; mode: 'ro' | 'rw' }[] {
     return this.store.grants.grantsFor(normalizeProjectKey(projectPath));
   }
