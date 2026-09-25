@@ -44,21 +44,11 @@ describe('classifyStatement: SQL 系', () => {
 });
 
 describe('sqlHead 白盒：注释剥离与首词提取', () => {
-  it('跨行块注释完整剥离后取首词', () => {
-    expect(sqlHead('/* multi\nline */ SELECT 1')).toBe('select');
-  });
-
-  it('块注释替换为空格而非空串（防注释两侧粘连成新标识符）', () => {
-    // 若替换为 ''，'sele' 与 'ct' 会粘连成 'select'，首词语义改变
-    expect(sqlHead('sele/*x*/ct')).toBe('sele');
-  });
-
-  it('行注释剥离后取首词（注释吃到行尾）', () => {
-    expect(sqlHead('SET--update a=1')).toBe('set');
+  it('注释剥离行为：跨行块注释、防粘连、行注释吃满、空输入', () => {
+    expect(sqlHead('/* multi\nline */ SELECT 1')).toBe('select'); // 跨行块注释完整剥离
+    expect(sqlHead('sele/*x*/ct')).toBe('sele'); // 剥离替换为空格，'sele'/'ct' 不粘连成 'select'
+    expect(sqlHead('SET--update a=1')).toBe('set'); // -- 注释吃到行尾
     expect(sqlHead('SET#update a=1')).toBe('set');
-  });
-
-  it('空串与无法提取时返回空串', () => {
     expect(sqlHead('')).toBe('');
     expect(sqlHead('/* 只有注释 */')).toBe('');
     expect(sqlHead('123 numbers')).toBe('');
@@ -71,21 +61,20 @@ describe('classifyStatement: SQL 注释剥离', () => {
     expect(classifyStatement('mysql', 'SELECT/*x*/1', 'query').level).toBe('none');
   });
 
-  it('【现行为：注释内写词误触发语句体扫描（body 正则作用于原始语句）】', () => {
-    // 已知问题：SQL_WRITE_BODY_RE 检测的是未剥注释的原始语句，
-    // 注释中的写词也会命中 → 无害读语句被误判 danger（fail-closed 误报）
+  it('注释内写词不触发语句体扫描（body 基于剥注释文本，消除误报）', () => {
     const v = classifyStatement('mysql', 'SELECT /* DROP TABLE users */ 1', 'query');
-    expect(v.level).toBe('danger');
-    expect(v.reason).toContain('写操作关键字');
-    expect(classifyStatement('mysql', 'SET--update a=1', 'query').level).toBe('danger');
-    expect(classifyStatement('mysql', 'SET#update a=1', 'query').reason).toContain('写操作关键字');
+    expect(v.level).toBe('none');
+    expect(classifyStatement('mysql', 'SELECT 1 /* drop */', 'query').level).toBe('none');
+    // SET 是白名单读头：剥注释后 'SET' 无写词 → none（注释里藏的 update 不再误报）
+    expect(classifyStatement('mysql', 'SET--update a=1', 'query').level).toBe('none');
+    expect(classifyStatement('mysql', 'SET#update a=1', 'query').level).toBe('none');
   });
 
-  it('【现行为：前导块注释使 DDL 漏判，execute 通道降级 warning】', () => {
-    // 已知问题：SQL_DDL_RE 以 ^\s* 锚定原始语句，前导注释导致 DROP 无法按 DDL 识别
+  it('前导块注释不使 DDL 漏判（/* x */ DROP 按危险语句确认，堵绕过）', () => {
     const v = classifyStatement('mysql', '/* 注释 */ DROP TABLE users', 'execute');
-    expect(v.level).toBe('warning');
-    expect(v.reason).toContain('未识别的语句类型');
+    expect(v.level).toBe('danger');
+    expect(v.reason).toContain('DDL');
+    expect(classifyStatement('mysql', '/* 注释 */ DELETE FROM t', 'execute').level).toBe('warning');
     expect(classifyStatement('mysql', '/* 注释 */ DROP TABLE users', 'query').level).toBe('danger');
   });
 
@@ -96,8 +85,8 @@ describe('classifyStatement: SQL 注释剥离', () => {
   it('行注释（-- 与 #）剥离：行首注释不破坏首词提取', () => {
     expect(classifyStatement('mysql', '-- c\nSELECT 1', 'query').level).toBe('none');
     expect(classifyStatement('mysql', '# c\nSELECT 1', 'query').level).toBe('none');
-    // 行尾注释内写词会触发 body 误报（同上已知问题，此处固化现行为）
-    expect(classifyStatement('mysql', 'SELECT 1 -- DROP TABLE x', 'query').level).toBe('danger');
+    // 行尾注释内写词不触发 body 扫描（剥注释后为纯 SELECT）
+    expect(classifyStatement('mysql', 'SELECT 1 -- DROP TABLE x', 'query').level).toBe('none');
   });
 
   it('首词提取容忍前导空白与括号', () => {

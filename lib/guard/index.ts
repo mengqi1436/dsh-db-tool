@@ -46,13 +46,17 @@ const MONGO_WRITE_OPS: ReadonlySet<string> = new Set([
   'createCollection', 'renameCollection', 'mapReduce',
 ]);
 
-/** 首个 SQL 关键字（剥掉注释与括号） */
-export function sqlHead(statement: string): string {
-  const s = statement
+/** 剥掉块注释/行注释（sqlHead 与语句体分析共用；写词藏在注释里不应触发分级） */
+function stripSqlComments(statement: string): string {
+  return statement
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/--[^\n]*/g, ' ')
-    .replace(/#[^\n]*/g, ' ')
-    .trim();
+    .replace(/#[^\n]*/g, ' ');
+}
+
+/** 首个 SQL 关键字（剥掉注释与括号） */
+export function sqlHead(statement: string): string {
+  const s = stripSqlComments(statement).trim();
   const m = /^[\s(]*([a-zA-Z_]+)/.exec(s);
   return m?.[1]?.toLowerCase() ?? '';
 }
@@ -79,24 +83,28 @@ function classifySql(statement: string, op: 'query' | 'execute'): GuardVerdict {
   const head = sqlHead(statement);
   if (head === '') return { level: 'danger', reason: '无法解析语句关键字，按危险语句处理' };
 
+  // 语句体分析一律基于剥注释后的文本：写词藏在注释里不应触发分级（误报），
+  // 前导注释也不能使 DDL/DML 锚定失效（漏报——否则 /* x */ DROP 绕过确认）
+  const body = stripSqlComments(statement);
+
   const isRead = SQL_READ_HEADS.has(head);
   if (isRead) {
-    if (SQL_HIDDEN_DANGER_RE.test(statement)) {
+    if (SQL_HIDDEN_DANGER_RE.test(body)) {
       return { level: 'danger', reason: '读语句包含危险片段（多语句 / 文件读写 / 全局设置 / 锁读），需要确认' };
     }
     // 读头不等于只读：WITH...DELETE / EXPLAIN ANALYZE DELETE 语句体内含写关键字
-    if (SQL_WRITE_BODY_RE.test(statement)) {
+    if (SQL_WRITE_BODY_RE.test(body)) {
       return { level: 'danger', reason: '读语句体内包含写操作关键字（如 WITH...DELETE / EXPLAIN 写语句），需要确认' };
     }
     return { level: 'none' };
   }
 
-  if (SQL_DDL_RE.test(statement)) return { level: 'danger', reason: 'DDL 不可回滚（隐式提交），可能破坏表结构或数据' };
-  if (SQL_DML_RE.test(statement)) {
+  if (SQL_DDL_RE.test(body)) return { level: 'danger', reason: 'DDL 不可回滚（隐式提交），可能破坏表结构或数据' };
+  if (SQL_DML_RE.test(body)) {
     if (op === 'query') return { level: 'danger', reason: '只读通道（query）出现写语句，需要确认' };
     return { level: 'warning', reason: '写操作将修改数据' };
   }
-  if (SQL_MAINT_RE.test(statement)) return { level: 'danger', reason: '维护/管理命令影响服务器状态，需要确认' };
+  if (SQL_MAINT_RE.test(body)) return { level: 'danger', reason: '维护/管理命令影响服务器状态，需要确认' };
 
   // 未知关键字：execute 通道 warning（适配器只读兜底），query 通道 danger
   if (op === 'query') return { level: 'danger', reason: `只读通道（query）出现非读取语句（${head}），需要确认` };

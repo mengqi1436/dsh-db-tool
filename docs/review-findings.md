@@ -24,6 +24,7 @@
 | medium | http parseSsl | `ssl="false"` 被 Boolean() 转为 true | ✅ 严格布尔解析，非法值 400 |
 | medium | store normalize | 仅小写盘符不处理其他大小写语义 | ⏸ 保留：NTFS 大小写不敏感语义即此；已补 `..` 穿越用例 🧪 |
 | medium | store audit tail | 全量读文件再截取 | ⏸ 保留：审计文件预期规模小（JSONL 追加），优化属 YAGNI |
+| **security** | guard classifySql（变异测试增补发现） | ① body 正则作用于未剥注释原文 → 注释内写词误报 danger；② SQL_DDL/DML/MAINT 锚定原文 → 前导块注释 `/* x */ DROP` 使 DDL 漏判、execute 通道仅 warning **绕过确认** | ✅ 提取 stripSqlComments，语句体分析与 DDL/DML 锚定一律基于剥注释文本（误报与绕过同修） |
 
 ## 二、8 适配器
 
