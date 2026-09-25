@@ -408,12 +408,16 @@ window.__ModuleLoader__.load({
 			dmdb: { host: "127.0.0.1", port: 5236, user: "SYSDBA" },
 		};
 
-		/** 把 kind 对应的官方默认值填进表单（仅填空字段，不覆盖已输入内容） */
-		function withKindDefaults(form) {
+		/**
+		 * 按当前 kind 重填官方默认值。语义：用户手动改过的字段（dirty）保留，
+		 * 其余字段重置为该库默认值；该库无此字段时清空（如 sqlite 无 host/port）。
+		 */
+		function withKindDefaults(form, dirty) {
 			const def = KIND_DEFAULTS[form.kind] || {};
 			const next = Object.assign({}, form);
 			for (const k of ["host", "port", "user", "database"]) {
-				if (def[k] !== undefined && !next[k]) next[k] = String(def[k]);
+				if (dirty && dirty.has(k)) continue; // 手改过 → 保留
+				next[k] = def[k] !== undefined ? String(def[k]) : "";
 			}
 			return next;
 		}
@@ -424,15 +428,20 @@ window.__ModuleLoader__.load({
 		function ConnForm(props) {
 			// 新建（无 initial）默认分字段模式并预填官方默认值；编辑保持用户数据原样
 			const [form, setForm] = React.useState(() => props.initial || freshForm());
+			const [dirty, setDirty] = React.useState(() => new Set()); // 用户手改过的字段（切 kind 时保留）
 			const [draftTest, setDraftTest] = React.useState(null); // null | {ok, msg}
-			function patch(p) { setForm((prev) => Object.assign({}, prev, p)); }
+			function patch(p) {
+				setForm((prev) => Object.assign({}, prev, p));
+				setDirty((prev) => { const n = new Set(prev); for (const k of Object.keys(p)) n.add(k); return n; });
+			}
 			function switchKind(kind) {
-				setForm((prev) => withKindDefaults(Object.assign({}, prev, { kind })));
+				setForm((prev) => withKindDefaults(Object.assign({}, prev, { kind }), dirty));
+				setDirty(new Set());
 				setDraftTest(null);
 			}
-			/** 从 URL 模式切回分字段：按当前 kind 重新补全官方默认值（仅空字段） */
+			/** 从 URL 模式切回分字段：按当前 kind 重新补全官方默认值（未手改字段） */
 			function reenterFields() {
-				setForm((prev) => withKindDefaults(Object.assign({}, prev, { mode: "fields" })));
+				setForm((prev) => withKindDefaults(Object.assign({}, prev, { mode: "fields" }), dirty));
 				setDraftTest(null);
 			}
 			function draftBody() {
