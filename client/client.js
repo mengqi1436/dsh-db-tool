@@ -398,30 +398,36 @@ window.__ModuleLoader__.load({
 
 		// 各数据库官方默认连接参数（分字段方式自动填充；用户仍可改）
 		const KIND_DEFAULTS = {
-			mysql: { port: 3306, user: "root" },
-			postgresql: { port: 5432, user: "postgres", database: "postgres" },
-			gaussdb: { port: 8000, user: "gaussdb", database: "postgres" },
+			mysql: { host: "127.0.0.1", port: 3306, user: "root" },
+			postgresql: { host: "127.0.0.1", port: 5432, user: "postgres", database: "postgres" },
+			gaussdb: { host: "127.0.0.1", port: 8000, user: "gaussdb", database: "postgres" },
 			sqlite: {},
-			redis: { port: 6379 },
-			mongodb: { port: 27017, database: "test" },
-			oracle: { port: 1521, user: "system" },
-			dmdb: { port: 5236, user: "SYSDBA" },
+			redis: { host: "127.0.0.1", port: 6379 },
+			mongodb: { host: "127.0.0.1", port: 27017, database: "test" },
+			oracle: { host: "127.0.0.1", port: 1521, user: "system" },
+			dmdb: { host: "127.0.0.1", port: 5236, user: "SYSDBA" },
 		};
 
+		/** 把 kind 对应的官方默认值填进表单（仅填空字段，不覆盖已输入内容） */
+		function withKindDefaults(form) {
+			const def = KIND_DEFAULTS[form.kind] || {};
+			const next = Object.assign({}, form);
+			for (const k of ["host", "port", "user", "database"]) {
+				if (def[k] !== undefined && !next[k]) next[k] = String(def[k]);
+			}
+			return next;
+		}
+
+		/** 新建表单初始态：分字段模式 + 当前 kind 的官方默认值 */
+		const freshForm = () => withKindDefaults({ ...EMPTY_FORM, mode: "fields" });
+
 		function ConnForm(props) {
-			const [form, setForm] = React.useState(props.initial || EMPTY_FORM);
+			// 新建（无 initial）默认分字段模式并预填官方默认值；编辑保持用户数据原样
+			const [form, setForm] = React.useState(() => props.initial || freshForm());
 			const [draftTest, setDraftTest] = React.useState(null); // null | {ok, msg}
 			function patch(p) { setForm((prev) => Object.assign({}, prev, p)); }
 			function switchKind(kind) {
-				setForm((prev) => {
-					const def = KIND_DEFAULTS[kind] || {};
-					const next = Object.assign({}, prev, { kind });
-					// 仅填充当前为空的字段，不覆盖用户已输入的值
-					for (const k of ["port", "user", "database"]) {
-						if (def[k] !== undefined && !next[k]) next[k] = String(def[k]);
-					}
-					return next;
-				});
+				setForm((prev) => withKindDefaults(Object.assign({}, prev, { kind })));
 				setDraftTest(null);
 			}
 			function draftBody() {
@@ -436,7 +442,7 @@ window.__ModuleLoader__.load({
 			}
 			function submit() {
 				const body = Object.assign(draftBody(), { id: form.id || undefined, name: form.name || undefined });
-				props.onSubmit(body, () => setForm(EMPTY_FORM));
+				props.onSubmit(body, () => setForm(freshForm()));
 			}
 			async function testDraft() {
 				setDraftTest({ ok: null, msg: t("testing") });
