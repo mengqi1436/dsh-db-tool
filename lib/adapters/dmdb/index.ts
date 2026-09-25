@@ -36,12 +36,14 @@ const DDL_KEYWORDS = new Set([
   'COMMENT', 'ANALYZE', 'AUDIT', 'NOAUDIT', 'FLASHBACK', 'PURGE',
 ]);
 
-const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_$#]*$/;
+// DM 官方标识符规则（《DM8_SQL 语言使用手册》）：以字母/_/$/# 开头，随后为字母/数字/_/$/#。
+// $/# 开头（如 ##HISTOGRAMS_TABLE 直方图缓存表）是合法 DM 标识符，不能按 Oracle 风格拒绝。
+const IDENT_RE = /^[A-Za-z_$#][A-Za-z0-9_$#]*$/;
 
 /** 标识符校验（DM 默认大写存储，同 Oracle；保留原大小写不强制大写，数据字典匹配时由驱动决定） */
 export function sanitizeIdentifier(name: string, label: string): string {
   if (!IDENT_RE.test(name)) {
-    throw new Error(`非法 DM ${label}「${name}」：仅允许字母/下划线开头，随后为字母/数字/_/$/#`);
+    throw new Error(`非法 DM ${label}「${name}」：仅允许字母/下划线/$/# 开头，随后为字母/数字/_/$/#`);
   }
   return name;
 }

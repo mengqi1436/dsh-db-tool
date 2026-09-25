@@ -306,5 +306,9 @@ describe('达梦 DM（mock pool）', () => {
   it('sanitizeDmIdent 校验非法标识符', () => {
     expect(sanitizeDmIdent('t1', '表名')).toBe('t1');
     expect(() => sanitizeDmIdent('1t', '表名')).toThrow('非法 DM');
+    // DM 官方允许 $/# 开头（如 ##HISTOGRAMS_TABLE 内部直方图表）
+    expect(sanitizeDmIdent('##HISTOGRAMS_TABLE', '表名')).toBe('##HISTOGRAMS_TABLE');
+    expect(sanitizeDmIdent('$TMP', '表名')).toBe('$TMP');
+    expect(() => sanitizeDmIdent('a-b', '表名')).toThrow('非法 DM');
   });
 });
