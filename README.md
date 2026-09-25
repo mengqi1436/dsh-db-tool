@@ -46,8 +46,9 @@ GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb
 ## 测试
 
 ```bash
-npm test        # 离线 mock 全量
+npm test        # 离线 mock 全量（含 e2e-mock 全链路与对抗用例）
 npx tsc --noEmit
+npx stryker run # 变异测试（范围 lib/guard + lib/manager + lib/store，报告 reports/mutation/）
 ```
 
 真机冒烟（设了才跑）：`DBT_TEST_MYSQL_URL / DBT_TEST_PG_URL / DBT_TEST_REDIS_URL / DBT_TEST_DM_CONNECT / DBT_TEST_MONGO_URL / DBT_TEST_ORACLE_CONNECT`。GaussDB 与 Oracle/Mongo 官方要求均按官方文档实现，未真机验证处以代码内标注为准。

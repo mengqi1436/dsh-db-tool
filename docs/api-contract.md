@@ -5,7 +5,7 @@
 ## 通用约定
 
 - 成功：`200 { "ok": true, "data": ... }`
-- 失败：`{ "ok": false, "error": string, "code": string }`，code ∈ `UNAUTHORIZED_PROJECT`（项目未授权该连接）/ `READ_ONLY`（ro 连接拒绝 execute）/ `NEEDS_CONFIRMATION`（危险操作待确认）/ `INVALID_CHALLENGE` / `NOT_FOUND` / `INVALID_ARGUMENT` / `DRIVER_ERROR`
+- 失败：`{ "ok": false, "error": string, "code": string }`，code ∈ `UNAUTHORIZED_PROJECT`（项目未授权该连接）/ `READ_ONLY`（ro 连接拒绝 execute）/ `NEEDS_CONFIRMATION`（危险操作待确认）/ `INVALID_CHALLENGE` / `NOT_FOUND` / `INVALID_ARGUMENT`（参数非法；插件 dispose 后的新请求同样返回此 code，error 为「服务已关闭」）/ `DRIVER_ERROR`
 - `projectPath`：前端传入当前 workspace 绝对路径，服务端用 `normalizeProjectKey` 归一后校验 grants；**不传视为匿名项目**（仅连接管理可用，业务操作一律拒）
 - 人工确认通道：SQL 控制台是人工操作，危险语句同样走 challenge 流程——前端展示确认对话框后携 `challengeId` 重发
 - 除注明外，业务端点均需 projectPath 且该连接已授权
