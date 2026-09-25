@@ -4,19 +4,24 @@
 import type { NormalizedCell } from '../types.js';
 
 const MAX_JSON_LEN = 1000;
-const IDENT_RE = /^[A-Za-z0-9_$]+$/;
-
-/** 校验合法标识符（防注入），不合法直接抛错 */
+/** 标识符基本校验：非空、长度 ≤128、无 NUL/换行等控制字符。
+ *  防注入不靠字符白名单（各库引用标识符合法字符极宽：MySQL 反引号内任意、PG/SQLite "..." 任意、
+ *  Oracle/DM 引用创建的名字可含任意字符——白名单会误杀合法对象名，如 DM ## 开头内部表、
+ *  MySQL `my-table`/中文表名），而是靠「参数绑定 + quoteIdent 引号转义」。 */
 export function assertIdent(name: string, label = '标识符'): string {
-  if (typeof name !== 'string' || name.length === 0 || !IDENT_RE.test(name)) {
-    throw new Error(`非法${label}: ${JSON.stringify(String(name))}（仅允许字母、数字、_、$）`);
+  if (
+    typeof name !== 'string' || name.length === 0 || name.length > 128 ||
+    /[\0\r\n]/.test(name)
+  ) {
+    throw new Error(`非法${label}: ${JSON.stringify(String(name))}（不允许为空、超 128 字符或含 NUL/换行）`);
   }
   return name;
 }
 
-/** 校验并用引号包裹标识符（PG/SQLite 用 "，MySQL 用 `） */
+/** 校验并用引号包裹标识符，内部引号转义（"..." 内 " → ""，`...` 内 ` → ``）。
+ *  引用标识符内唯一需要转义的就是引号自身，转义后任意名字均安全。 */
 export function quoteIdent(name: string, quote: '"' | '`' = '"'): string {
-  return quote + assertIdent(name) + quote;
+  return quote + assertIdent(name).replaceAll(quote, quote + quote) + quote;
 }
 
 /** preview limit 钳制到 [1, max]（服务层已限 50，适配器再兜底一次） */

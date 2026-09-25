@@ -36,16 +36,21 @@ const DDL_KEYWORDS = new Set([
   'COMMENT', 'ANALYZE', 'AUDIT', 'NOAUDIT', 'FLASHBACK', 'PURGE',
 ]);
 
-// DM 官方标识符规则（《DM8_SQL 语言使用手册》）：以字母/_/$/# 开头，随后为字母/数字/_/$/#。
-// $/# 开头（如 ##HISTOGRAMS_TABLE 直方图缓存表）是合法 DM 标识符，不能按 Oracle 风格拒绝。
-const IDENT_RE = /^[A-Za-z_$#][A-Za-z0-9_$#]*$/;
-
-/** 标识符校验（DM 默认大写存储，同 Oracle；保留原大小写不强制大写，数据字典匹配时由驱动决定） */
+/** 标识符基本校验（DM 官方允许 $/# 开头等宽字符集，引用创建的名字可含任意字符）：
+ *  非空、≤128、无 NUL/换行。防注入靠数据字典参数绑定 + preview 处 escIdent 转义。 */
 export function sanitizeIdentifier(name: string, label: string): string {
-  if (!IDENT_RE.test(name)) {
-    throw new Error(`非法 DM ${label}「${name}」：仅允许字母/下划线/$/# 开头，随后为字母/数字/_/$/#`);
+  if (
+    typeof name !== 'string' || name.length === 0 || name.length > 128 ||
+    /[\0\r\n]/.test(name)
+  ) {
+    throw new Error(`非法 DM ${label}「${name}」：不允许为空、超 128 字符或含 NUL/换行`);
   }
   return name;
+}
+
+/** 双引号标识符转义（" → ""），拼接进 SQL 前必须过此函数 */
+function escIdent(name: string): string {
+  return name.replaceAll('"', '""');
 }
 
 function trunc(s: string, max = CELL_TRUNC): string {
@@ -188,10 +193,9 @@ export async function createDmAdapter(
     return { columns, rows, rowCount: rows.length, truncated: truncated || undefined };
   }
 
-  /** owner 解析：database 参数或默认当前用户（DM 默认大写存储，同 Oracle） */
+  /** owner 解析：database 参数或默认当前用户（保留原样——引用创建的 schema 大小写敏感） */
   function ownerOf(database?: string): string {
-    const owner = (database ?? connUser).toUpperCase();
-    return sanitizeIdentifier(owner, 'schema/owner 名');
+    return sanitizeIdentifier(database ?? connUser, 'schema/owner 名');
   }
 
   /** DM 内建系统 schema：受安全体系保护，任何用户（含 SYSDBA）无 SELECT 权，列表中过滤 */
@@ -309,13 +313,14 @@ export async function createDmAdapter(
 
     async describeTable(table: string, database?: string): Promise<ColumnInfo[]> {
       const owner = ownerOf(database);
-      const tab = sanitizeIdentifier(table, '表名').toUpperCase();
+      // 原名精确匹配优先；未引用创建的表名在字典中为大写存储，UPPER 兜底
+      const tab = sanitizeIdentifier(table, '表名');
       try {
         // ⚠️ 推断：ALL_TAB_COLUMNS / ALL_CONSTRAINTS / ALL_CONS_COLUMNS 兼容（未真机验证）；同连接内两查保证一致性
         const { colsR, pkR } = await withConn(async (c) => ({
           colsR: await c.execute(
             `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT
-            FROM ALL_TAB_COLUMNS WHERE OWNER = :owner AND TABLE_NAME = :tab ORDER BY COLUMN_ID`,
+            FROM ALL_TAB_COLUMNS WHERE OWNER = :owner AND (TABLE_NAME = :tab OR TABLE_NAME = UPPER(:tab)) ORDER BY COLUMN_ID`,
             [owner, tab],
             execOpts,
           ),
@@ -324,7 +329,7 @@ export async function createDmAdapter(
             FROM ALL_CONSTRAINTS CONS
             JOIN ALL_CONS_COLUMNS COLS
               ON CONS.OWNER = COLS.OWNER AND CONS.CONSTRAINT_NAME = COLS.CONSTRAINT_NAME
-            WHERE CONS.CONSTRAINT_TYPE = 'P' AND CONS.OWNER = :owner AND CONS.TABLE_NAME = :tab`,
+            WHERE CONS.CONSTRAINT_TYPE = 'P' AND CONS.OWNER = :owner AND (CONS.TABLE_NAME = :tab OR CONS.TABLE_NAME = UPPER(:tab))`,
             [owner, tab],
             execOpts,
           ),
@@ -359,13 +364,13 @@ export async function createDmAdapter(
 
     async previewRows(table: string, limit: number, database?: string, offset?: number): Promise<QueryResult> {
       const owner = ownerOf(database);
-      const tab = sanitizeIdentifier(table, '表名').toUpperCase();
+      const tab = sanitizeIdentifier(table, '表名'); // 拼接前经 escIdent 转义
       const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
       const off = Math.max(0, Math.floor(offset ?? 0) || 0);
       try {
         // 统一 ANSI 分页（不依赖 compatibleMode=oracle），OFFSET/FETCH 均走 bind ⚠️ 推断（未真机验证）
         const r = await withConn((c) => c.execute(
-          `SELECT * FROM "${owner}"."${tab}" OFFSET :o ROWS FETCH FIRST :n ROWS ONLY`,
+          `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" OFFSET :o ROWS FETCH FIRST :n ROWS ONLY`,
           [off, n],
           execOpts,
         ));

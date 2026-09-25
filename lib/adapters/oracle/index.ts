@@ -65,14 +65,22 @@ export function humanizeOraError(e: unknown): Error {
   return new Error(hint ? `Oracle 错误：${msg}（提示：${hint}）` : `Oracle 错误：${msg}`);
 }
 
-const IDENT_RE = /^[A-Za-z][A-Za-z0-9_$#]*$/;
-
-/** 标识符校验 + 大写化（Oracle 默认大写存储；未加引号的标识符即按大写匹配） */
+/** 标识符基本校验（引用创建的 Oracle 名字可含任意字符，白名单会误杀）：
+ *  非空、≤128、无 NUL/换行。防注入靠数据字典参数绑定 + preview 处 escIdent 转义。
+ *  保留原名不强制大写：describeTable 的 SQL 用 UPPER(:tab) 兜底匹配未引用建表。 */
 export function sanitizeIdentifier(name: string, label: string): string {
-  if (!IDENT_RE.test(name)) {
-    throw new Error(`非法 Oracle ${label}「${name}」：仅允许字母开头，随后为字母/数字/_/$/#`);
+  if (
+    typeof name !== 'string' || name.length === 0 || name.length > 128 ||
+    /[\0\r\n]/.test(name)
+  ) {
+    throw new Error(`非法 Oracle ${label}「${name}」：不允许为空、超 128 字符或含 NUL/换行`);
   }
-  return name.toUpperCase();
+  return name;
+}
+
+/** 双引号标识符转义（" → ""），拼接进 SQL 前必须过此函数 */
+function escIdent(name: string): string {
+  return name.replaceAll('"', '""');
 }
 
 function trunc(s: string, max = CELL_TRUNC): string {
@@ -185,10 +193,9 @@ export async function createOracleAdapter(
     }
   }
 
-  /** owner 解析：database 参数或默认当前用户（大写） */
+  /** owner 解析：database 参数或默认当前用户（保留原样——引用创建的 schema 大小写敏感） */
   function ownerOf(database?: string): string {
-    const owner = database ?? currentUser;
-    return sanitizeIdentifier(owner, 'schema/owner 名');
+    return sanitizeIdentifier(database ?? currentUser, 'schema/owner 名');
   }
 
   /**
@@ -310,13 +317,14 @@ export async function createOracleAdapter(
 
     async describeTable(table: string, database?: string): Promise<ColumnInfo[]> {
       const owner = ownerOf(database);
+      // 原名精确匹配优先；未引用创建的表名在字典中为大写存储，UPPER 兜底
       const tab = sanitizeIdentifier(table, '表名');
       try {
         // 同连接内两查保证一致性
         const { colsR, pkR } = await withConn(async (c) => ({
           colsR: await c.execute(
             `SELECT column_name, data_type, data_length, data_precision, data_scale, nullable, data_default
-            FROM all_tab_columns WHERE owner = :owner AND table_name = :tab ORDER BY column_id`,
+            FROM all_tab_columns WHERE owner = :owner AND (table_name = :tab OR table_name = UPPER(:tab)) ORDER BY column_id`,
             [owner, tab],
             execOpts,
           ),
@@ -325,7 +333,7 @@ export async function createOracleAdapter(
             FROM all_constraints cons
             JOIN all_cons_columns cols
               ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name
-            WHERE cons.constraint_type = 'P' AND cons.owner = :owner AND cons.table_name = :tab`,
+            WHERE cons.constraint_type = 'P' AND cons.owner = :owner AND (cons.table_name = :tab OR cons.table_name = UPPER(:tab))`,
             [owner, tab],
             execOpts,
           ),
@@ -362,12 +370,12 @@ export async function createOracleAdapter(
 
     async previewRows(table: string, limit: number, database?: string, offset?: number): Promise<QueryResult> {
       const owner = ownerOf(database);
-      const tab = sanitizeIdentifier(table, '表名');
+      const tab = sanitizeIdentifier(table, '表名'); // 拼接前经 escIdent 转义
       const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
       const off = Math.max(0, Math.floor(offset ?? 0) || 0);
       try {
         const r = await withConn((c) => c.execute(
-          `SELECT * FROM "${owner}"."${tab}" OFFSET :o ROWS FETCH NEXT :n ROWS ONLY`,
+          `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" OFFSET :o ROWS FETCH NEXT :n ROWS ONLY`,
           [off, n],
           execOpts,
         ));

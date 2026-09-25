@@ -69,11 +69,15 @@ describe('Oracle 纯函数', () => {
   it('resolveOracleConn 缺少 service 报错', () => {
     expect(() => resolveOracleConn({ meta: { id: 'x', kind: 'oracle' }, url: 'oracle://u:p@h:1521/' })).toThrow('SERVICE_NAME');
   });
-  it('sanitizeIdentifier 大写化并校验', () => {
-    expect(sanitizeIdentifier('my_table$#1', '表名')).toBe('MY_TABLE$#1');
-    expect(() => sanitizeIdentifier('1abc', '表名')).toThrow('非法 Oracle');
-    expect(() => sanitizeIdentifier('a-b', '表名')).toThrow('非法 Oracle');
+  it('sanitizeIdentifier 保留原名并校验（引用名可含任意字符，不再大写化）', () => {
+    expect(sanitizeIdentifier('my_table$#1', '表名')).toBe('my_table$#1');
+    // 引用创建的合法名字不再被白名单误杀
+    expect(sanitizeIdentifier('1abc', '表名')).toBe('1abc');
+    expect(sanitizeIdentifier('a-b', '表名')).toBe('a-b');
+    expect(sanitizeIdentifier('订单表', '表名')).toBe('订单表');
     expect(() => sanitizeIdentifier('', '表名')).toThrow('非法 Oracle');
+    expect(() => sanitizeIdentifier('a\nb', '表名')).toThrow('非法 Oracle');
+    expect(() => sanitizeIdentifier('a'.repeat(129), '表名')).toThrow('非法 Oracle');
   });
   it('humanizeOraError 转中文提示', () => {
     expect(humanizeOraError(new Error('ORA-01017: invalid username/password')).message).toContain('用户名或密码错误');
@@ -303,12 +307,14 @@ describe('达梦 DM（mock pool）', () => {
   it('humanizeDmError 通用包装', () => {
     expect(humanizeDmError(new Error('网络异常')).message).toContain('达梦 DM 错误');
   });
-  it('sanitizeDmIdent 校验非法标识符', () => {
+  it('sanitizeDmIdent 校验（引用名任意字符合法，NUL/换行/超长拒绝）', () => {
     expect(sanitizeDmIdent('t1', '表名')).toBe('t1');
-    expect(() => sanitizeDmIdent('1t', '表名')).toThrow('非法 DM');
-    // DM 官方允许 $/# 开头（如 ##HISTOGRAMS_TABLE 内部直方图表）
+    // DM 官方允许 $/# 开头（如 ##HISTOGRAMS_TABLE 内部直方图表）；引用名可含任意字符
     expect(sanitizeDmIdent('##HISTOGRAMS_TABLE', '表名')).toBe('##HISTOGRAMS_TABLE');
     expect(sanitizeDmIdent('$TMP', '表名')).toBe('$TMP');
-    expect(() => sanitizeDmIdent('a-b', '表名')).toThrow('非法 DM');
+    expect(sanitizeDmIdent('1t', '表名')).toBe('1t');
+    expect(sanitizeDmIdent('a-b', '表名')).toBe('a-b');
+    expect(() => sanitizeDmIdent('', '表名')).toThrow('非法 DM');
+    expect(() => sanitizeDmIdent('a\nb', '表名')).toThrow('非法 DM');
   });
 });

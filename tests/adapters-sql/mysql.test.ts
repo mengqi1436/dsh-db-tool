@@ -63,10 +63,11 @@ suite('mysql 适配器（真机，DBT_TEST_MYSQL_URL 门控）', () => {
     expect(cols.find((c) => c.name === 'score')?.dataType).toBe('decimal(10,2)');
   });
 
-  it('previewRows clamp 50 + 防注入', async () => {
+  it('previewRows clamp 50 + 注入串安全引用', async () => {
     const r = await adapter.previewRows('dbt_test_users', 100);
     expect(r.rowCount).toBeLessThanOrEqual(50);
-    await expect(adapter.describeTable('u`; DROP TABLE x')).rejects.toThrow(/非法/);
+    // 注入串被反引号转义为普通表名：查无此表（注入永不执行）
+    await expect(adapter.describeTable('u`; DROP TABLE x')).rejects.toThrow(/表不存在/);
   });
 
   it('事务 begin/commit（同一连接生效）', async () => {

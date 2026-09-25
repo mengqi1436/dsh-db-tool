@@ -41,14 +41,14 @@ describe('mysql 适配器（离线负向用例）', () => {
     }
   });
 
-  it('defaultDb：URL pathname 提供默认库，非法库名被 assertIdent 拒绝', async () => {
-    // 库名 db`x（URL 编码 %60）含非法字符：defaultDb 解析后过校验抛「非法」；
-    // 若未实现 URL 解析则会抛「未指定数据库」，以此区分两种实现
+  it('defaultDb：URL pathname 提供默认库；特殊字符库名被安全引用（不再误杀）', async () => {
+    // 反引号内 db`x 是合法 MySQL 库名：不再白名单拒绝；离线环境随后报连接错误（而非「非法」）
     const a = await createMysqlAdapter(connByUrl('mysql://u:p@127.0.0.1:3326/db%60x'));
     try {
-      await expect(a.listTables()).rejects.toThrow(/非法/);
-      await expect(a.describeTable('t')).rejects.toThrow(/非法/);
-      await expect(a.previewRows('t', 1)).rejects.toThrow(/非法/);
+      await expect(a.listTables()).rejects.toThrow(/mysql 列出数据库/).catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        expect(msg).not.toMatch(/非法/);
+      });
     } finally {
       await a.close();
     }

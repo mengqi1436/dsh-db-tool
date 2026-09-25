@@ -236,11 +236,19 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(p.pool.ended).toBe(1);
   });
 
-  it('非法标识符被拒绝（防注入）', async () => {
-    const { a } = await make('postgresql');
-    await expect(a.describeTable('u"; DROP TABLE x')).rejects.toThrow(/非法/);
-    await expect(a.listTables('pub; drop')).rejects.toThrow(/非法/);
-    await expect(a.previewRows('t--', 10)).rejects.toThrow(/非法/);
+  it('注入类标识符被安全处理：参数绑定 + 引号转义（不再字符白名单拒绝）', async () => {
+    const { a, pool } = await make('postgresql');
+    // describeTable 走参数绑定：注入串只是普通表名 → 查无此表
+    await expect(a.describeTable('u"; DROP TABLE x')).rejects.toThrow(/表不存在/);
+    // listTables 绑定库名 → 空结果，绝不执行注入
+    await expect(a.listTables('pub; drop')).resolves.toEqual([]);
+    // previewRows：标识符被引用为 "t--" 普通表名（含连字符合法）
+    await a.previewRows('t--', 10);
+    const sql = pool.executed.at(-1)!.sql;
+    expect(sql).toContain('FROM "public"."t--"');
+    // NUL/换行仍被直接拒绝（引用标识符内也不允许）
+    await expect(a.describeTable('a\nb')).rejects.toThrow(/非法/);
+    await expect(a.previewRows('a\0b', 10)).rejects.toThrow(/非法/);
   });
 
   it('SSL 开关注入配置', async () => {
