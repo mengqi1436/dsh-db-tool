@@ -70,8 +70,11 @@ export interface ConnectionMeta {
   name?: string;
   /** 脱敏后的 URL（密码替换为 ***） */
   safeUrl?: string;
+  /** 连接方式：url（urlSafe 存在）或 fields —— 编辑回填用 */
+  mode?: 'url' | 'fields';
   host?: string;
   port?: number;
+  user?: string;
   database?: string;
 }
 
@@ -100,11 +103,13 @@ export interface DatabaseAdapter {
 
   /** 只读查询。MySQL `?` / PG `$1` / Oracle·DM `:name` 占位符；
    *  Redis 传命令数组（JSON 字符串，如 '["GET","key"]' 或 "GET key"）；
-   *  Mongo 传 BSON 文档（JSON 字符串，如 '{"find":"users","filter":{}}'）。 */
-  query(sql: string, params?: unknown[]): Promise<QueryResult>;
+   *  Mongo 传 BSON 文档（JSON 字符串，如 '{"find":"users","filter":{}}'）。
+   *  database：可选目标库（Navicat 式跨库操控）。当前仅 pg/gaussdb 实现按库名
+   *  路由到独立连接池（ro 池同样强制只读）；其余适配器忽略。 */
+  query(sql: string, params?: unknown[], database?: string): Promise<QueryResult>;
 
   /** 写操作 / 管理命令，入参约定同 query() */
-  execute(statement: string, params?: unknown[]): Promise<ExecResult>;
+  execute(statement: string, params?: unknown[], database?: string): Promise<ExecResult>;
 
   /** 库/schema 清单（SQLite 返回 ['main']；Redis 返回 ['db0']） */
   listDatabases(): Promise<string[]>;

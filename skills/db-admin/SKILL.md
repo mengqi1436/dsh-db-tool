@@ -33,6 +33,7 @@ DatabaseManager({ action: "query", conn_id: "c1", sql: "SELECT id, name FROM use
 ```
 
 - `sql` 必填；`params` 为参数数组（占位符见方言速查）；可选 `challenge_id`（危险读如 Redis `KEYS *` 触发确认后重试用）。
+- 可选 `database`：跨库执行目标（Navicat 式）。pg/gaussdb 传库名（如 `gycwd`）即在该库上执行（同一凭据开独立连接，ro 授权下同样强制只读）；其余库种忽略此参数（MySQL 可直接用 `库名.表` 语法）。
 - 返回 `{columns, rows, rowCount, truncated?}`，所有单元格已规范化为 string/number/null。
 - ro 与 rw 授权下都可用，但只读接口收到非查询语句会被拒。
 
@@ -43,6 +44,7 @@ DatabaseManager({ action: "execute", conn_id: "c1", statement: "UPDATE users SET
 ```
 
 - `statement`（或 `sql`）必填，单条语句；DDL/DML/维护命令都会触发危险确认。
+- 可选 `database`：跨库执行目标，语义同 query（pg/gaussdb 支持按库路由，目标库权限由数据库侧用户权限控制）。
 - 返回 `{affectedRows?, message}`，`message` 为中文结果描述。
 - ro 授权下直接返回 `READ_ONLY` 错误。
 

@@ -62,7 +62,7 @@ const TOOL_DESCRIPTION = `数据库管理工具（dsh-db-tool）：在已配置�
 action 说明：
 - list_connections：列出连接（脱敏，含各连接的 kind 与授权信息需另经 HTTP 面板查看）。
 - query：只读 SQL/命令（conn_id, sql, params?）。
-- execute：写操作/DDL（conn_id, statement, params?）。
+- execute：写操作/DDL（conn_id, statement, params?, database? 跨库目标）。
 - schema：结构浏览（conn_id；给 table 查列、给 database 查表、都不给列库）。
 - preview：预览行，limit≤50（conn_id, table, database?, limit?）。
 - run_script：子进程沙箱脚本（conn_id, code），60s 超时强杀，permission model 禁文件
@@ -132,7 +132,7 @@ export function apply(ctx: DshContext): void {
         sql: { type: 'string', description: 'query 的只读 SQL/命令' },
         statement: { type: 'string', description: 'execute 的语句' },
         params: { type: 'array', items: {}, description: '占位符参数' },
-        database: { type: 'string', description: '库/schema（可选）' },
+        database: { type: 'string', description: '库/schema（可选）。query/execute：指定目标库即跨库执行（Navicat 式，pg/gaussdb 支持按库路由）；schema/preview：浏览目标（pg/gaussdb 传 "库名.schema"）' },
         table: { type: 'string', description: '表/集合/键（schema/preview 用）' },
         limit: { type: 'number', description: 'preview 行数上限（≤50）' },
         offset: { type: 'number', description: 'preview 行偏移（翻页用，默认 0）' },

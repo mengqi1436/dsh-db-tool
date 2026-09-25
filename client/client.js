@@ -68,6 +68,7 @@ window.__ModuleLoader__.load({
 			noDatabases: "无可用数据库",
 			noSchemas: "无模式",
 			noTables: "无表",
+			defaultDb: "默认库",
 			loadFailed: "加载失败",
 			structure: "结构",
 			preview: "数据预览",
@@ -153,6 +154,7 @@ window.__ModuleLoader__.load({
 			noDatabases: "No databases available",
 			noSchemas: "No schemas",
 			noTables: "No tables",
+			defaultDb: "Default DB",
 			loadFailed: "Failed to load",
 			structure: "Structure",
 			preview: "Preview",
@@ -445,6 +447,20 @@ window.__ModuleLoader__.load({
 		/** 新建表单初始态：分字段模式 + 当前 kind 的官方默认值 */
 		const freshForm = () => withKindDefaults({ ...EMPTY_FORM, mode: "fields" });
 
+		/** 编辑回填：从 meta 还原已存配置（密码不出库，留空=保留原密码）。
+		 *  url 方式 → 回填脱敏 url；分字段方式 → 回填 host/port/user/database。 */
+		function buildEditForm(c) {
+			const mode = c.mode || (c.safeUrl ? "url" : "fields");
+			return {
+				...EMPTY_FORM,
+				id: c.id, kind: c.kind, name: c.name || "", mode,
+				url: c.safeUrl || "",
+				host: c.host || "", port: c.port != null ? String(c.port) : "",
+				user: c.user || "", database: c.database || "",
+				ssl: !!c.ssl,
+			};
+		}
+
 		function ConnForm(props) {
 			// 新建（无 initial）默认分字段模式并预填官方默认值；编辑保持用户数据原样
 			const [form, setForm] = React.useState(() => props.initial || freshForm());
@@ -459,18 +475,29 @@ window.__ModuleLoader__.load({
 				setDirty(new Set());
 				setDraftTest(null);
 			}
-			/** 从 URL 模式切回分字段：按当前 kind 重新补全官方默认值（未手改字段） */
+			/** 从 URL 模式切回分字段：保留表单里已有值（编辑回填场景），只对空字段补官方默认值 */
 			function reenterFields() {
-				setForm((prev) => withKindDefaults(Object.assign({}, prev, { mode: "fields" }), dirty));
+				setForm((prev) => {
+					const keep = new Set(dirty);
+					for (const k of ["host", "port", "user", "database"]) if (prev[k]) keep.add(k);
+					return withKindDefaults(Object.assign({}, prev, { mode: "fields" }), keep);
+				});
 				setDraftTest(null);
 			}
 			function draftBody() {
 				const body = { kind: form.kind, ssl: !!form.ssl };
-				if (form.mode === "url") body.url = form.url;
-				else {
+				// 编辑保存语义：url 模式未改动（仍等于回填的脱敏 url）→ 不发 url，保留 secrets 原值
+				const origUrl = props.initial && props.initial.mode === "url" ? props.initial.url : undefined;
+				if (form.mode === "url") {
+					if (form.url && form.url !== origUrl) body.url = form.url;
+					// 新建 url 连接必须发
+					if (!props.initial && form.url) body.url = form.url;
+				} else {
 					body.fields = { host: form.host, user: form.user, database: form.database || undefined };
 					if (form.port) body.fields.port = Number(form.port);
 					if (form.password) body.fields.password = form.password;
+					// 从 url 方式切到分字段保存 → 服务端清除已存 url（否则连接仍走旧 url）
+					if (props.initial && props.initial.mode === "url") body.clearUrl = true;
 				}
 				return body;
 			}
@@ -583,7 +610,7 @@ window.__ModuleLoader__.load({
 
 			if (editing) {
 				return React.createElement(ConnForm, {
-					initial: editing === "new" ? null : Object.assign({}, EMPTY_FORM, editing),
+					initial: editing === "new" ? null : buildEditForm(editing),
 					busy: busy === "save",
 					onSubmit: saveConn,
 					onCancel: () => setEditing(null),
@@ -909,6 +936,14 @@ window.__ModuleLoader__.load({
 			const [params, setParams] = React.useState("");
 			const [result, setResult] = React.useState(null); // {kind:'query',...}|{kind:'exec',...}
 			const [busy, setBusy] = React.useState(false);
+			// Navicat 式跨库操控：当前库下拉（""=连接默认库），查询/执行路由到所选库
+			const [dbList, setDbList] = React.useState([]);
+			const [db, setDb] = React.useState("");
+			React.useEffect(() => {
+				setDbList([]); setDb("");
+				if (!connId || !projectPath) return;
+				api("databases" + qs({ project: projectPath, connId })).then((l) => setDbList(l || []), () => setDbList([]));
+			}, [connId, projectPath]);
 
 			async function run() {
 				setBusy(true);
@@ -924,7 +959,7 @@ window.__ModuleLoader__.load({
 						let parsedParams;
 						if (params.trim()) { try { parsedParams = JSON.parse(params); } catch (e) { throw new Error(t("paramsJson") + ": " + e.message); } }
 						const data = await runGuarded(
-							(challengeId) => api("execute", { method: "POST", body: { projectPath, connId, statement: sql, params: parsedParams, challengeId } }),
+							(challengeId) => api("execute", { method: "POST", body: { projectPath, connId, statement: sql, params: parsedParams, database: db || undefined, challengeId } }),
 							askConfirm,
 						);
 						setResult({ kind: "exec", message: (data && data.message) || "", affectedRows: data && data.affectedRows });
@@ -932,7 +967,7 @@ window.__ModuleLoader__.load({
 						let parsedParams;
 						if (params.trim()) { try { parsedParams = JSON.parse(params); } catch (e) { throw new Error(t("paramsJson") + ": " + e.message); } }
 						const data = await runGuarded(
-							(challengeId) => api("query", { method: "POST", body: { projectPath, connId, sql, params: parsedParams, challengeId } }),
+							(challengeId) => api("query", { method: "POST", body: { projectPath, connId, sql, params: parsedParams, database: db || undefined, challengeId } }),
 							askConfirm,
 						);
 						setResult({ kind: "query", data });
@@ -971,6 +1006,10 @@ window.__ModuleLoader__.load({
 						React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
 							React.createElement("option", { value: "" }, t("viewManage") + "…"),
 							conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
+						// 当前库（Navicat 式跨库：选中非默认库后 SQL 在该库执行，pg/gaussdb 按库路由）
+						dbList.length > 1 ? React.createElement("select", { value: db, onChange: (e) => setDb(e.target.value) },
+							React.createElement("option", { value: "" }, t("defaultDb")),
+							dbList.map((d) => React.createElement("option", { key: d, value: d }, d))) : null,
 					),
 					React.createElement(
 						"div",

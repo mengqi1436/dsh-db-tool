@@ -204,6 +204,7 @@ async function route(
         ...(b['name'] !== undefined ? { name: str(b['name']) } : {}),
         ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
         ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
+        ...(b['clearUrl'] === true ? { clearUrl: true } : {}),
         ...(ssl !== undefined ? { ssl } : {}),
       }));
     }
@@ -253,14 +254,14 @@ async function route(
     const b = await readBody(req);
     return await sendMaybeConfirm(res, service.query(
       projectOfBody(b), str(b['connId']), str(b['sql']),
-      b['params'] as unknown[] | undefined, optStr(b['challengeId']),
+      b['params'] as unknown[] | undefined, optStr(b['challengeId']), optStr(b['database']),
     ));
   }
   if (path === '/api/execute' && req.method === 'POST') {
     const b = await readBody(req);
     return await sendMaybeConfirm(res, service.execute(
       projectOfBody(b), str(b['connId']), str(b['statement']),
-      b['params'] as unknown[] | undefined, optStr(b['challengeId']),
+      b['params'] as unknown[] | undefined, optStr(b['challengeId']), optStr(b['database']),
     ));
   }
   if (path === '/api/script' && req.method === 'POST') {

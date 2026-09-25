@@ -31,6 +31,8 @@ export interface ConnectionUpdateInput {
   url?: string;
   fields?: Record<string, unknown>;
   ssl?: boolean;
+  /** 清除已存 URL（用户从 url 方式切到分字段方式保存时），连同 secrets.url 一并删除 */
+  clearUrl?: boolean;
 }
 
 /** connections.json 单条记录（无任何机密） */
@@ -81,11 +83,17 @@ function splitPassword(fields: Record<string, unknown> | undefined): {
 function toMeta(rec: ConnRecord): ConnectionMeta {
   const meta: ConnectionMeta = { id: rec.id, kind: rec.kind };
   if (rec.name !== undefined) meta.name = rec.name;
-  if (rec.urlSafe !== undefined) meta.safeUrl = rec.urlSafe;
+  if (rec.urlSafe !== undefined) {
+    meta.safeUrl = rec.urlSafe;
+    meta.mode = 'url';
+  } else {
+    meta.mode = 'fields';
+  }
   if (rec.fields) {
-    const { host, port, database } = rec.fields;
+    const { host, port, user, database } = rec.fields;
     if (typeof host === 'string') meta.host = host;
     if (typeof port === 'number') meta.port = port;
+    if (typeof user === 'string') meta.user = user;
     if (typeof database === 'string') meta.database = database;
   }
   return meta;
@@ -165,6 +173,11 @@ export class ConnectionStore {
     if (patch.url !== undefined) {
       rec.urlSafe = redactUrl(patch.url);
       this.secrets.set(id, { url: patch.url });
+    }
+    if (patch.clearUrl && rec.urlSafe !== undefined) {
+      delete rec.urlSafe;
+      // set 为合并写；显式置 undefined 经 JSON 序列化后等效删除该键
+      this.secrets.set(id, { url: undefined });
     }
     this.save(data);
     return toMeta(rec);

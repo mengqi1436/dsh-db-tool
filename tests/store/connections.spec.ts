@@ -30,6 +30,7 @@ describe('ConnectionStore', () => {
       kind: 'mysql',
       name: '主库',
       safeUrl: 'mysql://root:***@localhost:3306/shop',
+      mode: 'url',
       host: 'localhost',
       port: 3306,
       database: 'shop',
@@ -77,6 +78,36 @@ describe('ConnectionStore', () => {
     expect(secretsJson).toContain('NEWSECRET');
     expect(secretsJson).not.toContain('TOPSECRET');
     expect(store.connections.update('ghost', { name: 'x' })).toBeUndefined();
+  });
+
+  it('toMeta 回填 mode/user：fields 创建 → fields 模式，url 创建 → url 模式', () => {
+    store.connections.create({ id: 'f', kind: 'mysql', fields: { host: 'h', port: 3306, user: 'app', database: 'db1' } });
+    store.connections.create({ id: 'u', kind: 'mysql', url: URL_WITH_SECRET });
+    const f = store.connections.get('f')!;
+    expect(f.mode).toBe('fields');
+    expect(f.user).toBe('app');
+    expect(f.safeUrl).toBeUndefined();
+    expect(store.connections.get('u')!.mode).toBe('url');
+  });
+
+  it('clearUrl：从 url 方式切到分字段保存时清除 urlSafe 与 secrets.url，密码保留', () => {
+    store.connections.create({
+      id: 'a', kind: 'postgresql', url: URL_WITH_SECRET,
+      fields: { host: 'h1', password: 'FIELDSECRET' },
+    });
+    const updated = store.connections.update('a', {
+      clearUrl: true,
+      fields: { host: 'h2', port: 5432, user: 'u2' }, // password 留空 → secrets.password 原样保留
+    });
+    expect(updated).toMatchObject({ mode: 'fields', host: 'h2', user: 'u2' });
+    expect(updated!.safeUrl).toBeUndefined();
+    const sec = store.secrets.get('a');
+    expect(sec?.url).toBeUndefined(); // url 机密已清除
+    expect(sec?.password).toBe('FIELDSECRET'); // 分字段密码不受影响
+    // testTarget 不再带 url，改走 fields
+    const target = store.connections.testTarget('a');
+    expect(target.url).toBeUndefined();
+    expect(target.fields).toEqual({ host: 'h2', port: 5432, user: 'u2', password: 'FIELDSECRET' });
   });
 
   it('testTarget 返回含机密的 ResolvedConnection；不存在抛错', () => {

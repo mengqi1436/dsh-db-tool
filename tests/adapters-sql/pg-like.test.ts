@@ -340,4 +340,22 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     const c = await p.connect();
     expect(c.executed[0]?.sql).toBe('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY');
   });
+
+  it('query/execute 跨库：database 参数路由到目标库池，非法库名被拒', async () => {
+    const { a, pools, createdDb } = await makeMulti();
+    await a.query('SELECT 1', [], 'gycwd'); // 首次访问懒建 gycwd 池
+    pools.get('gycwd')!.queue = [okRes([{ n: 1 }], ['n']), { rows: [], rowCount: 2 }];
+    const r = await a.query('SELECT count(*) AS n FROM users', [], 'gycwd');
+    expect(r.rowCount).toBe(1);
+    expect(pools.get('gycwd')!.executed[1]).toEqual({ sql: 'SELECT count(*) AS n FROM users', params: [] });
+    const e = await a.execute('UPDATE users SET age = 1', [], 'gycwd');
+    expect(e.affectedRows).toBe(2);
+    // 池缓存：多次都复用同一个 gycwd 池
+    expect(createdDb.filter((d) => d === 'gycwd').length).toBe(1);
+    // 非法库名（控制字符）直接拒绝，不建池
+    await expect(a.query('SELECT 1', [], 'db\0x')).rejects.toThrow(/非法/);
+    // 无 database → 主池（事务路由路径）
+    await a.query('SELECT 1');
+    expect(createdDb.filter((d) => d !== 'gycwd')).toEqual(['postgres']);
+  });
 });

@@ -271,6 +271,7 @@ export class DbToolService {
     sql: string,
     params?: unknown[],
     challengeId?: string,
+    database?: string,
   ): Promise<QueryResult | NeedConfirm> {
     const statement = assertNonEmpty(sql, 'sql');
     return this.runGuarded({
@@ -279,7 +280,7 @@ export class DbToolService {
       op: 'query',
       statement,
       challengeId,
-      run: (adapter) => adapter.query(statement, params),
+      run: (adapter) => adapter.query(statement, params, database),
       rowsAffected: (r) => r.rowCount,
     });
   }
@@ -290,6 +291,7 @@ export class DbToolService {
     statement: string,
     params?: unknown[],
     challengeId?: string,
+    database?: string,
   ): Promise<ExecResult | NeedConfirm> {
     const stmt = assertNonEmpty(statement, 'statement');
     return this.runGuarded({
@@ -298,7 +300,7 @@ export class DbToolService {
       op: 'execute',
       statement: stmt,
       challengeId,
-      run: (adapter) => adapter.execute(stmt, params),
+      run: (adapter) => adapter.execute(stmt, params, database),
       rowsAffected: (r) => r.affectedRows,
     });
   }
@@ -587,12 +589,12 @@ export async function handleToolAction(
         return ok(j(service.listConnections()));
 
       case 'query': {
-        const r = await service.query(projectPath, requireConn(connId), assertArg(args.sql, 'sql'), args.params, challengeId);
+        const r = await service.query(projectPath, requireConn(connId), assertArg(args.sql, 'sql'), args.params, challengeId, args.database);
         return ok(needConfirmText(r) ?? j(r));
       }
 
       case 'execute': {
-        const r = await service.execute(projectPath, requireConn(connId), assertArg(args.statement ?? args.sql, 'statement'), args.params, challengeId);
+        const r = await service.execute(projectPath, requireConn(connId), assertArg(args.statement ?? args.sql, 'statement'), args.params, challengeId, args.database);
         return ok(needConfirmText(r) ?? j(r));
       }
 

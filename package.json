@@ -1,6 +1,6 @@
 {
   "name": "dsh-db-tool",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
   "license": "MIT",

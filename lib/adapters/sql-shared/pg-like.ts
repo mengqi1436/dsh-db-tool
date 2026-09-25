@@ -187,12 +187,20 @@ export async function createPgLikeAdapter(
         return { ok: true, serverInfo: v == null ? kind : String(v) };
       }),
 
-    query: (sql, params) =>
-      humanize(`${kind} 查询失败`, async () => toQueryResult(await run(sql, params ?? []))),
+    query: (sql, params, database) =>
+      humanize(`${kind} 查询失败`, async () => {
+        // 跨库操控（Navicat 式）：指定目标库 → 路由到该库的池（主池事务不跨库，忽略事务路由）
+        const res = database
+          ? await poolFor(assertIdent(database, '数据库')).query(sql, params ?? [])
+          : await run(sql, params ?? []);
+        return toQueryResult(res);
+      }),
 
-    execute: (statement, params) =>
+    execute: (statement, params, database) =>
       humanize(`${kind} 执行失败`, async (): Promise<ExecResult> => {
-        const res = await run(statement, params ?? []);
+        const res = database
+          ? await poolFor(assertIdent(database, '数据库')).query(statement, params ?? [])
+          : await run(statement, params ?? []);
         const n = res.rowCount;
         return {
           affectedRows: typeof n === 'number' ? n : undefined,
