@@ -66,6 +66,7 @@ window.__ModuleLoader__.load({
 			modeRw: "读写",
 			// 浏览
 			noDatabases: "无可用数据库",
+			noSchemas: "无模式",
 			noTables: "无表",
 			loadFailed: "加载失败",
 			structure: "结构",
@@ -150,6 +151,7 @@ window.__ModuleLoader__.load({
 			modeRo: "read-only ro",
 			modeRw: "read-write rw",
 			noDatabases: "No databases available",
+			noSchemas: "No schemas",
 			noTables: "No tables",
 			loadFailed: "Failed to load",
 			structure: "Structure",
@@ -708,7 +710,8 @@ window.__ModuleLoader__.load({
 			const [loading, setLoading] = React.useState({});
 			const [error, setError] = React.useState({}); // 树节点加载失败信息（就地显示，可点重试）
 			const [dbs, setDbs] = React.useState({}); // connId -> string[]
-			const [tablesMap, setTablesMap] = React.useState({}); // "<connId>/<db>" -> TableInfo[]
+			const [schemasMap, setSchemasMap] = React.useState({}); // "<connId>/<db>" -> string[]（PG/GaussDB 库内 schema 层）
+			const [tablesMap, setTablesMap] = React.useState({}); // "<connId>/<db|schema>" -> TableInfo[]
 			const [sel, setSel] = React.useState(null); // {connId, db, table: TableInfo}
 			const [schema, setSchema] = React.useState([]);
 			const [preview, setPreview] = React.useState(null); // QueryResult
@@ -718,7 +721,7 @@ window.__ModuleLoader__.load({
 
 			// 会话项目切换 / 连接列表变化时清空树缓存，避免陈旧授权下的旧数据
 			React.useEffect(() => {
-				setOpen({}); setLoading({}); setError({}); setDbs({}); setTablesMap({}); setSel(null); setSchema([]); setPreview(null);
+				setOpen({}); setLoading({}); setError({}); setDbs({}); setSchemasMap({}); setTablesMap({}); setSel(null); setSchema([]); setPreview(null);
 			}, [projectPath]);
 
 			function toggle(key, load) {
@@ -744,11 +747,23 @@ window.__ModuleLoader__.load({
 						setDbs((m) => Object.assign({}, m, { [c.id]: list || [] }));
 					}));
 			}
+			// PG/GaussDB 官方层级为 数据库 → 模式(schema) → 表：库节点下先列 schema 再列表
+			const HAS_SCHEMAS = { postgresql: true, gaussdb: true };
 			function toggleDb(c, d) {
 				if (!projectPath) return;
+				const useSchemas = !!HAS_SCHEMAS[c.kind];
+				const what = useSchemas ? "schemas" : "tables";
 				toggle("d:" + c.id + "/" + d, () =>
-					api("tables" + qs({ project: projectPath, connId: c.id, database: d })).then((list) => {
-						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + d]: list || [] }));
+					api(what + qs({ project: projectPath, connId: c.id, database: d })).then((list) => {
+						const setter = useSchemas ? setSchemasMap : setTablesMap;
+						setter((m) => Object.assign({}, m, { [c.id + "/" + d]: list || [] }));
+					}));
+			}
+			function toggleSchema(c, d, s) {
+				if (!projectPath) return;
+				toggle("s:" + c.id + "/" + d + "/" + s, () =>
+					api("tables" + qs({ project: projectPath, connId: c.id, database: s })).then((list) => {
+						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + s]: list || [] }));
 					}));
 			}
 			// 请求序号守卫：快速切换选中表/翻页时，丢弃晚到的旧响应，防止旧数据覆盖新选中项
@@ -795,19 +810,43 @@ window.__ModuleLoader__.load({
 				if (!list) continue;
 				if (list.length === 0) { treeRows.push(treerow(ck + ":e", 1, false, true, t("noDatabases"))); continue; }
 				for (const d of list) {
+					const useSchemas = !!HAS_SCHEMAS[c.kind];
 					const dk = "d:" + c.id + "/" + d;
 					const dOpen = !!open[dk];
 					treeRows.push(treerow(dk, 1, dOpen, false, d, () => toggleDb(c, d)));
 					if (!dOpen) continue;
-					const tkey = c.id + "/" + d;
-					const tlist = tablesMap[tkey];
 					if (loading[dk]) { treeRows.push(treerow(dk + ":l", 2, false, true, "…")); continue; }
 					if (error[dk]) { treeRows.push(treerow(dk + ":x", 2, false, true, t("loadFailed") + "：" + error[dk], () => retry(dk, () => toggleDb(c, d)))); continue; }
+					// PG/GaussDB：库 → 模式 → 表（三层，Navicat 官方层级）；schema 节点复用 open/loading/error 状态
+					if (useSchemas) {
+						const slist = schemasMap[c.id + "/" + d];
+						if (!slist) continue;
+						if (slist.length === 0) { treeRows.push(treerow(dk + ":e", 2, false, true, t("noSchemas"))); continue; }
+						for (const s of slist) {
+							const sk = "s:" + c.id + "/" + d + "/" + s;
+							const sOpen = !!open[sk];
+							treeRows.push(treerow(sk, 2, sOpen, false, s, () => toggleSchema(c, d, s)));
+							if (!sOpen) continue;
+							const tlist = tablesMap[c.id + "/" + s];
+							if (loading[sk]) { treeRows.push(treerow(sk + ":l", 3, false, true, "…")); continue; }
+							if (error[sk]) { treeRows.push(treerow(sk + ":x", 3, false, true, t("loadFailed") + "：" + error[sk], () => retry(sk, () => toggleSchema(c, d, s)))); continue; }
+							if (!tlist) continue;
+							if (tlist.length === 0) { treeRows.push(treerow(sk + ":e", 3, false, true, t("noTables"))); continue; }
+							for (const tb of tlist) {
+								const active = !!sel && sel.connId === c.id && sel.db === s && sel.table.name === tb.name;
+								treeRows.push(treerow("t:" + sk + "/" + tb.name, 3, false, true,
+									tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
+									() => setSel({ connId: c.id, db: s, table: tb }), active));
+							}
+						}
+						continue;
+					}
+					const tlist = tablesMap[c.id + "/" + d];
 					if (!tlist) continue;
 					if (tlist.length === 0) { treeRows.push(treerow(dk + ":e", 2, false, true, t("noTables"))); continue; }
 					for (const tb of tlist) {
 						const active = !!sel && sel.connId === c.id && sel.db === d && sel.table.name === tb.name;
-						treeRows.push(treerow("t:" + tkey + "/" + tb.name, 2, false, true,
+						treeRows.push(treerow("t:" + c.id + "/" + d + "/" + tb.name, 2, false, true,
 							tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
 							() => setSel({ connId: c.id, db: d, table: tb }), active));
 					}

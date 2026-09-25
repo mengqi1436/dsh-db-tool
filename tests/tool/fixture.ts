@@ -47,6 +47,7 @@ export function fakeAdapter(opts?: FakeAdapterOptions): DatabaseAdapter {
       opts?.execute ??
       (async (statement): Promise<ExecResult> => ({ affectedRows: 1, message: `已执行: ${statement}` })),
     listDatabases: async () => ['app', 'test'],
+    listSchemas: async () => ['public', 'app'],
     listTables: async (): Promise<TableInfo[]> => [{ name: 'users', type: 'TABLE' }],
     describeTable: async (): Promise<ColumnInfo[]> => [
       { name: 'id', dataType: 'int', nullable: false, key: 'PRI' },

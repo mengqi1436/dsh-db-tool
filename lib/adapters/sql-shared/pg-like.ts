@@ -176,6 +176,18 @@ export async function createPgLikeAdapter(
         return res.rows.map((r) => String(r.datname));
       }),
 
+    // 库内 schema 清单（Navicat 官方层级：数据库 → 模式 → 表）。
+    // PG 连接固定单库，database 参数无法跨库，忽略；pg_* 前缀覆盖 pg_catalog/pg_toast/pg_temp 系。
+    listSchemas: () =>
+      humanize(`${kind} 列出模式`, async () => {
+        const res = await pool.query(
+          `SELECT nspname FROM pg_catalog.pg_namespace
+           WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'
+           ORDER BY nspname`,
+        );
+        return res.rows.map((r) => String(r.nspname));
+      }),
+
     listTables: (database) =>
       humanize(`${kind} 列出表`, async () => {
         const schema = database ? assertIdent(database, 'schema') : defaultSchema();

@@ -127,6 +127,22 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(pool.executed[0]?.sql).toContain('pg_database');
   });
 
+  it('listSchemas 列 pg_namespace 用户模式，排除 pg_* 与 information_schema', async () => {
+    const { a, pool } = await make('postgresql');
+    pool.queue = [okRes([{ nspname: 'app' }, { nspname: 'public' }])];
+    const schemas = await a.listSchemas!();
+    expect(schemas).toEqual(['app', 'public']);
+    expect(pool.executed[0]?.sql).toContain('pg_namespace');
+    expect(pool.executed[0]?.sql).toContain("NOT LIKE 'pg\\_%'");
+    expect(pool.executed[0]?.sql).toContain("<> 'information_schema'");
+  });
+
+  it('gaussdb 同样具备 listSchemas（官方三层层级）', async () => {
+    const { a, pool } = await make('gaussdb');
+    pool.queue = [okRes([{ nspname: 'public' }])];
+    expect(await a.listSchemas!()).toEqual(['public']);
+  });
+
   it('listTables：BASE TABLE→TABLE，默认 schema public', async () => {
     const { a, pool } = await make('postgresql');
     pool.queue = [okRes([{ table_name: 'users', table_type: 'BASE TABLE' }, { table_name: 'v1', table_type: 'VIEW' }])];

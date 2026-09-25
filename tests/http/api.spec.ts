@@ -314,6 +314,7 @@ describe('业务路由与确认流程', () => {
     const { fx } = await ensureStarted();
     const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
     expect((await get(`/api/databases?${q}`)).json.data).toEqual(['app', 'test']);
+    expect((await get(`/api/schemas?${q}&database=app`)).json.data).toEqual(['public', 'app']);
     expect((await get(`/api/tables?${q}`)).json.data).toHaveLength(1);
     expect((await get(`/api/schema?${q}&table=users`)).json.data).toHaveLength(1);
     expect((await get(`/api/preview?${q}&table=users&limit=999`)).json.ok).toBe(true);

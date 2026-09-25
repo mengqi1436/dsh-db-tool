@@ -109,6 +109,10 @@ export interface DatabaseAdapter {
   /** 库/schema 清单（SQLite 返回 ['main']；Redis 返回 ['db0']） */
   listDatabases(): Promise<string[]>;
 
+  /** 可选：库内的 schema 清单（PG/GaussDB 这类「数据库 → schema → 表」三层语义的库实现）。
+   *  返回空数组表示该库无用户 schema；未实现时浏览端跳过 schema 层。 */
+  listSchemas?(database?: string): Promise<string[]>;
+
   /** 表/集合/键清单。database 省略时用连接默认库 */
   listTables(database?: string): Promise<TableInfo[]>;
 

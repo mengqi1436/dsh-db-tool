@@ -214,6 +214,20 @@ export class DbToolService {
     }
   }
 
+  /** 库内 schema 清单（仅 PG/GaussDB 等三层语义适配器实现；ro 即可）。 */
+  async schemas(projectPath: string | undefined, connId: string, database?: string): Promise<string[]> {
+    const { key, adapter } = await this.authorize(projectPath, connId, false);
+    if (!adapter.listSchemas) return [];
+    try {
+      const result = await adapter.listSchemas(database);
+      this.audit(key, connId, 'schemas', database ?? 'default', 'none', false, true);
+      return result;
+    } catch (e) {
+      this.audit(key, connId, 'schemas', database ?? 'default', 'none', false, false, this.errText(e));
+      throw this.toDriverError(e);
+    }
+  }
+
   async schema(projectPath: string | undefined, connId: string, table: string, database?: string): Promise<ColumnInfo[]> {
     const t = assertNonEmpty(table, 'table');
     const { key, adapter } = await this.authorize(projectPath, connId, false);

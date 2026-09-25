@@ -238,6 +238,9 @@ async function route(
   if (path === '/api/tables' && req.method === 'GET') {
     return sendOk(res, await service.tables(projectOf(q), required(q, 'connId'), q.get('database') ?? undefined));
   }
+  if (path === '/api/schemas' && req.method === 'GET') {
+    return sendOk(res, await service.schemas(projectOf(q), required(q, 'connId'), q.get('database') ?? undefined));
+  }
   if (path === '/api/schema' && req.method === 'GET') {
     return sendOk(res, await service.schema(projectOf(q), required(q, 'connId'), required(q, 'table'), q.get('database') ?? undefined));
   }
