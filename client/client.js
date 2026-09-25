@@ -67,6 +67,7 @@ window.__ModuleLoader__.load({
 			// 浏览
 			noDatabases: "无可用数据库",
 			noTables: "无表",
+			loadFailed: "加载失败",
 			structure: "结构",
 			preview: "数据预览",
 			column: "列名",
@@ -150,6 +151,7 @@ window.__ModuleLoader__.load({
 			modeRw: "read-write rw",
 			noDatabases: "No databases available",
 			noTables: "No tables",
+			loadFailed: "Failed to load",
 			structure: "Structure",
 			preview: "Preview",
 			column: "Column",
@@ -714,6 +716,7 @@ window.__ModuleLoader__.load({
 			// Navicat 式对象树：连接 ▸ 库/schema ▸ 表，懒加载展开
 			const [open, setOpen] = React.useState({}); // "c:<id>" | "d:<id>/<db>" -> bool
 			const [loading, setLoading] = React.useState({});
+			const [error, setError] = React.useState({}); // 树节点加载失败信息（就地显示，可点重试）
 			const [dbs, setDbs] = React.useState({}); // connId -> string[]
 			const [tablesMap, setTablesMap] = React.useState({}); // "<connId>/<db>" -> TableInfo[]
 			const [sel, setSel] = React.useState(null); // {connId, db, table: TableInfo}
@@ -725,17 +728,24 @@ window.__ModuleLoader__.load({
 
 			// 会话项目切换 / 连接列表变化时清空树缓存，避免陈旧授权下的旧数据
 			React.useEffect(() => {
-				setOpen({}); setLoading({}); setDbs({}); setTablesMap({}); setSel(null); setSchema([]); setPreview(null);
+				setOpen({}); setLoading({}); setError({}); setDbs({}); setTablesMap({}); setSel(null); setSchema([]); setPreview(null);
 			}, [projectPath]);
 
 			function toggle(key, load) {
 				const isOpen = !!open[key];
 				setOpen((o) => Object.assign({}, o, { [key]: !isOpen }));
 				if (isOpen || !load || loading[key]) return;
+				// 加载失败不弹全局错误：就地记 error[key]，树内显示可重试的错误行
+				setError((s) => Object.assign({}, s, { [key]: undefined }));
 				setLoading((s) => Object.assign({}, s, { [key]: true }));
 				load()
-					.catch((e) => props.onError(e))
+					.catch((e) => setError((s) => Object.assign({}, s, { [key]: e && e.message ? e.message : String(e) })))
 					.finally(() => setLoading((s) => Object.assign({}, s, { [key]: false })));
+			}
+			function retry(key, fn) {
+				setError((s) => Object.assign({}, s, { [key]: undefined }));
+				setOpen((o) => Object.assign({}, o, { [key]: false }));
+				Promise.resolve().then(() => fn());
 			}
 			function toggleConn(c) {
 				if (!projectPath) return;
@@ -787,6 +797,7 @@ window.__ModuleLoader__.load({
 				if (!isOpen) continue;
 				const list = dbs[c.id];
 				if (loading[ck]) { treeRows.push(treerow(ck + ":l", 1, false, true, "…")); continue; }
+				if (error[ck]) { treeRows.push(treerow(ck + ":x", 1, false, true, t("loadFailed") + "：" + error[ck], () => retry(ck, () => toggleConn(c)), false)); continue; }
 				if (!list) continue;
 				if (list.length === 0) { treeRows.push(treerow(ck + ":e", 1, false, true, t("noDatabases"))); continue; }
 				for (const d of list) {
@@ -797,6 +808,7 @@ window.__ModuleLoader__.load({
 					const tkey = c.id + "/" + d;
 					const tlist = tablesMap[tkey];
 					if (loading[dk]) { treeRows.push(treerow(dk + ":l", 2, false, true, "…")); continue; }
+					if (error[dk]) { treeRows.push(treerow(dk + ":x", 2, false, true, t("loadFailed") + "：" + error[dk], () => retry(dk, () => toggleDb(c, d)))); continue; }
 					if (!tlist) continue;
 					if (tlist.length === 0) { treeRows.push(treerow(dk + ":e", 2, false, true, t("noTables"))); continue; }
 					for (const tb of tlist) {

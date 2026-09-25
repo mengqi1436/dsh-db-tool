@@ -192,6 +192,9 @@ export async function createDmAdapter(
     return sanitizeIdentifier(owner, 'schema/owner 名');
   }
 
+  /** DM 内建系统 schema：受安全体系保护，任何用户（含 SYSDBA）无 SELECT 权，列表中过滤 */
+  const DM_SYSTEM_SCHEMAS = new Set(['SYS', 'SYSSSO', 'SYSAUDITOR', 'SYSSCO', 'CTISYS']);
+
   const connUser = resolveDmConn(conn).user.toUpperCase();
 
   /**
@@ -267,6 +270,9 @@ export async function createDmAdapter(
     async listDatabases(): Promise<string[]> {
       // DM 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表者），
       // 失败回退当前用户 schema，绝不用 host 等占位值（会污染 owner 参数）。
+      // 系统安全 schema（SYSSSO=MAC 标记/SYSAUDITOR=审计/SYSSCO/CTISYS=全密/SYS）
+      // 连 SYSDBA 也无 SELECT 权（DM 有意保护），列出只会让展开时报 [-5504]，
+      // 故过滤（保留当前用户自身，支持直接以系统用户连接的场景）。
       try {
         const r = await withConn((c) => c.execute(
           'SELECT DISTINCT OWNER FROM ALL_TABLES ORDER BY OWNER',
@@ -275,7 +281,8 @@ export async function createDmAdapter(
         ));
         const owners = (r.rows ?? [])
           .map((row) => String(Object.values(row)[0] ?? '').trim())
-          .filter(Boolean);
+          .filter(Boolean)
+          .filter((o) => o === connUser || !DM_SYSTEM_SCHEMAS.has(o.toUpperCase()));
         return owners.length > 0 ? owners : [connUser];
       } catch {
         return [connUser];

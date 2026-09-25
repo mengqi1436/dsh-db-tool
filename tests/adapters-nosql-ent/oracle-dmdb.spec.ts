@@ -162,8 +162,8 @@ describe('Oracle 元数据（mock pool）', () => {
     expect(r.ok).toBe(true);
     expect(r.serverInfo).toBe('Oracle Database 19c');
   });
-  it('listDatabases 列 all_tables 有表 schema，空/失败回退当前用户', async () => {
-    const pool = makeOraPool([{ OWNER: 'SCOTT' }, { OWNER: 'HR' }], [{ name: 'OWNER' }]);
+  it('listDatabases 列 all_tables 有表 schema，过滤内建系统 schema，空/失败回退当前用户', async () => {
+    const pool = makeOraPool([{ OWNER: 'SCOTT' }, { OWNER: 'SYSTEM' }, { OWNER: 'APEX_2400' }, { OWNER: 'HR' }], [{ name: 'OWNER' }]);
     const a = await createOracleAdapter(oraConn, { pool });
     expect(await a.listDatabases()).toEqual(['SCOTT', 'HR']);
     expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tables');
@@ -282,8 +282,8 @@ describe('达梦 DM（mock pool）', () => {
     expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
     expect(ts).toEqual([{ name: 'T1', type: 'TABLE' }]);
   });
-  it('listDatabases 列 ALL_TABLES 有表 schema（非 host 占位），空/失败回退当前用户', async () => {
-    const pool = makeDmPool([{ OWNER: 'SYSDBA' }, { OWNER: 'APP' }], [{ name: 'OWNER' }]);
+  it('listDatabases 列 ALL_TABLES 有表 schema（非 host 占位），过滤系统安全 schema，空/失败回退当前用户', async () => {
+    const pool = makeDmPool([{ OWNER: 'SYSDBA' }, { OWNER: 'SYSSSO' }, { OWNER: 'SYSAUDITOR' }, { OWNER: 'APP' }], [{ name: 'OWNER' }]);
     const a = await createDmAdapter(dmConn, { pool });
     expect(await a.listDatabases()).toEqual(['SYSDBA', 'APP']);
     expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');

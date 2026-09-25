@@ -275,6 +275,8 @@ export async function createOracleAdapter(
     async listDatabases(): Promise<string[]> {
       // Oracle 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表者），
       // 失败回退当前用户 schema，绝不用 service 名等占位值（会污染 owner 参数）。
+      // 内建系统 schema（数据字典/组件账户）业务不可查询，列出只会让展开时报
+      // ORA-00942/ORA-01031 类错误，故过滤（保留当前用户自身）。
       try {
         const r = await withConn((c) => c.execute(
           'SELECT DISTINCT owner FROM all_tables ORDER BY owner',
@@ -283,7 +285,8 @@ export async function createOracleAdapter(
         ));
         const owners = ((r.rows as Record<string, unknown>[] | undefined) ?? [])
           .map((row) => String(row.OWNER ?? '').trim())
-          .filter(Boolean);
+          .filter(Boolean)
+          .filter((o) => o === currentUser || !isOraSystemSchema(o.toUpperCase()));
         return owners.length > 0 ? owners : [currentUser];
       } catch {
         return [currentUser];
@@ -388,6 +391,15 @@ export async function createOracleAdapter(
   };
 
   const currentUser = resolveOracleConn(conn).user.toUpperCase();
+
+  /** Oracle 内建系统 schema（核心名单 + APEX/flows 组件前缀）：业务不可查询，列表中过滤 */
+  const ORA_SYSTEM_SCHEMAS = new Set([
+    'SYS', 'SYSTEM', 'OUTLN', 'XDB', 'CTXSYS', 'MDSYS', 'OLAPSYS', 'ORDDATA', 'ORDSYS',
+    'WMSYS', 'DBSNMP', 'APPQOSSYS', 'AUDSYS', 'LBACSYS', 'DVSYS', 'OJVMSYS', 'DBSFWUSER',
+    'GSMADMIN_INTERNAL', 'GSMCATUSER', 'GGSYS', 'REMOTE_SCHEDULER_AGENT', 'ANONYMOUS',
+  ]);
+  const isOraSystemSchema = (o: string) =>
+    ORA_SYSTEM_SCHEMAS.has(o) || /^(APEX|FLOWS)_/.test(o);
 
   return adapter;
 }
