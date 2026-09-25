@@ -621,7 +621,7 @@ window.__ModuleLoader__.load({
 										{ className: "dbt-muted", style: { fontFamily: MONO_FONT, fontSize: 11, wordBreak: "break-all" } },
 										c.safeUrl || (c.host + ":" + (c.port || "")),
 									) : null,
-									testInfo[c.id] ? React.createElement("div", { className: "dbt-muted" }, testInfo[c.id]) : null,
+									testInfo[c.id] ? React.createElement("div", { style: { fontSize: 12, color: testInfo[c.id].startsWith("✓") ? "var(--dbt-success, #30d158)" : "var(--dbt-danger, #ff453a)" } }, testInfo[c.id]) : null,
 								),
 								// 右列：动作按钮（次要语义，danger 仅删除）
 								React.createElement(
