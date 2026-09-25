@@ -265,10 +265,21 @@ export async function createDmAdapter(
     },
 
     async listDatabases(): Promise<string[]> {
-      // 单连接池固定服务地址，仅当前实例可寻址（⚠️ 推断：不做跨库枚举）
-      const { connectString } = resolveDmConn(conn);
-      const host = connectString.replace(/^dm:\/\/[^@]*@/, '').split(/[/:]/)[0] ?? 'dm';
-      return [host];
+      // DM 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表者），
+      // 失败回退当前用户 schema，绝不用 host 等占位值（会污染 owner 参数）。
+      try {
+        const r = await withConn((c) => c.execute(
+          'SELECT DISTINCT OWNER FROM ALL_TABLES ORDER BY OWNER',
+          [],
+          execOpts,
+        ));
+        const owners = (r.rows ?? [])
+          .map((row) => String(Object.values(row)[0] ?? '').trim())
+          .filter(Boolean);
+        return owners.length > 0 ? owners : [connUser];
+      } catch {
+        return [connUser];
+      }
     },
 
     async listTables(database?: string): Promise<TableInfo[]> {

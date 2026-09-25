@@ -162,9 +162,19 @@ describe('Oracle 元数据（mock pool）', () => {
     expect(r.ok).toBe(true);
     expect(r.serverInfo).toBe('Oracle Database 19c');
   });
-  it('listDatabases 返回服务名', async () => {
-    const a = await createOracleAdapter(oraConn, { pool: makeOraPool() });
-    expect(await a.listDatabases()).toEqual(['ORCLPDB1']);
+  it('listDatabases 列 all_tables 有表 schema，空/失败回退当前用户', async () => {
+    const pool = makeOraPool([{ OWNER: 'SCOTT' }, { OWNER: 'HR' }], [{ name: 'OWNER' }]);
+    const a = await createOracleAdapter(oraConn, { pool });
+    expect(await a.listDatabases()).toEqual(['SCOTT', 'HR']);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tables');
+
+    const empty = await createOracleAdapter(oraConn, { pool: makeOraPool([], []) });
+    expect(await empty.listDatabases()).toEqual(['SCOTT']);
+
+    const broken = makeOraPool();
+    broken.connObj.execute.mockRejectedValue(new Error('network down'));
+    const b = await createOracleAdapter(oraConn, { pool: broken });
+    expect(await b.listDatabases()).toEqual(['SCOTT']);
   });
   it('listTables 查 all_tables，owner 默认大写用户', async () => {
     const pool = makeOraPool([{ TABLE_NAME: 'EMP' }], [{ name: 'TABLE_NAME' }]);
@@ -271,6 +281,20 @@ describe('达梦 DM（mock pool）', () => {
     const ts = await a.listTables();
     expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
     expect(ts).toEqual([{ name: 'T1', type: 'TABLE' }]);
+  });
+  it('listDatabases 列 ALL_TABLES 有表 schema（非 host 占位），空/失败回退当前用户', async () => {
+    const pool = makeDmPool([{ OWNER: 'SYSDBA' }, { OWNER: 'APP' }], [{ name: 'OWNER' }]);
+    const a = await createDmAdapter(dmConn, { pool });
+    expect(await a.listDatabases()).toEqual(['SYSDBA', 'APP']);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
+
+    const empty = await createDmAdapter(dmConn, { pool: makeDmPool([], []) });
+    expect(await empty.listDatabases()).toEqual(['SYSDBA']);
+
+    const broken = makeDmPool();
+    broken.connObj.execute.mockRejectedValue(new Error('network down'));
+    const b = await createDmAdapter(dmConn, { pool: broken });
+    expect(await b.listDatabases()).toEqual(['SYSDBA']);
   });
   it('ro 模式拒绝 execute（错误信息含「连接为只读(ro)模式」）', async () => {
     const a = await createDmAdapter(dmConn, { mode: 'ro', pool: makeDmPool() });

@@ -273,10 +273,21 @@ export async function createOracleAdapter(
     },
 
     async listDatabases(): Promise<string[]> {
-      // 单连接池固定服务名，仅当前服务可寻址
-      const { connectString } = resolveOracleConn(conn);
-      const service = connectString.split('/')[1] ?? 'ORCL';
-      return [service];
+      // Oracle 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表者），
+      // 失败回退当前用户 schema，绝不用 service 名等占位值（会污染 owner 参数）。
+      try {
+        const r = await withConn((c) => c.execute(
+          'SELECT DISTINCT owner FROM all_tables ORDER BY owner',
+          [],
+          execOpts,
+        ));
+        const owners = ((r.rows as Record<string, unknown>[] | undefined) ?? [])
+          .map((row) => String(row.OWNER ?? '').trim())
+          .filter(Boolean);
+        return owners.length > 0 ? owners : [currentUser];
+      } catch {
+        return [currentUser];
+      }
     },
 
     async listTables(database?: string): Promise<TableInfo[]> {
