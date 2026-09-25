@@ -57,7 +57,7 @@ DatabaseManager({ action: "schema", conn_id: "c1", database: "shop", table: "use
 ```
 
 - 表列表返回 `TableInfo[]`：`{name, type?, comment?, database?}`（Redis 的 type 为 hash|list|set|zset|string|stream）。
-- PostgreSQL/GaussDB 为「数据库 → 模式(schema) → 表」三层语义：`database` 参数此时应传 **schema 名**（如 `public`）；不确定时先执行 `SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema'` 列出可用 schema。
+- PostgreSQL/GaussDB 为「数据库 → 模式(schema) → 表」三层语义，支持跨库浏览（Navicat 行为）：`database` 参数传 `"库名.schema"` 即可浏览连接库之外的库（如 `gycwd.public`，服务端自动用同一凭据开指向该库的连接）；只传 schema 名（如 `public`）则查连接自身库。`listSchemas(database)` 的参数是**纯库名**。不确定 schema 时先执行 `SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema'`。
 - 列结构返回 `ColumnInfo[]`：`{name, dataType, nullable, key?, default?, comment?}`。
 
 ### 5. preview — 预览表数据

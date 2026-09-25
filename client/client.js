@@ -761,20 +761,23 @@ window.__ModuleLoader__.load({
 			}
 			function toggleSchema(c, d, s) {
 				if (!projectPath) return;
+				// PG 系跨库浏览：tables 的 database 传 "库名.schema"（Navicat 官方行为，服务端按库开连接）
 				toggle("s:" + c.id + "/" + d + "/" + s, () =>
-					api("tables" + qs({ project: projectPath, connId: c.id, database: s })).then((list) => {
-						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + s]: list || [] }));
+					api("tables" + qs({ project: projectPath, connId: c.id, database: d + "." + s })).then((list) => {
+						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + d + "/" + s]: list || [] }));
 					}));
 			}
 			// 请求序号守卫：快速切换选中表/翻页时，丢弃晚到的旧响应，防止旧数据覆盖新选中项
 			const openSeq = React.useRef(0);
 			const openTable = React.useCallback((s, pg) => {
 				if (!s || !projectPath) return;
+				// PG 系跨库：database 传 "库名.schema"；其它库传库名
+				const dbRef = s.schemaName ? s.db + "." + s.schemaName : s.db;
 				const seq = ++openSeq.current;
 				setBusy("open");
 				Promise.all([
-					api("schema" + qs({ project: projectPath, connId: s.connId, database: s.db, table: s.table.name })),
-					api("preview" + qs({ project: projectPath, connId: s.connId, database: s.db, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
+					api("schema" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name })),
+					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
 				])
 					.then(([sch, prev]) => {
 						if (seq !== openSeq.current) return; // 旧请求晚到，丢弃
@@ -827,16 +830,16 @@ window.__ModuleLoader__.load({
 							const sOpen = !!open[sk];
 							treeRows.push(treerow(sk, 2, sOpen, false, s, () => toggleSchema(c, d, s)));
 							if (!sOpen) continue;
-							const tlist = tablesMap[c.id + "/" + s];
+							const tlist = tablesMap[c.id + "/" + d + "/" + s];
 							if (loading[sk]) { treeRows.push(treerow(sk + ":l", 3, false, true, "…")); continue; }
 							if (error[sk]) { treeRows.push(treerow(sk + ":x", 3, false, true, t("loadFailed") + "：" + error[sk], () => retry(sk, () => toggleSchema(c, d, s)))); continue; }
 							if (!tlist) continue;
 							if (tlist.length === 0) { treeRows.push(treerow(sk + ":e", 3, false, true, t("noTables"))); continue; }
 							for (const tb of tlist) {
-								const active = !!sel && sel.connId === c.id && sel.db === s && sel.table.name === tb.name;
+								const active = !!sel && sel.connId === c.id && sel.db === d && sel.schemaName === s && sel.table.name === tb.name;
 								treeRows.push(treerow("t:" + sk + "/" + tb.name, 3, false, true,
 									tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
-									() => setSel({ connId: c.id, db: s, table: tb }), active));
+									() => setSel({ connId: c.id, db: d, schemaName: s, table: tb }), active));
 							}
 						}
 						continue;
@@ -871,7 +874,7 @@ window.__ModuleLoader__.load({
 							["structure", "preview"].map((v) =>
 								React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) }, v === "structure" ? t("structure") : t("preview"))),
 						),
-						React.createElement("strong", null, (view === "structure" ? t("structure") : t("preview")) + " · " + sel.db + " / " + sel.table.name),
+						React.createElement("strong", null, (view === "structure" ? t("structure") : t("preview")) + " · " + sel.db + (sel.schemaName ? "." + sel.schemaName : "") + " / " + sel.table.name),
 						view === "structure"
 							? resultTable(
 								[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],

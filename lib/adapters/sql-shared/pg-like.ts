@@ -74,27 +74,59 @@ export async function createPgLikeAdapter(
 ): Promise<DatabaseAdapter & { tx: TxHandle }> {
   const pool = new Driver.Pool(poolConfig(conn));
   const readOnly = opts?.mode === 'ro';
-  if (readOnly) {
-    // 服务器级 ro 强制（官方手段）：每个新连接会话设为只读事务。
-    // fail-closed：SET 失败时 release(err) 让驱动销毁该连接、等待的 acquire 收到错误——
-    // 会话级只读是 ro 的最后防线，不允许静默降级成可写连接。
-    pool.on('connect', (c) => {
+  // 服务器级 ro 强制（官方手段）：每个新连接会话设为只读事务。
+  // fail-closed：SET 失败时 release(err) 让驱动销毁该连接、等待的 acquire 收到错误——
+  // 会话级只读是 ro 的最后防线，不允许静默降级成可写连接。
+  const setupReadOnly = (p: PgLikePool): void => {
+    p.on('connect', (c) => {
       void c.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY').catch((err: unknown) => {
         c.release(err instanceof Error ? err : new Error(String(err)));
       });
     });
     // pg 约定：release(err) 若无等待者会 emit pool 'error'，不监听会崩进程
-    pool.on('error', () => {});
-  }
+    p.on('error', () => {});
+  };
+  if (readOnly) setupReadOnly(pool);
 
   // 事务激活期间所有 query/execute 路由到同一 client
   let txClient: PgLikeClient | null = null;
   const run = (sql: string, params?: unknown[]): Promise<PgLikeResult> =>
     txClient ? txClient.query(sql, params) : pool.query(sql, params);
 
+  // 跨库浏览（Navicat 行为）：树列出服务器上所有库，展开非连接库时用同一凭据开指向该库的池。
+  // 池按库缓存复用；ro 模式下新池同样套会话只读。连接自身的库（fields.database 或 url 库名）直接复用主池。
+  const dbPools = new Map<string, PgLikePool>();
+  const mainDb = (): string | null => {
+    if (conn.fields) return conn.fields.database ? String(conn.fields.database) : null;
+    if (!conn.url) return null;
+    try {
+      return decodeURIComponent(new URL(conn.url).pathname.replace(/^\//, '')) || null;
+    } catch {
+      return null;
+    }
+  };
+  const poolFor = (db: string | null): PgLikePool => {
+    if (!db || db === mainDb()) return pool;
+    const cached = dbPools.get(db);
+    if (cached) return cached;
+    const created = new Driver.Pool({ ...poolConfig(conn), database: db });
+    if (readOnly) setupReadOnly(created);
+    dbPools.set(db, created);
+    return created;
+  };
+
   const defaultSchema = (): string => {
     const f = conn.fields;
     return f && typeof f.schema === 'string' && f.schema ? f.schema : 'public';
+  };
+
+  /** 浏览目标解析："db.schema"（跨库）| "schema"（当前库）| 空（当前库默认 schema）。
+   *  PG 标识符不允许裸点，按第一个点切分安全；多余点由 assertIdent 拒绝。 */
+  const parseBrowseTarget = (ref: string | undefined, what: string): { db: string | null; schema: string } => {
+    if (!ref) return { db: null, schema: defaultSchema() };
+    const i = ref.indexOf('.');
+    if (i < 0) return { db: null, schema: assertIdent(ref, what) };
+    return { db: assertIdent(ref.slice(0, i), '数据库'), schema: assertIdent(ref.slice(i + 1), what) };
   };
 
   function toQueryResult(res: PgLikeResult): QueryResult {
@@ -177,10 +209,11 @@ export async function createPgLikeAdapter(
       }),
 
     // 库内 schema 清单（Navicat 官方层级：数据库 → 模式 → 表）。
-    // PG 连接固定单库，database 参数无法跨库，忽略；pg_* 前缀覆盖 pg_catalog/pg_toast/pg_temp 系。
-    listSchemas: () =>
+    // database 参数 = 库名（UI 树第一层）；pg_* 前缀覆盖 pg_catalog/pg_toast/pg_temp 系。
+    listSchemas: (database) =>
       humanize(`${kind} 列出模式`, async () => {
-        const res = await pool.query(
+        const p = poolFor(database ? assertIdent(database, '数据库') : null);
+        const res = await p.query(
           `SELECT nspname FROM pg_catalog.pg_namespace
            WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'
            ORDER BY nspname`,
@@ -188,10 +221,11 @@ export async function createPgLikeAdapter(
         return res.rows.map((r) => String(r.nspname));
       }),
 
+    // database 参数 = "库名.schema"（跨库浏览）或 "schema"（当前库）
     listTables: (database) =>
       humanize(`${kind} 列出表`, async () => {
-        const schema = database ? assertIdent(database, 'schema') : defaultSchema();
-        const res = await pool.query(
+        const { db, schema } = parseBrowseTarget(database, 'schema');
+        const res = await poolFor(db).query(
           `SELECT table_name, table_type FROM information_schema.tables
            WHERE table_schema = $1 ORDER BY table_name`,
           [schema],
@@ -201,16 +235,17 @@ export async function createPgLikeAdapter(
           return {
             name: String(r.table_name),
             type: rawType === 'BASE TABLE' ? 'TABLE' : rawType,
-            database: schema,
+            database: db ? `${db}.${schema}` : schema,
           } satisfies TableInfo;
         });
       }),
 
     describeTable: (table, database) =>
       humanize(`${kind} 查看表结构`, async () => {
-        const schema = database ? assertIdent(database, 'schema') : defaultSchema();
+        const { db, schema } = parseBrowseTarget(database, 'schema');
         const tbl = assertIdent(table, '表名');
-        const res = await pool.query(
+        const p = poolFor(db);
+        const res = await p.query(
           `SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, c.character_maximum_length,
                   col_description((quote_ident($1) || '.' || quote_ident($2))::regclass, c.ordinal_position) AS col_comment
            FROM information_schema.columns c
@@ -218,8 +253,8 @@ export async function createPgLikeAdapter(
            ORDER BY c.ordinal_position`,
           [schema, tbl],
         );
-        if (res.rows.length === 0) throw new Error(`表不存在: ${schema}.${tbl}`);
-        const pks = await pool.query(
+        if (res.rows.length === 0) throw new Error(`表不存在: ${db ? db + '.' : ''}${schema}.${tbl}`);
+        const pks = await p.query(
           `SELECT kcu.column_name FROM information_schema.table_constraints tc
            JOIN information_schema.key_column_usage kcu
              ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
@@ -243,17 +278,19 @@ export async function createPgLikeAdapter(
 
     previewRows: (table, limit, database, offset) =>
       humanize(`${kind} 预览行`, async () => {
-        const schema = database ? assertIdent(database, 'schema') : defaultSchema();
+        const { db, schema } = parseBrowseTarget(database, 'schema');
         const tbl = assertIdent(table, '表名');
         const lim = clampLimit(limit);
         const off = clampOffset(offset);
-        const res = await run(
-          `SELECT * FROM ${quoteIdent(schema)}.${quoteIdent(tbl)} LIMIT $1 OFFSET $2`,
-          [lim, off],
-        );
+        const sql = `SELECT * FROM ${quoteIdent(schema)}.${quoteIdent(tbl)} LIMIT $1 OFFSET $2`;
+        // 当前库保持事务路由（run）；跨库必须用该库自己的池
+        const res = db ? await poolFor(db).query(sql, [lim, off]) : await run(sql, [lim, off]);
         return toQueryResult(res);
       }),
 
-    close: () => humanize(`${kind} 关闭连接`, () => pool.end()),
+    close: () =>
+      humanize(`${kind} 关闭连接`, async () => {
+        await Promise.all([pool.end(), ...[...dbPools.values()].map((p) => p.end())]);
+      }),
   };
 }
