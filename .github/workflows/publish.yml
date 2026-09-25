@@ -1,0 +1,64 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write # 打 git tag
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      - name: Check version changed
+        id: ver
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          REG=$(npm view dsh-db-tool version 2>/dev/null || echo "none")
+          if [ "$PKG" = "$REG" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "version unchanged ($PKG), skip publish"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "version changed: registry=$PKG local=$REG"
+            echo "version=$PKG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.ver.outputs.publish == 'true'
+        run: npm install
+
+      - name: Build
+        if: steps.ver.outputs.publish == 'true'
+        run: npm run build
+
+      - name: Test
+        if: steps.ver.outputs.publish == 'true'
+        run: npm test
+
+      - name: Publish
+        if: steps.ver.outputs.publish == 'true'
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Tag release
+        if: steps.ver.outputs.publish == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.ver.outputs.version }}" -m "dsh-db-tool v${{ steps.ver.outputs.version }}"
+          git push origin "v${{ steps.ver.outputs.version }}"
