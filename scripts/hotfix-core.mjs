@@ -194,8 +194,9 @@ function commonGlobalRoots() {
  */
 export function applyToIndexFile(indexFile, patchFile) {
 	if (isGitApplyable(indexFile, patchFile)) {
-		execFileSync('git', ['apply', '-p1', '--directory', path.dirname(path.dirname(indexFile)), patchFile], {
-			stdio: 'ignore',
+		const bootRoot = path.dirname(path.dirname(indexFile));
+		execFileSync('git', ['apply', '-p1', '--directory', '.', patchFile], {
+			cwd: bootRoot,
 		});
 		return 'git-apply';
 	}
@@ -209,8 +210,9 @@ export function applyToIndexFile(indexFile, patchFile) {
 function isGitApplyable(indexFile, patchFile) {
 	const bootRoot = path.dirname(path.dirname(indexFile));
 	try {
-		execFileSync('git', ['apply', '--check', '-p1', '--directory', bootRoot, patchFile], {
-			stdio: 'ignore',
+		// --directory 只接受相对路径（git 拒绝绝对目标 "invalid path"），故以包根为 cwd。
+		execFileSync('git', ['apply', '--check', '-p1', '--directory', '.', patchFile], {
+			cwd: bootRoot,
 		});
 		return true;
 	} catch {

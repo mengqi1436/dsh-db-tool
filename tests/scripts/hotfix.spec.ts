@@ -176,8 +176,9 @@ describe('git apply path', () => {
 			}
 			execFileSync('tar', ['-xzf', tgz, '-C', tmp], { cwd: tmp, stdio: 'ignore' });
 			fs.copyFileSync(path.join(tmp, 'package', 'lib', 'index.js'), path.join(work, 'index.js'));
-			execFileSync('git', ['apply', '-p1', '--directory', path.join(tmp, 'pkg'), patchFile], {
-				stdio: 'ignore',
+			// git apply 的 --directory 不接受绝对路径（git 拒绝 "invalid path"），必须相对 cwd。
+			execFileSync('git', ['apply', '-p1', '--directory', 'pkg', patchFile], {
+				cwd: tmp,
 			});
 			const patched = fs.readFileSync(path.join(work, 'index.js'), 'utf8');
 			expect(isApplied(patched)).toBe(true);
