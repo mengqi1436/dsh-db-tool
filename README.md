@@ -26,11 +26,14 @@ DSH 社区插件：在聊天中安全操作数据库，配套侧边栏管理台�
 ## 安装
 
 ```bash
-# 发布模式
-dsh plugin --profile web add "dsh-db-tool@github:<user>/dsh-db-tool"
+# npm（推荐）
+dsh plugin --profile web add dsh-db-tool
+
+# GitHub 源码
+dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
 
 # 本地开发
-pnpm dsh web --patch ./cordis.patch.yml
+dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 ```
 
 GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；oracledb 安装脚本需 `npm approve-scripts oracledb`。详见 [docs/install.md](docs/install.md)。
