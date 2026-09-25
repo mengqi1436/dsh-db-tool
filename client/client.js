@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
 			fieldsPort: "端口",
 			fieldsUser: "用户名",
 			fieldsPassword: "密码",
+			passwordSaved: "已保存（留空保持不变）",
 			fieldsDatabase: "数据库名",
 			ssl: "启用 SSL",
 			test: "测试",
@@ -126,6 +127,7 @@ window.__ModuleLoader__.load({
 			fieldsPort: "Port",
 			fieldsUser: "User",
 			fieldsPassword: "Password",
+			passwordSaved: "Saved (leave blank to keep)",
 			fieldsDatabase: "Database",
 			ssl: "Enable SSL",
 			test: "Test",
@@ -486,6 +488,8 @@ window.__ModuleLoader__.load({
 			}
 			function draftBody() {
 				const body = { kind: form.kind, ssl: !!form.ssl };
+				// 编辑已有连接：透传 connId，服务端测试草稿时拼回已存机密（密码留空/url 未改动语义）
+				if (props.initial) body.connId = form.id;
 				// 编辑保存语义：url 模式未改动（仍等于回填的脱敏 url）→ 不发 url，保留 secrets 原值
 				const origUrl = props.initial && props.initial.mode === "url" ? props.initial.url : undefined;
 				if (form.mode === "url") {
@@ -547,7 +551,7 @@ window.__ModuleLoader__.load({
 							React.createElement("input", { placeholder: t("fieldsDatabase"), value: form.database, onChange: (e) => patch({ database: e.target.value }) })),
 						React.createElement("div", { className: "dbt-row" },
 							React.createElement("input", { placeholder: t("fieldsUser"), value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
-							React.createElement("input", { type: "password", placeholder: t("fieldsPassword"), value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
+							React.createElement("input", { type: "password", placeholder: props.initial && props.initial.hasPassword ? t("passwordSaved") : t("fieldsPassword"), value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
 					),
 				// 分组 3：操作
 				React.createElement(

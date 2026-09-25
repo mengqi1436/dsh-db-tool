@@ -34,6 +34,7 @@ describe('ConnectionStore', () => {
       host: 'localhost',
       port: 3306,
       database: 'shop',
+      hasPassword: true,
     });
 
     const connsJson = readStoreFile(home, 'connections.json');
@@ -90,6 +91,19 @@ describe('ConnectionStore', () => {
     expect(store.connections.get('u')!.mode).toBe('url');
   });
 
+  it('hasPassword 指示：带密码创建/更新后为 true，明文绝不出库；无密码为 false', () => {
+    store.connections.create({ id: 'p', kind: 'mysql', fields: { host: 'h', password: 'SECRET1' } });
+    store.connections.create({ id: 'n', kind: 'mysql', fields: { host: 'h' } });
+    expect(store.connections.get('p')!.hasPassword).toBe(true);
+    expect(store.connections.get('n')!.hasPassword).toBeUndefined();
+    expect(store.connections.list().find((m) => m.id === 'p')!.hasPassword).toBe(true);
+    // 密码留空更新 → 原密码保留，hasPassword 仍 true
+    const updated = store.connections.update('p', { fields: { host: 'h2' } });
+    expect(updated!.hasPassword).toBe(true);
+    const listJson = readStoreFile(home, 'connections.json');
+    expect(listJson).not.toContain('SECRET1');
+  });
+
   it('clearUrl：从 url 方式切到分字段保存时清除 urlSafe 与 secrets.url，密码保留', () => {
     store.connections.create({
       id: 'a', kind: 'postgresql', url: URL_WITH_SECRET,
@@ -108,6 +122,20 @@ describe('ConnectionStore', () => {
     const target = store.connections.testTarget('a');
     expect(target.url).toBeUndefined();
     expect(target.fields).toEqual({ host: 'h2', port: 5432, user: 'u2', password: 'FIELDSECRET' });
+  });
+
+  it('clearUrl 密码迁移：url 内嵌密码切分字段时迁移为 secrets.password', () => {
+    store.connections.create({ id: 'm', kind: 'postgresql', url: 'postgresql://app:URLPASS%40x@h:5432/db' });
+    const updated = store.connections.update('m', { clearUrl: true, fields: { host: 'h3', user: 'app' } });
+    expect(updated!.mode).toBe('fields');
+    const sec = store.secrets.get('m');
+    expect(sec?.url).toBeUndefined();
+    expect(sec?.password).toBe('URLPASS@x'); // decodeURIComponent 还原
+    expect(store.connections.testTarget('m').fields?.password).toBe('URLPASS@x');
+    // url 无内嵌密码时不误写空密码
+    store.connections.create({ id: 'm2', kind: 'postgresql', url: 'postgresql://app@h:5432/db' });
+    store.connections.update('m2', { clearUrl: true, fields: { host: 'h4' } });
+    expect(store.secrets.get('m2')?.password).toBeUndefined();
   });
 
   it('testTarget 返回含机密的 ResolvedConnection；不存在抛错', () => {

@@ -89,4 +89,44 @@ describe('DbToolService: 构造与错误契约', () => {
       await fx.dispose();
     }
   });
+
+  it('testDraft 带 connId：编辑场景拼回已存机密（url 未改动→原 url；密码留空→原密码），绝不回传客户端', async () => {
+    const fx = await makeFixture('rw');
+    try {
+      // 连接 c1 以 url 方式创建（CONN_URL 含密码 s3cret），另建一个分字段连接
+      fx.service.createConnection({
+        id: 'cf', kind: 'mysql',
+        fields: { host: 'h1', port: 3306, user: 'app', password: 'FIELDSECRET' },
+      });
+      const seen: { url?: string; fields?: Record<string, unknown>; metaId?: string } = {};
+      const svc = new DbToolService(fx.store, {
+        adapterResolver: async () => async (conn) => {
+          seen.url = conn.url;
+          seen.fields = conn.fields;
+          seen.metaId = conn.meta.id;
+          return fakeAdapter({ connId: conn.meta.id });
+        },
+      });
+      try {
+        // url 模式编辑、url 未改动（不发 url）→ 拼回已存 url
+        await svc.testDraft({ kind: 'mysql', connId: CONN_ID });
+        expect(seen.url).toBe(CONN_URL);
+        expect(seen.metaId).toBe(CONN_ID);
+        // fields 模式编辑、密码留空 → 拼回已存密码；用户手改 host 保留
+        await svc.testDraft({ kind: 'mysql', connId: 'cf', fields: { host: 'h2', user: 'app' } });
+        expect(seen.fields).toEqual({ host: 'h2', user: 'app', password: 'FIELDSECRET' });
+        // 密码手改 → 用新密码不覆盖
+        await svc.testDraft({ kind: 'mysql', connId: 'cf', fields: { host: 'h1', password: 'NEWPASS' } });
+        expect(seen.fields).toEqual({ host: 'h1', password: 'NEWPASS' });
+        // 不传 connId → 纯草稿不拼回（原行为）
+        await svc.testDraft({ kind: 'mysql', fields: { host: 'h1', user: 'app' } });
+        expect(seen.fields).toEqual({ host: 'h1', user: 'app' });
+        // 返回值只是测试结果，无机密泄漏面
+      } finally {
+        await svc.dispose();
+      }
+    } finally {
+      await fx.dispose();
+    }
+  });
 });

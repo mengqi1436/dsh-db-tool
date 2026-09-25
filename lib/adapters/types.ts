@@ -76,6 +76,8 @@ export interface ConnectionMeta {
   port?: number;
   user?: string;
   database?: string;
+  /** 已保存密码（仅布尔指示，明文绝不出库）——编辑表单占位/测试草稿拼回用 */
+  hasPassword?: boolean;
 }
 
 /** 密码等 secrets 注入后交给适配器工厂的完整配置（绝不返回给模型/HTTP） */

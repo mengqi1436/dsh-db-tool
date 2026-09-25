@@ -187,6 +187,8 @@ async function route(
       ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
       ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
       ...(ssl !== undefined ? { ssl } : {}),
+      // 编辑已有连接时透传：服务端拼回已存机密（留空密码/url 未改动的测试语义）
+      ...(b['connId'] !== undefined ? { connId: optStr(b['connId']) } : {}),
     }));
   }
 

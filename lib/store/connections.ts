@@ -79,8 +79,9 @@ function splitPassword(fields: Record<string, unknown> | undefined): {
   return { clean, password: password as string };
 }
 
-/** ConnRecord → 用户可见的 ConnectionMeta（契约见 lib/adapters/types.ts） */
-function toMeta(rec: ConnRecord): ConnectionMeta {
+/** ConnRecord → 用户可见的 ConnectionMeta（契约见 lib/adapters/types.ts）。
+ *  hasPassword 只回布尔指示，明文绝不出库。 */
+function toMeta(rec: ConnRecord, hasPassword = false): ConnectionMeta {
   const meta: ConnectionMeta = { id: rec.id, kind: rec.kind };
   if (rec.name !== undefined) meta.name = rec.name;
   if (rec.urlSafe !== undefined) {
@@ -89,6 +90,7 @@ function toMeta(rec: ConnRecord): ConnectionMeta {
   } else {
     meta.mode = 'fields';
   }
+  if (hasPassword) meta.hasPassword = true;
   if (rec.fields) {
     const { host, port, user, database } = rec.fields;
     if (typeof host === 'string') meta.host = host;
@@ -122,13 +124,18 @@ export class ConnectionStore {
     return data.connections.find((c) => c.id === id);
   }
 
+  /** 该连接是否已存密码（布尔指示，不读明文） */
+  private hasPassword(id: string): boolean {
+    return this.secrets.get(id)?.password !== undefined;
+  }
+
   list(): ConnectionMeta[] {
-    return this.load().connections.map(toMeta);
+    return this.load().connections.map((r) => toMeta(r, this.hasPassword(r.id)));
   }
 
   get(id: string): ConnectionMeta | undefined {
     const rec = this.findRec(this.load(), id);
-    return rec ? toMeta(rec) : undefined;
+    return rec ? toMeta(rec, this.hasPassword(id)) : undefined;
   }
 
   /** 新建连接；id 已存在时抛错 */
@@ -154,7 +161,7 @@ export class ConnectionStore {
 
     data.connections.push(rec);
     this.save(data);
-    return toMeta(rec);
+    return toMeta(rec, this.hasPassword(input.id));
   }
 
   /** 部分更新；不存在返回 undefined。url/fields 变更时同步拆分 secrets */
@@ -176,11 +183,23 @@ export class ConnectionStore {
     }
     if (patch.clearUrl && rec.urlSafe !== undefined) {
       delete rec.urlSafe;
+      // 密码迁移：原 url 内嵌密码 → fields 密码（切方式后保持可连，编辑留空即保留）
+      const secUrl = this.secrets.get(id)?.url;
+      if (secUrl !== undefined) {
+        try {
+          const u = new URL(secUrl);
+          if (u.password && this.secrets.get(id)?.password === undefined) {
+            this.secrets.set(id, { password: decodeURIComponent(u.password) });
+          }
+        } catch {
+          /* 非 URL 形态，忽略迁移 */
+        }
+      }
       // set 为合并写；显式置 undefined 经 JSON 序列化后等效删除该键
       this.secrets.set(id, { url: undefined });
     }
     this.save(data);
-    return toMeta(rec);
+    return toMeta(rec, this.hasPassword(id));
   }
 
   /** 删除连接，级联删除 secrets 与该连接的所有项目授权。
@@ -204,7 +223,7 @@ export class ConnectionStore {
   testTarget(id: string): ResolvedConnection {
     const rec = this.findRec(this.load(), id);
     if (!rec) throw new Error(`连接不存在: ${id}`);
-    const meta = toMeta(rec);
+    const meta = toMeta(rec, this.secrets.get(id)?.password !== undefined);
     const rc: ResolvedConnection = { meta };
     const sec = this.secrets.get(id);
     if (sec?.url !== undefined) rc.url = sec.url;

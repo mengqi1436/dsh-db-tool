@@ -136,18 +136,31 @@ export class DbToolService {
   /**
    * 测试未保存的连接草稿（侧边栏「保存前测试」）。不落库、不写审计，
    * 一次性适配器用完即关。url/fields 校验交给适配器层（与保存后测试同口径）。
+   * 编辑已有连接时传 connId：密码留空/url 未改动时自动拼回已存机密
+   * （仅注入本次测试，绝不回传客户端）。
    */
   async testDraft(input: {
     kind: DbKind;
     url?: string;
     fields?: Record<string, unknown>;
     ssl?: boolean;
+    connId?: string;
   }): Promise<TestConnectResult> {
     const rc: ResolvedConnection = {
-      meta: { id: '(draft)', kind: input.kind, name: '(draft)' },
+      meta: { id: input.connId ?? '(draft)', kind: input.kind, name: '(draft)' },
     };
-    if (input.url !== undefined) rc.url = input.url;
-    if (input.fields !== undefined) rc.fields = { ...input.fields };
+    let url = input.url;
+    let fields = input.fields !== undefined ? { ...input.fields } : undefined;
+    if (input.connId) {
+      // 已存连接：编辑时客户端不发旧机密（留空语义），这里从 secrets 拼回
+      const sec = this.store.secrets.get(input.connId);
+      if (url === undefined && sec?.url !== undefined) url = sec.url;
+      if (fields !== undefined && sec?.password !== undefined && fields.password === undefined) {
+        fields.password = sec.password;
+      }
+    }
+    if (url !== undefined) rc.url = url;
+    if (fields !== undefined) rc.fields = fields;
     if (input.ssl !== undefined) rc.ssl = input.ssl;
     try {
       const factory = await this.resolver(input.kind);
