@@ -138,9 +138,10 @@ async function route(
     if (req.method === 'GET') return sendOk(res, service.listConnections());
     if (req.method === 'POST') {
       const b = await readBody(req);
-      const id = str(b['id']);
+      // id 留空自动生成（前端提示「留空则自动生成」）
+      const id = str(b['id']) || `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const kind = str(b['kind']);
-      if (!id || !kind) return send(res, 400, { ok: false, error: '缺少 id 或 kind', code: 'INVALID_ARGUMENT' });
+      if (!kind) return send(res, 400, { ok: false, error: '缺少 kind', code: 'INVALID_ARGUMENT' });
       const ssl = parseSsl(b['ssl']);
       if (ssl === 'invalid') return send(res, 400, { ok: false, error: 'ssl 必须是布尔值', code: 'INVALID_ARGUMENT' });
       return sendOk(res, service.createConnection({
@@ -151,6 +152,21 @@ async function route(
         ...(ssl !== undefined ? { ssl } : {}),
       }));
     }
+  }
+
+  // 测试未保存的连接草稿（保存前测试；不落库）
+  if (path === '/api/test-draft' && req.method === 'POST') {
+    const b = await readBody(req);
+    const kind = str(b['kind']);
+    if (!kind) return send(res, 400, { ok: false, error: '缺少 kind', code: 'INVALID_ARGUMENT' });
+    const ssl = parseSsl(b['ssl']);
+    if (ssl === 'invalid') return send(res, 400, { ok: false, error: 'ssl 必须是布尔值', code: 'INVALID_ARGUMENT' });
+    return sendMaybeConfirm(res, service.testDraft({
+      kind: kind as never,
+      ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
+      ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
+      ...(ssl !== undefined ? { ssl } : {}),
+    }));
   }
 
   const connMatch = /^\/api\/connections\/([^/]+)(\/test)?$/.exec(path);

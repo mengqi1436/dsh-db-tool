@@ -223,6 +223,26 @@ describe('连接管理与授权路由', () => {
     expect(fx.service.listConnections()).toHaveLength(1);
   });
 
+  it('POST /api/connections id 留空 → 自动生成 c-* id', async () => {
+    const a = await post('/api/connections', { kind: 'sqlite', fields: { file: 'auto1.db' } });
+    expect(a.status).toBe(200);
+    expect(String(a.json.data.id)).toMatch(/^c-/);
+    const b = await post('/api/connections', { kind: 'sqlite', fields: { file: 'auto2.db' } });
+    expect(String(b.json.data.id)).toMatch(/^c-/);
+    expect(b.json.data.id).not.toBe(a.json.data.id); // 随机 id 不冲突
+    // 清理，恢复单连接基线
+    await fetch(`${(await ensureStarted()).base}/api/connections/${encodeURIComponent(a.json.data.id)}`, { method: 'DELETE' });
+    await fetch(`${(await ensureStarted()).base}/api/connections/${encodeURIComponent(b.json.data.id)}`, { method: 'DELETE' });
+  });
+
+  it('POST /api/test-draft：草稿测试走通；缺 kind → 400', async () => {
+    const ok = await post('/api/test-draft', { kind: 'mysql', url: 'mysql://u:p@127.0.0.1:3306/d' });
+    expect(ok.json).toMatchObject({ ok: true, data: { ok: true, serverInfo: 'fake-8.0' } });
+    const noKind = await post('/api/test-draft', { url: 'mysql://u:p@h/d' });
+    expect(noKind.status).toBe(400);
+    expect(noKind.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+  });
+
   it('grants PUT/GET/DELETE', async () => {
     const { fx } = await ensureStarted();
     const put = await fetch(`${(await ensureStarted()).base}/api/grants`, {

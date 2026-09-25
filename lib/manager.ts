@@ -17,6 +17,7 @@ import type {
   QueryResult,
   TableInfo,
   TestConnectResult,
+  ResolvedConnection,
 } from './adapters/types.js';
 import { getAdapter, type ServiceAdapterFactory } from './adapters/index.js';
 import {
@@ -121,6 +122,35 @@ export class DbToolService {
     const rc = this.requireConn(id);
     try {
       const factory = await this.resolver(rc.meta.kind);
+      const adapter = await factory(rc);
+      try {
+        return await adapter.testConnect();
+      } finally {
+        await adapter.close().catch(() => {});
+      }
+    } catch (e) {
+      throw this.toDriverError(e);
+    }
+  }
+
+  /**
+   * 测试未保存的连接草稿（侧边栏「保存前测试」）。不落库、不写审计，
+   * 一次性适配器用完即关。url/fields 校验交给适配器层（与保存后测试同口径）。
+   */
+  async testDraft(input: {
+    kind: DbKind;
+    url?: string;
+    fields?: Record<string, unknown>;
+    ssl?: boolean;
+  }): Promise<TestConnectResult> {
+    const rc: ResolvedConnection = {
+      meta: { id: '(draft)', kind: input.kind, name: '(draft)' },
+    };
+    if (input.url !== undefined) rc.url = input.url;
+    if (input.fields !== undefined) rc.fields = { ...input.fields };
+    if (input.ssl !== undefined) rc.ssl = input.ssl;
+    try {
+      const factory = await this.resolver(input.kind);
       const adapter = await factory(rc);
       try {
         return await adapter.testConnect();

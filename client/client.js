@@ -396,18 +396,56 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		// 各数据库官方默认连接参数（分字段方式自动填充；用户仍可改）
+		const KIND_DEFAULTS = {
+			mysql: { port: 3306, user: "root" },
+			postgresql: { port: 5432, user: "postgres", database: "postgres" },
+			gaussdb: { port: 8000, user: "gaussdb", database: "postgres" },
+			sqlite: {},
+			redis: { port: 6379 },
+			mongodb: { port: 27017, database: "test" },
+			oracle: { port: 1521, user: "system" },
+			dmdb: { port: 5236, user: "SYSDBA" },
+		};
+
 		function ConnForm(props) {
 			const [form, setForm] = React.useState(props.initial || EMPTY_FORM);
+			const [draftTest, setDraftTest] = React.useState(null); // null | {ok, msg}
 			function patch(p) { setForm((prev) => Object.assign({}, prev, p)); }
-			function submit() {
-				const body = { id: form.id || undefined, kind: form.kind, name: form.name || undefined, ssl: !!form.ssl };
+			function switchKind(kind) {
+				setForm((prev) => {
+					const def = KIND_DEFAULTS[kind] || {};
+					const next = Object.assign({}, prev, { kind });
+					// 仅填充当前为空的字段，不覆盖用户已输入的值
+					for (const k of ["port", "user", "database"]) {
+						if (def[k] !== undefined && !next[k]) next[k] = String(def[k]);
+					}
+					return next;
+				});
+				setDraftTest(null);
+			}
+			function draftBody() {
+				const body = { kind: form.kind, ssl: !!form.ssl };
 				if (form.mode === "url") body.url = form.url;
 				else {
 					body.fields = { host: form.host, user: form.user, database: form.database || undefined };
 					if (form.port) body.fields.port = Number(form.port);
 					if (form.password) body.fields.password = form.password;
 				}
+				return body;
+			}
+			function submit() {
+				const body = Object.assign(draftBody(), { id: form.id || undefined, name: form.name || undefined });
 				props.onSubmit(body, () => setForm(EMPTY_FORM));
+			}
+			async function testDraft() {
+				setDraftTest({ ok: null, msg: t("testing") });
+				try {
+					const r = await api("test-draft", { method: "POST", body: draftBody() });
+					setDraftTest(r && r.ok ? { ok: true, msg: t("testOk") + (r.serverInfo ? " · " + r.serverInfo : "") } : { ok: false, msg: t("testFail") + (r && r.error ? "：" + r.error : "") });
+				} catch (e) {
+					setDraftTest({ ok: false, msg: t("testFail") + "：" + (e && e.message ? e.message : String(e)) });
+				}
 			}
 			return React.createElement(
 				"div",
@@ -417,7 +455,7 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
-					React.createElement("select", { value: form.kind, onChange: (e) => patch({ kind: e.target.value }) },
+					React.createElement("select", { value: form.kind, onChange: (e) => switchKind(e.target.value) },
 						DB_KINDS.map((k) => React.createElement("option", { key: k, value: k }, k))),
 					React.createElement("input", { placeholder: t("connName"), value: form.name, onChange: (e) => patch({ name: e.target.value }) }),
 					React.createElement("input", { placeholder: t("connId") + "（" + t("idAutoHint") + "）", value: form.id, disabled: !!props.initial, onChange: (e) => patch({ id: e.target.value }) }),
@@ -449,7 +487,12 @@ window.__ModuleLoader__.load({
 					"div",
 					{ className: "dbt-row" },
 					React.createElement("button", { className: "dbt-btn primary", disabled: props.busy, onClick: submit }, props.busy ? t("saving") : t("save")),
+					React.createElement("button", { className: "dbt-btn", disabled: draftTest && draftTest.ok === null, onClick: testDraft },
+						draftTest && draftTest.ok === null ? t("testing") : t("test")),
 					React.createElement("button", { className: "dbt-btn", onClick: props.onCancel }, t("cancel")),
+					draftTest && draftTest.ok !== null
+						? React.createElement("span", { style: { color: draftTest.ok ? "var(--dbt-success, #30d158)" : "var(--dbt-danger, #ff453a)", fontSize: 12, alignSelf: "center" } }, draftTest.msg)
+						: null,
 				),
 			);
 		}
