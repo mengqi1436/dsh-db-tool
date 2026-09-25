@@ -19,10 +19,6 @@ export type DbKind =
   | 'oracle'
   | 'dmdb';
 
-export const DB_KINDS: readonly DbKind[] = [
-  'mysql', 'postgresql', 'gaussdb', 'sqlite', 'redis', 'mongodb', 'oracle', 'dmdb',
-];
-
 /** 连接级权限模式 */
 export type AccessMode = 'ro' | 'rw';
 

@@ -18,7 +18,7 @@ import type {
   TableInfo,
   TestConnectResult,
 } from './adapters/types.js';
-import { getAdapter, type AdapterFactory } from './adapters/index.js';
+import { getAdapter, type ServiceAdapterFactory } from './adapters/index.js';
 import {
   ChallengeStore,
   classifyStatement,
@@ -65,7 +65,7 @@ export interface NeedConfirm {
 
 export interface DbToolServiceOptions {
   /** 覆盖适配器工厂来源（测试注入假适配器；缺省用注册表 getAdapter） */
-  adapterResolver?: (kind: DbKind) => Promise<AdapterFactory>;
+  adapterResolver?: (kind: DbKind) => Promise<ServiceAdapterFactory>;
   challenges?: ChallengeStore;
 }
 
@@ -80,7 +80,7 @@ function assertNonEmpty(v: string | undefined, label: string): string {
 export class DbToolService {
   private readonly adapterCache = new Map<string, Promise<DatabaseAdapter>>();
   readonly challenges: ChallengeStore;
-  private readonly resolver: (kind: DbKind) => Promise<AdapterFactory>;
+  private readonly resolver: (kind: DbKind) => Promise<ServiceAdapterFactory>;
   private disposed = false;
 
   constructor(readonly store: DbToolStore, opts?: DbToolServiceOptions) {

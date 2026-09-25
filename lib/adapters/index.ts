@@ -11,12 +11,12 @@
 import type { AccessMode, DbKind, DatabaseAdapter, ResolvedConnection } from './types.js';
 
 /** 服务层调用签名：mode 由 grants 决定，适配器层做会话级只读双保险 */
-export type AdapterFactory = (
+export type ServiceAdapterFactory = (
   conn: ResolvedConnection,
   opts?: { mode?: AccessMode },
 ) => Promise<DatabaseAdapter>;
 
-type Loader = () => Promise<AdapterFactory>;
+type Loader = () => Promise<ServiceAdapterFactory>;
 
 const LOADERS: Record<DbKind, Loader> = {
   mysql: () => import('./mysql/index.js').then((m) => m.createMysqlAdapter),
@@ -51,10 +51,10 @@ export function driverMissingError(kind: DbKind, cause?: unknown): Error {
   return err;
 }
 
-const cache = new Map<DbKind, Promise<AdapterFactory>>();
+const cache = new Map<DbKind, Promise<ServiceAdapterFactory>>();
 
 /** 取某 kind 的适配器工厂（惰性加载并缓存；失败清缓存以便重试） */
-export function getAdapter(kind: DbKind): Promise<AdapterFactory> {
+export function getAdapter(kind: DbKind): Promise<ServiceAdapterFactory> {
   let p = cache.get(kind);
   if (!p) {
     p = LOADERS[kind]().catch((e) => {
@@ -64,9 +64,4 @@ export function getAdapter(kind: DbKind): Promise<AdapterFactory> {
     cache.set(kind, p);
   }
   return p;
-}
-
-/** 测试/插件关闭用：清空工厂缓存（不关闭已创建的适配器实例，由服务层负责） */
-export function clearAdapterCache(): void {
-  cache.clear();
 }
