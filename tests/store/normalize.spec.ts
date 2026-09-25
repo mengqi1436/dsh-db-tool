@@ -68,8 +68,8 @@ describe('normalizeProjectKey', () => {
     expect(normalizeProjectKey('\\\\?\\C:\\x')).toBe('//?/C:/x');
   });
 
-  it('仅路径开头的盘符冒号转小写；中部大写冒号段（POSIX）不受影响', () => {
-    if (process.platform === 'win32') return;
+  it('仅路径开头的盘符冒号转小写；中部大写冒号段不受影响（仅 win32 可构造）', () => {
+    if (process.platform !== 'win32') return;
     expect(normalizeProjectKey('c:/x/D:y')).toBe('c:/x/D:y');
   });
 });

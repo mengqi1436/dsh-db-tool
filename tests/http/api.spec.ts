@@ -200,10 +200,13 @@ describe('handleDbToolRequest 直调（prefix 挂载形态 + trust）', () => {
   });
 
   it('POST /api/project-context：未提供 resolveProject → 回退 service.projectKey 归一化', async () => {
-    const r = await callHandler('POST', '/api/project-context', { host: '127.0.0.1:3080' },
-      { cwd: 'E:\\Code\\My-App\\' });
+    const win = process.platform === 'win32';
+    const cwd = win ? { cwd: 'E:\\Code\\My-App\\' } : { cwd: '/tmp/My-App/' };
+    const r = await callHandler('POST', '/api/project-context', { host: '127.0.0.1:3080' }, cwd);
     expect(r.status).toBe(200);
-    expect(r.body.data).toMatchObject({ projectPathKey: 'e:/Code/My-App', hasProject: true });
+    expect(r.body.data).toMatchObject(
+      win ? { projectPathKey: 'e:/Code/My-App', hasProject: true } : { projectPathKey: '/tmp/My-App', hasProject: true },
+    );
   });
 
   it('POST body 直打：query 路由经 handler 正常返回', async () => {
