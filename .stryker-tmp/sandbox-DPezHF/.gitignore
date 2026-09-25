@@ -1,9 +1,0 @@
-node_modules/
-vendor/
-*.log
-.env
-.env.*
-!.env.example
-dist/
-coverage/
-.vitest/

@@ -7,3 +7,6 @@ vendor/
 dist/
 coverage/
 .vitest/
+.stryker-tmp/
+reports/
+stryker_out*.txt

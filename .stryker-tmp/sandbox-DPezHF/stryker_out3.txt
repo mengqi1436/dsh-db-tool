@@ -1,3 +1,0 @@
-[32m18:48:18 (22080) INFO ProjectReader[39m Found 9 of 558 file(s) to be mutated.
-[32m18:48:18 (22080) INFO Instrumenter[39m Instrumented 9 source file(s) with 1145 mutant(s)
-[32m18:48:19 (22080) INFO ConcurrencyTokenProvider[39m Creating 4 test runner process(es).
