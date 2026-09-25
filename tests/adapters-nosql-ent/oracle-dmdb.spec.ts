@@ -26,32 +26,39 @@ const dmConn: ResolvedConnection = {
   url: 'dm://SYSDBA:SYSDBA@localhost:5236',
 };
 
+/**
+ * 真实驱动形态：oracledb/dmdb 的 Pool 没有 execute（曾因此出过 pool.execute is not a function
+ * 的线上 bug），一切语句必须 pool.getConnection() 后在连接上执行——stub 与该形态对齐：
+ * pool 上不挂 execute，若适配器回退为直接 pool.execute 会立即失败（防回归）。
+ */
 function makeOraPool(rows: Record<string, unknown>[] = [], meta: Array<{ name: string }> = [{ name: 'A' }]) {
   const connObj = {
-    execute: vi.fn(async (_sql?: string, _binds?: unknown[], _opts?: unknown) => ({ rows: [], metaData: [], rowsAffected: 0 })),
+    execute: vi.fn(async (_sql?: string, _binds?: unknown[], _opts?: unknown) => ({ rows, metaData: meta, rowsAffected: 1 })),
     commit: vi.fn(async () => undefined),
     rollback: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
   };
-  return {
-    execute: vi.fn(async (_sql?: string, _binds?: unknown[], _opts?: unknown) => ({ rows, metaData: meta, rowsAffected: 1 })),
+  const pool = {
     getConnection: vi.fn(async () => connObj),
     close: vi.fn(async () => undefined),
+    connObj,
   };
+  return pool;
 }
 
 function makeDmPool(rows: Record<string, unknown>[] = [], meta: Array<{ name: string }> = [{ name: 'A' }]) {
   const connObj = {
-    execute: vi.fn(async (_sql?: string, _binds?: unknown[], _opts?: unknown) => ({ rows: [], metaData: [], rowsAffected: 0 })),
+    execute: vi.fn(async (_sql?: string, _binds?: unknown[], _opts?: unknown) => ({ rows, metaData: meta, rowsAffected: 1 })),
     commit: vi.fn(async () => undefined),
     rollback: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
   };
-  return {
-    execute: vi.fn(async (_sql?: string, _binds?: unknown[], _opts?: unknown) => ({ rows, metaData: meta, rowsAffected: 1 })),
+  const pool = {
     getConnection: vi.fn(async () => connObj),
     close: vi.fn(async () => undefined),
+    connObj,
   };
+  return pool;
 }
 
 describe('Oracle 纯函数', () => {
@@ -97,7 +104,7 @@ describe('Oracle query/execute（mock pool）', () => {
     const pool = makeOraPool();
     const a = await createOracleAdapter(oraConn, { pool });
     const r = await a.execute('UPDATE t SET x = :1', [1]);
-    const opts = pool.execute.mock.calls[0]![2] as { autoCommit?: boolean };
+    const opts = pool.connObj.execute.mock.calls[0]![2] as { autoCommit?: boolean };
     expect(opts.autoCommit).toBe(true);
     expect(r.affectedRows).toBe(1);
   });
@@ -110,15 +117,21 @@ describe('Oracle query/execute（mock pool）', () => {
     const pool = makeOraPool();
     const a = await createOracleAdapter(oraConn, { pool });
     await a.query('SELECT 1 FROM dual');
-    const opts = pool.execute.mock.calls[0]![2] as { maxRows?: number };
+    const opts = pool.connObj.execute.mock.calls[0]![2] as { maxRows?: number };
     expect(opts.maxRows).toBe(501);
   });
   it('query 显式 autoCommit:true（SELECT 立即结束隐式事务，避免事务悬挂）', async () => {
     const pool = makeOraPool();
     const a = await createOracleAdapter(oraConn, { pool });
     await a.query('SELECT 1 FROM dual');
-    const opts = pool.execute.mock.calls[0]![2] as { autoCommit?: boolean };
+    const opts = pool.connObj.execute.mock.calls[0]![2] as { autoCommit?: boolean };
     expect(opts.autoCommit).toBe(true);
+  });
+  it('连接借用后归还（getConnection → 语句执行 → conn.close）', async () => {
+    const pool = makeOraPool([{ A: 1 }], [{ name: 'A' }]);
+    const a = await createOracleAdapter(oraConn, { pool });
+    await a.query('SELECT 1 FROM dual');
+    expect(pool.connObj.close).toHaveBeenCalled();
   });
   it('tx 事务内 execute 显式 autoCommit:false（由 commit/rollback 收口）', async () => {
     const pool = makeOraPool();
@@ -157,14 +170,14 @@ describe('Oracle 元数据（mock pool）', () => {
     const pool = makeOraPool([{ TABLE_NAME: 'EMP' }], [{ name: 'TABLE_NAME' }]);
     const a = await createOracleAdapter(oraConn, { pool });
     const ts = await a.listTables();
-    expect(pool.execute.mock.calls[0]![0] as string).toContain('all_tables');
-    expect(pool.execute.mock.calls[0]![1]).toEqual(['SCOTT']);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tables');
+    expect(pool.connObj.execute.mock.calls[0]![1]).toEqual(['SCOTT']);
     expect(ts).toEqual([{ name: 'EMP', type: 'TABLE' }]);
   });
   it('describeTable 组合类型串与主键 PRI', async () => {
     const pool = makeOraPool();
     let call = 0;
-    pool.execute.mockImplementation(async () => {
+    pool.connObj.execute.mockImplementation(async () => {
       call++;
       if (call === 1) {
         return {
@@ -188,12 +201,12 @@ describe('Oracle 元数据（mock pool）', () => {
     const pool = makeOraPool([{ A: 1 }], [{ name: 'A' }]);
     const a = await createOracleAdapter(oraConn, { pool });
     const r = await a.previewRows('emp', 9999);
-    expect(pool.execute.mock.calls[0]![0] as string).toContain('OFFSET :o ROWS FETCH NEXT :n ROWS ONLY');
-    expect(pool.execute.mock.calls[0]![1]).toEqual([0, 500]);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('OFFSET :o ROWS FETCH NEXT :n ROWS ONLY');
+    expect(pool.connObj.execute.mock.calls[0]![1]).toEqual([0, 500]);
     expect(r.rows).toEqual([[1]]);
     await a.previewRows('emp', 10, undefined, 20);
-    expect(pool.execute.mock.calls[1]![0] as string).toContain('OFFSET :o ROWS FETCH NEXT :n ROWS ONLY');
-    expect(pool.execute.mock.calls[1]![1]).toEqual([20, 10]);
+    expect(pool.connObj.execute.mock.calls[1]![0] as string).toContain('OFFSET :o ROWS FETCH NEXT :n ROWS ONLY');
+    expect(pool.connObj.execute.mock.calls[1]![1]).toEqual([20, 10]);
   });
 });
 
@@ -206,7 +219,7 @@ describe('达梦 DM（mock pool）', () => {
     const pool = makeDmPool();
     const a = await createDmAdapter(dmConn, { pool });
     await a.execute('INSERT INTO t VALUES (:1)', [9]);
-    const opts = pool.execute.mock.calls[0]![2] as { maxRows?: number; autoCommit?: boolean };
+    const opts = pool.connObj.execute.mock.calls[0]![2] as { maxRows?: number; autoCommit?: boolean };
     expect(opts.maxRows).toBe(501);
     expect(opts.autoCommit).toBe(true);
   });
@@ -218,9 +231,15 @@ describe('达梦 DM（mock pool）', () => {
     const pool = makeDmPool();
     const a = await createDmAdapter(dmConn, { pool });
     await a.query('SELECT 1 FROM dual');
-    const opts = pool.execute.mock.calls[0]![2] as { maxRows?: number; autoCommit?: boolean };
+    const opts = pool.connObj.execute.mock.calls[0]![2] as { maxRows?: number; autoCommit?: boolean };
     expect(opts.maxRows).toBe(501);
     expect(opts.autoCommit).toBe(true);
+  });
+  it('连接借用后归还（getConnection → 语句执行 → conn.close）', async () => {
+    const pool = makeDmPool([{ A: 1 }], [{ name: 'A' }]);
+    const a = await createDmAdapter(dmConn, { pool });
+    await a.query('SELECT 1 FROM dual');
+    expect(pool.connObj.close).toHaveBeenCalled();
   });
   it('tx 事务内 execute 显式 autoCommit:false', async () => {
     const pool = makeDmPool();
@@ -241,16 +260,16 @@ describe('达梦 DM（mock pool）', () => {
     const pool = makeDmPool([{ A: 1 }], [{ name: 'A' }]);
     const a = await createDmAdapter(dmConn, { pool });
     await a.previewRows('t', 10);
-    expect(pool.execute.mock.calls[0]![0] as string).toContain('OFFSET :o ROWS FETCH FIRST :n ROWS ONLY');
-    expect(pool.execute.mock.calls[0]![1]).toEqual([0, 10]);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('OFFSET :o ROWS FETCH FIRST :n ROWS ONLY');
+    expect(pool.connObj.execute.mock.calls[0]![1]).toEqual([0, 10]);
     await a.previewRows('t', 5, undefined, 15);
-    expect(pool.execute.mock.calls[1]![1]).toEqual([15, 5]);
+    expect(pool.connObj.execute.mock.calls[1]![1]).toEqual([15, 5]);
   });
   it('listTables 复用 ALL_TABLES 数据字典', async () => {
     const pool = makeDmPool([{ TABLE_NAME: 'T1' }], [{ name: 'TABLE_NAME' }]);
     const a = await createDmAdapter(dmConn, { pool });
     const ts = await a.listTables();
-    expect(pool.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
     expect(ts).toEqual([{ name: 'T1', type: 'TABLE' }]);
   });
   it('ro 模式拒绝 execute（错误信息含「连接为只读(ro)模式」）', async () => {

@@ -142,6 +142,19 @@ export async function createDmAdapter(
   /** 事务内 execute：显式关闭自动提交，由 tx 的 commit/rollback 收口 */
   const execOptsTx = { ...execOpts, autoCommit: false };
 
+  /**
+   * 从池借一条连接执行后归还。⚠️ dmdb 的 Pool 没有 execute（与 oracledb 一致），
+   * 一切语句必须在 Connection 上执行；close() 即归还连接。
+   */
+  async function withConn<T>(fn: (c: DmConnLike) => Promise<T>): Promise<T> {
+    const c = await pool.getConnection();
+    try {
+      return await fn(c);
+    } finally {
+      await c.close().catch(() => { /* 归还失败忽略 */ });
+    }
+  }
+
   function requireRw(action: string): void {
     if (mode === 'ro') {
       throw new Error(`连接为只读(ro)模式，拒绝执行${action}；请使用 rw 连接或只发查询(query)`);
@@ -194,7 +207,7 @@ export async function createDmAdapter(
 
     async testConnect(): Promise<TestConnectResult> {
       try {
-        const r = await pool.execute('SELECT BANNER FROM V$VERSION WHERE ROWNUM = 1', [], execOpts);
+        const r = await withConn((c) => c.execute('SELECT BANNER FROM V$VERSION WHERE ROWNUM = 1', [], execOpts));
         const row = r.rows?.[0];
         const banner = row ? String(Object.values(row)[0] ?? '') : '';
         return { ok: true, serverInfo: banner };
@@ -209,7 +222,7 @@ export async function createDmAdapter(
         throw new Error('DM query 仅允许 SELECT/WITH 语句；写操作或 DDL 请走 execute');
       }
       try {
-        const r = await pool.execute(sql, params ?? [], execOpts);
+        const r = await withConn((c) => c.execute(sql, params ?? [], execOpts));
         return await rowsToQueryResult(r);
       } catch (e) {
         throw humanizeDmError(e);
@@ -220,7 +233,7 @@ export async function createDmAdapter(
       requireRw('execute');
       try {
         // 单语句语义：autoCommit: true（execOpts 默认已开启）
-        const r = await pool.execute(statement, params ?? [], execOpts);
+        const r = await withConn((c) => c.execute(statement, params ?? [], execOpts));
         return await toExecResult(statement, r);
       } catch (e) {
         throw humanizeDmError(e);
@@ -262,11 +275,11 @@ export async function createDmAdapter(
       const owner = ownerOf(database);
       try {
         // ⚠️ 推断：DM 兼容 Oracle 数据字典 ALL_TABLES（未真机验证）
-        const r = await pool.execute(
+        const r = await withConn((c) => c.execute(
           'SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = :owner ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 500 ROWS ONLY',
           [owner],
           execOpts,
-        );
+        ));
         const rows = r.rows ?? [];
         return rows.map((row) => ({ name: String(row.TABLE_NAME ?? ''), type: 'TABLE' }));
       } catch (e) {
@@ -278,22 +291,24 @@ export async function createDmAdapter(
       const owner = ownerOf(database);
       const tab = sanitizeIdentifier(table, '表名').toUpperCase();
       try {
-        // ⚠️ 推断：ALL_TAB_COLUMNS / ALL_CONSTRAINTS / ALL_CONS_COLUMNS 兼容（未真机验证）
-        const colsR = await pool.execute(
-          `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT
-           FROM ALL_TAB_COLUMNS WHERE OWNER = :owner AND TABLE_NAME = :tab ORDER BY COLUMN_ID`,
-          [owner, tab],
-          execOpts,
-        );
-        const pkR = await pool.execute(
-          `SELECT COLS.COLUMN_NAME
-           FROM ALL_CONSTRAINTS CONS
-           JOIN ALL_CONS_COLUMNS COLS
-             ON CONS.OWNER = COLS.OWNER AND CONS.CONSTRAINT_NAME = COLS.CONSTRAINT_NAME
-           WHERE CONS.CONSTRAINT_TYPE = 'P' AND CONS.OWNER = :owner AND CONS.TABLE_NAME = :tab`,
-          [owner, tab],
-          execOpts,
-        );
+        // ⚠️ 推断：ALL_TAB_COLUMNS / ALL_CONSTRAINTS / ALL_CONS_COLUMNS 兼容（未真机验证）；同连接内两查保证一致性
+        const { colsR, pkR } = await withConn(async (c) => ({
+          colsR: await c.execute(
+            `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT
+            FROM ALL_TAB_COLUMNS WHERE OWNER = :owner AND TABLE_NAME = :tab ORDER BY COLUMN_ID`,
+            [owner, tab],
+            execOpts,
+          ),
+          pkR: await c.execute(
+            `SELECT COLS.COLUMN_NAME
+            FROM ALL_CONSTRAINTS CONS
+            JOIN ALL_CONS_COLUMNS COLS
+              ON CONS.OWNER = COLS.OWNER AND CONS.CONSTRAINT_NAME = COLS.CONSTRAINT_NAME
+            WHERE CONS.CONSTRAINT_TYPE = 'P' AND CONS.OWNER = :owner AND CONS.TABLE_NAME = :tab`,
+            [owner, tab],
+            execOpts,
+          ),
+        }));
         const pkSet = new Set((pkR.rows ?? []).map((r2) => String(r2.COLUMN_NAME ?? '')));
         return (colsR.rows ?? []).map((row) => {
           const dataType = String(row.DATA_TYPE ?? '');
@@ -329,11 +344,11 @@ export async function createDmAdapter(
       const off = Math.max(0, Math.floor(offset ?? 0) || 0);
       try {
         // 统一 ANSI 分页（不依赖 compatibleMode=oracle），OFFSET/FETCH 均走 bind ⚠️ 推断（未真机验证）
-        const r = await pool.execute(
+        const r = await withConn((c) => c.execute(
           `SELECT * FROM "${owner}"."${tab}" OFFSET :o ROWS FETCH FIRST :n ROWS ONLY`,
           [off, n],
           execOpts,
-        );
+        ));
         return await rowsToQueryResult(r);
       } catch (e) {
         throw humanizeDmError(e);

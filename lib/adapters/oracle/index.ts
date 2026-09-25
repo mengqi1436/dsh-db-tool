@@ -172,6 +172,19 @@ export async function createOracleAdapter(
   // autoCommit 默认 true：query/元数据 SELECT 结束隐式事务避免 ro 事务悬挂；tx 专用连接显式 autoCommit:false 覆盖
   const execOpts: oracledb.ExecuteOptions = { outFormat: oracledb.OBJECT, maxRows: ROWS_MAX + 1, autoCommit: true, ...BLOB_FETCH };
 
+  /**
+   * 从池借一条连接执行后归还。⚠️ oracledb 的 Pool 没有 execute，
+   * 一切语句必须在 Connection 上执行；close() 即归还连接。
+   */
+  async function withConn<T>(fn: (c: oracledb.Connection) => Promise<T>): Promise<T> {
+    const c = await pool.getConnection();
+    try {
+      return await fn(c);
+    } finally {
+      await c.close().catch(() => { /* 归还失败忽略 */ });
+    }
+  }
+
   /** owner 解析：database 参数或默认当前用户（大写） */
   function ownerOf(database?: string): string {
     const owner = database ?? currentUser;
@@ -191,7 +204,7 @@ export async function createOracleAdapter(
 
     async testConnect(): Promise<TestConnectResult> {
       try {
-        const r = await pool.execute('SELECT banner FROM v$version WHERE ROWNUM = 1', [], execOpts);
+        const r = await withConn((c) => c.execute('SELECT banner FROM v$version WHERE ROWNUM = 1', [], execOpts));
         const row = (r.rows as Record<string, unknown>[] | undefined)?.[0];
         const banner = row ? String(Object.values(row)[0] ?? '') : '';
         return { ok: true, serverInfo: banner };
@@ -206,7 +219,7 @@ export async function createOracleAdapter(
         throw new Error('Oracle query 仅允许 SELECT/WITH 语句；写操作或 DDL 请走 execute');
       }
       try {
-        const r = await pool.execute(sql, params ?? [], execOpts);
+        const r = await withConn((c) => c.execute(sql, params ?? [], execOpts));
         const allRows = (r.rows as Record<string, unknown>[] | undefined) ?? [];
         const truncated = allRows.length > ROWS_MAX;
         const rows = allRows.slice(0, ROWS_MAX);
@@ -224,7 +237,7 @@ export async function createOracleAdapter(
     async execute(statement: string, params?: unknown[]): Promise<ExecResult> {
       requireRw('execute');
       try {
-        const r = await pool.execute(statement, params ?? [], execOpts);
+        const r = await withConn((c) => c.execute(statement, params ?? [], execOpts));
         return await toExecResult(statement, r);
       } catch (e) {
         throw humanizeOraError(e);
@@ -269,11 +282,11 @@ export async function createOracleAdapter(
     async listTables(database?: string): Promise<TableInfo[]> {
       const owner = ownerOf(database);
       try {
-        const r = await pool.execute(
+        const r = await withConn((c) => c.execute(
           'SELECT table_name FROM all_tables WHERE owner = :owner ORDER BY table_name FETCH FIRST 500 ROWS ONLY',
           [owner],
           execOpts,
-        );
+        ));
         const rows = (r.rows as Record<string, unknown>[] | undefined) ?? [];
         return rows.map((row) => ({ name: String(row.TABLE_NAME ?? ''), type: 'TABLE' }));
       } catch (e) {
@@ -285,21 +298,24 @@ export async function createOracleAdapter(
       const owner = ownerOf(database);
       const tab = sanitizeIdentifier(table, '表名');
       try {
-        const colsR = await pool.execute(
-          `SELECT column_name, data_type, data_length, data_precision, data_scale, nullable, data_default
-           FROM all_tab_columns WHERE owner = :owner AND table_name = :tab ORDER BY column_id`,
-          [owner, tab],
-          execOpts,
-        );
-        const pkR = await pool.execute(
-          `SELECT cols.column_name
-           FROM all_constraints cons
-           JOIN all_cons_columns cols
-             ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name
-           WHERE cons.constraint_type = 'P' AND cons.owner = :owner AND cons.table_name = :tab`,
-          [owner, tab],
-          execOpts,
-        );
+        // 同连接内两查保证一致性
+        const { colsR, pkR } = await withConn(async (c) => ({
+          colsR: await c.execute(
+            `SELECT column_name, data_type, data_length, data_precision, data_scale, nullable, data_default
+            FROM all_tab_columns WHERE owner = :owner AND table_name = :tab ORDER BY column_id`,
+            [owner, tab],
+            execOpts,
+          ),
+          pkR: await c.execute(
+            `SELECT cols.column_name
+            FROM all_constraints cons
+            JOIN all_cons_columns cols
+              ON cons.owner = cols.owner AND cons.constraint_name = cols.constraint_name
+            WHERE cons.constraint_type = 'P' AND cons.owner = :owner AND cons.table_name = :tab`,
+            [owner, tab],
+            execOpts,
+          ),
+        }));
         const pkSet = new Set(
           ((pkR.rows as Record<string, unknown>[] | undefined) ?? []).map((r2) => String(r2.COLUMN_NAME ?? '')),
         );
@@ -336,11 +352,11 @@ export async function createOracleAdapter(
       const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
       const off = Math.max(0, Math.floor(offset ?? 0) || 0);
       try {
-        const r = await pool.execute(
+        const r = await withConn((c) => c.execute(
           `SELECT * FROM "${owner}"."${tab}" OFFSET :o ROWS FETCH NEXT :n ROWS ONLY`,
           [off, n],
           execOpts,
-        );
+        ));
         const rows = (r.rows as Record<string, unknown>[] | undefined) ?? [];
         const columns = (r.metaData ?? []).map((m) => m.name);
         const normRows: NormalizedCell[][] = [];
