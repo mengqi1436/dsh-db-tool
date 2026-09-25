@@ -46,6 +46,23 @@ GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb
 - `run_script`：node:vm 独立 context、60s 超时、无 require/process/网络/文件系统，仅注入受限 `db.{query,execute}` 句柄
 - 已知边界：对话内确认为提示级强制 + 审计兜底；DSH 无硬中断通道前，恶意对话仍可能诱导用户确认，请配合最小权限数据库账号使用
 
+## Troubleshooting
+
+### npm 安装插件导入失败（punycode / resolve.paths）
+
+症状：DSH 启动后插件加载报 `failed to import`，伴随 `TypeError: Cannot read properties of null (reading 'Symbol(Symbol.iterator)')`，栈指向 `dsh-app-boot` 的 `routeScoped`。
+
+根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。
+
+一键修复（幂等，应用前自动备份为 `index.js.bak-hotfix`；`--revert` 可还原）：
+
+```bash
+npm run patch:dsh        # Windows（PowerShell）
+npm run patch:dsh:sh     # macOS / Linux
+```
+
+脚本自动探测 DSH 安装根（`--dsh-root` 可显式指定）；补丁文件见 `patches/dsh-app-boot-route-scoped-hotfix.patch`，仅对 `0.1.7-rc.2` 声明兼容，其他版本会警告（`--force` 覆盖）。上游 issue：<https://github.com/mengqi1436/dsh-db-tool/issues>（占位，待上游仓库开放后替换）。
+
 ## 测试
 
 ```bash
@@ -62,7 +79,7 @@ npx stryker run # 变异测试（范围 lib/guard + lib/manager + lib/store，�
 lib/        host 插件（store / adapters×8 / guard / manager / http / index）
 client/     侧边栏单文件产物（client.js，即源码）
 skills/     db-admin skill
-scripts/    GaussDB vendor 构建（sh / ps1）
+scripts/    GaussDB vendor 构建、DSH dsh-app-boot 热修复（patch:dsh）
 docs/       安装、HTTP 契约（api-contract.md）、skill 说明
 tests/      vitest（离线 mock + DBT_TEST_* 门控真机）
 vendor/     gaussdb-pg 构建产物（gitignore，不入库）

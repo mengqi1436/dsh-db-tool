@@ -1,0 +1,26 @@
+# DSH ResolutionRouter routeScoped hotfix (upstream bug: createRequire(parent).resolve.paths(name)
+# returns null for core-module names like "punycode", breaking hoisted profile installs).
+# Target-Version: 0.1.7-rc.2
+# Apply manually:  git apply -p1 -d <dsh-app-boot package root> <this file>
+# Or one command:  npm run patch:dsh    (scripts/apply-dsh-hotfix.ps1)
+# Generated from @deepseek-ai/dsh-app-boot@0.1.7-rc.2 npm tarball vs patched local copy.
+diff --git a/lib/index.js b/lib/index.js
+index 8f6041d..89a138e 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1419,7 +1419,14 @@ var ResolutionRouter = class {
+ 		const target = resolution.entries.get(name);
+ 		const candidates = [];
+ 		const localSearchPaths = [];
+-		for (const searchPath of createRequire(parent).resolve.paths(name)) {
++		/* local hotfix: resolve.paths returns null for core-module names (e.g. "punycode"),
++		   which made the for..of throw TypeError and broke every hoisted profile install
++		   whose dependency tree requires such an npm package. Fall back to the standard
++		   node_modules search chain so the local candidate can still be found. */
++		const _hotReq = createRequire(parent);
++		const _hotPaths = _hotReq.resolve.paths(name)
++			?? _hotReq("node:module")._nodeModulePaths(_hotReq("node:path").dirname(parent));
++		for (const searchPath of _hotPaths) {
+ 			if (!searchPath.startsWith(layer.localPrefix)) break;
+ 			localSearchPaths.push(searchPath);
+ 			const candidate = localPackageCandidate(searchPath, name, flavor);

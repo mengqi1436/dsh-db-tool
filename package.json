@@ -28,7 +28,9 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist/script',{recursive:true}); fs.copyFileSync('lib/script/worker.cjs','dist/script/worker.cjs'); console.log('build OK')\"",
     "build:gaussdb": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-gaussdb.ps1",
-    "build:gaussdb:sh": "bash scripts/build-gaussdb.sh"
+    "build:gaussdb:sh": "bash scripts/build-gaussdb.sh",
+    "patch:dsh": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/apply-dsh-hotfix.ps1",
+    "patch:dsh:sh": "bash scripts/apply-dsh-hotfix.sh"
   },
   "dsh": {
     "bundle": {
@@ -72,6 +74,7 @@
     "client",
     "skills",
     "docs",
+    "patches",
     "scripts",
     "README.md"
   ]
