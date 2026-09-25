@@ -277,7 +277,7 @@ describe('handleToolAction（工具分发层）', () => {
   it('list_connections 返回脱敏 JSON 文本', async () => {
     const fx = await makeFixture('rw');
     try {
-      const text = await handleToolAction(fx.service, { action: 'list_connections' }, fx.projectA);
+      const { text } = await handleToolAction(fx.service, { action: 'list_connections' }, fx.projectA);
       expect(text).not.toContain('s3cret');
       expect(text).toContain(CONN_ID);
     } finally {
@@ -289,15 +289,17 @@ describe('handleToolAction（工具分发层）', () => {
     const fx = await makeFixture('rw');
     try {
       const ok = await handleToolAction(fx.service, { action: 'query', conn_id: CONN_ID, sql: 'SELECT 1' }, fx.projectA);
-      expect(ok).toContain('"rowCount": 1');
+      expect(ok.text).toContain('"rowCount": 1');
+      expect(ok.isError).toBe(false);
 
       const nc = await handleToolAction(
         fx.service,
         { action: 'execute', conn_id: CONN_ID, statement: 'DROP TABLE users' },
         fx.projectA,
       );
-      expect(nc).toContain('NEEDS_CONFIRMATION');
-      expect(nc).toContain('challenge_id=');
+      expect(nc.text).toContain('NEEDS_CONFIRMATION');
+      expect(nc.text).toContain('challenge_id=');
+      expect(nc.isError).toBe(false); // 待确认不是失败
     } finally {
       await fx.dispose();
     }
@@ -306,12 +308,13 @@ describe('handleToolAction（工具分发层）', () => {
   it('未授权在工具层也拒（错误 JSON 而非抛出）', async () => {
     const fx = await makeFixture('rw');
     try {
-      const text = await handleToolAction(
+      const denied = await handleToolAction(
         fx.service,
         { action: 'query', conn_id: CONN_ID, sql: 'SELECT 1' },
         fx.projectB,
       );
-      expect(text).toContain('UNAUTHORIZED_PROJECT');
+      expect(denied.text).toContain('UNAUTHORIZED_PROJECT');
+      expect(denied.isError).toBe(true);
     } finally {
       await fx.dispose();
     }
@@ -320,8 +323,8 @@ describe('handleToolAction（工具分发层）', () => {
   it('缺参数 / 未知 action → INVALID_ARGUMENT 错误 JSON', async () => {
     const fx = await makeFixture('rw');
     try {
-      expect(await handleToolAction(fx.service, { action: 'query' }, fx.projectA)).toContain('INVALID_ARGUMENT');
-      expect(await handleToolAction(fx.service, { action: 'wat' }, fx.projectA)).toContain('INVALID_ARGUMENT');
+      expect((await handleToolAction(fx.service, { action: 'query' }, fx.projectA)).text).toContain('INVALID_ARGUMENT');
+      expect((await handleToolAction(fx.service, { action: 'wat' }, fx.projectA)).isError).toBe(true);
     } finally {
       await fx.dispose();
     }
@@ -330,23 +333,25 @@ describe('handleToolAction（工具分发层）', () => {
   it('run_script action 返回脚本结果；ro 被拒', async () => {
     const fxRo = await makeFixture('ro');
     try {
-      const text = await handleToolAction(
+      const denied = await handleToolAction(
         fxRo.service,
         { action: 'run_script', conn_id: CONN_ID, code: 'return 1' },
         fxRo.projectA,
       );
-      expect(text).toContain('READ_ONLY');
+      expect(denied.text).toContain('READ_ONLY');
+      expect(denied.isError).toBe(true);
     } finally {
       await fxRo.dispose();
     }
     const fx = await makeFixture('rw');
     try {
-      const text = await handleToolAction(
+      const ok = await handleToolAction(
         fx.service,
         { action: 'run_script', conn_id: CONN_ID, code: 'return await db.query("SELECT 1")' },
         fx.projectA,
       );
-      expect(text).toContain('"rowCount": 1');
+      expect(ok.text).toContain('"rowCount": 1');
+      expect(ok.isError).toBe(false);
     } finally {
       await fx.dispose();
     }

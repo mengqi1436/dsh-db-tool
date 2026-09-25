@@ -515,49 +515,53 @@ function pick(args: ToolActionArgs, snake: 'conn_id' | 'challenge_id'): string |
 }
 
 /**
- * 工具 action 分发（返回 JSON 文本）。危险待确认时文本内含确认指引，
+ * 工具 action 分发。危险待确认时文本内含确认指引，
  * 提示模型向用户 ask 确认后带 challenge_id 重试。
+ * 返回 { text, isError } 对象：harness 工具契约要求结构化结果，
+ * isError=true 仅用于被拒/失败；NEEDS_CONFIRMATION 不是失败。
  */
 export async function handleToolAction(
   service: DbToolService,
   args: ToolActionArgs,
   projectPath: string,
-): Promise<string> {
+): Promise<{ text: string; isError: boolean }> {
   const action = args.action;
   const connId = pick(args, 'conn_id');
   const challengeId = pick(args, 'challenge_id');
   const j = (v: unknown) => JSON.stringify(v, null, 2);
 
+  const ok = (t: string): { text: string; isError: boolean } => ({ text: t, isError: false });
+
   try {
     switch (action) {
       case 'list_connections':
-        return j(service.listConnections());
+        return ok(j(service.listConnections()));
 
       case 'query': {
         const r = await service.query(projectPath, requireConn(connId), assertArg(args.sql, 'sql'), args.params, challengeId);
-        return needConfirmText(r) ?? j(r);
+        return ok(needConfirmText(r) ?? j(r));
       }
 
       case 'execute': {
         const r = await service.execute(projectPath, requireConn(connId), assertArg(args.statement ?? args.sql, 'statement'), args.params, challengeId);
-        return needConfirmText(r) ?? j(r);
+        return ok(needConfirmText(r) ?? j(r));
       }
 
       case 'schema': {
         const conn = requireConn(connId);
-        if (args.table) return j(await service.schema(projectPath, conn, args.table, args.database));
-        if (args.database) return j(await service.tables(projectPath, conn, args.database));
-        return j(await service.databases(projectPath, conn));
+        if (args.table) return ok(j(await service.schema(projectPath, conn, args.table, args.database)));
+        if (args.database) return ok(j(await service.tables(projectPath, conn, args.database)));
+        return ok(j(await service.databases(projectPath, conn)));
       }
 
       case 'preview': {
         const r = await service.preview(projectPath, requireConn(connId), assertArg(args.table, 'table'), args.limit, args.database, args.offset);
-        return j(r);
+        return ok(j(r));
       }
 
       case 'run_script': {
         const r = await service.runScript(projectPath, requireConn(connId), assertArg(args.code, 'code'), challengeId);
-        return needConfirmText(r) ?? j(r);
+        return ok(needConfirmText(r) ?? j(r));
       }
 
       default:
@@ -565,7 +569,7 @@ export async function handleToolAction(
     }
   } catch (e) {
     const code = e instanceof DbToolError ? e.code : 'DRIVER_ERROR';
-    return j({ ok: false, error: e instanceof Error ? e.message : String(e), code });
+    return { text: j({ ok: false, error: e instanceof Error ? e.message : String(e), code }), isError: true };
   }
 }
 

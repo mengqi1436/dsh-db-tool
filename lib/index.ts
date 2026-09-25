@@ -26,8 +26,11 @@ interface DshContext {
       timeoutMs?: number;
       description: string;
       parameters: Record<string, unknown>;
-      output?: { schema?: Record<string, unknown>; render?: (text: string) => string };
-      execute: (args: Record<string, unknown>, exec: ToolExecContext) => Promise<string>;
+      output?: {
+        schema?: Record<string, unknown>;
+        render?: (args: unknown, value: { text: string }) => Array<{ type: string; text: string }>;
+      };
+      execute: (args: Record<string, unknown>, exec: ToolExecContext) => Promise<{ text: string; isError?: boolean }>;
     }): void;
   };
   sessions?: {
@@ -129,8 +132,15 @@ export function apply(ctx: DshContext): void {
       required: ['action'],
     },
     output: {
-      schema: { type: 'string' },
-      render: (text: string) => text,
+      schema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'JSON 结果文本' },
+          isError: { type: 'boolean', description: 'true 表示操作被拒或失败' },
+        },
+        required: ['text'],
+      },
+      render: (_args: unknown, value: { text: string }) => [{ type: 'text', text: value.text }],
     },
     execute: async (args, exec) => {
       // projectPath 从 session header.cwd 取，不信任模型自报
