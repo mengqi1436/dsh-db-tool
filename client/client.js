@@ -430,6 +430,11 @@ window.__ModuleLoader__.load({
 				setForm((prev) => withKindDefaults(Object.assign({}, prev, { kind })));
 				setDraftTest(null);
 			}
+			/** 从 URL 模式切回分字段：按当前 kind 重新补全官方默认值（仅空字段） */
+			function reenterFields() {
+				setForm((prev) => withKindDefaults(Object.assign({}, prev, { mode: "fields" })));
+				setDraftTest(null);
+			}
 			function draftBody() {
 				const body = { kind: form.kind, ssl: !!form.ssl };
 				if (form.mode === "url") body.url = form.url;
@@ -473,7 +478,7 @@ window.__ModuleLoader__.load({
 					"div",
 					{ className: "dbt-seg" },
 					React.createElement("button", { className: form.mode === "url" ? "active" : "", onClick: () => patch({ mode: "url" }) }, t("urlMode")),
-					React.createElement("button", { className: form.mode === "fields" ? "active" : "", onClick: () => patch({ mode: "fields" }) }, t("fieldsMode")),
+					React.createElement("button", { className: form.mode === "fields" ? "active" : "", onClick: reenterFields }, t("fieldsMode")),
 				),
 				form.mode === "url"
 					? React.createElement("input", { placeholder: t("url"), value: form.url, onChange: (e) => patch({ url: e.target.value }) })
