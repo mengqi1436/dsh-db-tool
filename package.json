@@ -7,9 +7,9 @@
   "engines": {
     "node": ">=20"
   },
-  "main": "lib/index.ts",
+  "main": "dist/index.js",
   "exports": {
-    ".": "./lib/index.ts",
+    ".": "./dist/index.js",
     "./client": "./client/client.js",
     "./package.json": "./package.json"
   },
@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist/script',{recursive:true}); fs.copyFileSync('lib/script/worker.cjs','dist/script/worker.cjs'); console.log('build OK')\"",
     "build:gaussdb": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-gaussdb.ps1",
     "build:gaussdb:sh": "bash scripts/build-gaussdb.sh"
   },
@@ -58,7 +59,7 @@
   },
   "files": [
     "cordis.patch.yml",
-    "lib",
+    "dist",
     "client",
     "skills",
     "docs",
