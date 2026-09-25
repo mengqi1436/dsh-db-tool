@@ -1,0 +1,6 @@
+url: https://github.com/mengqi1436/dsh-db-tool
+name: mengqi1436/dsh-db-tool
+category: tools
+description:
+  en: Chat-operated database admin for 8 databases (MySQL, PostgreSQL, GaussDB, SQLite, Oracle, DM, Redis, MongoDB): a DatabaseManager tool with read-only/read-write per-connection modes, per-project grants, one-time challenge confirmation for dangerous operations, sandboxed script execution, plus a sidebar with connection management, project authorization, a Navicat-style object browser and an SQL console.
+  zh: 聊天操作数据库的管理插件，支持 8 种数据库（MySQL、PostgreSQL、GaussDB、SQLite、Oracle、达梦、Redis、MongoDB）：DatabaseManager 工具带连接级只读/读写分级、项目级授权、危险操作一次性 challenge 对话内确认与沙箱脚本执行；侧边栏提供连接管理、项目授权、Navicat 式对象树浏览和 SQL 控制台。
