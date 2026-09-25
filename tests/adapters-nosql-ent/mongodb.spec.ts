@@ -9,6 +9,7 @@ import {
   createMongoAdapter,
   DANGEROUS_OPS,
   normalizeMongoCell,
+  READ_OPS,
 } from '../../lib/adapters/mongodb/index.js';
 import type { ResolvedConnection } from '../../lib/adapters/types.js';
 
@@ -18,8 +19,22 @@ const conn: ResolvedConnection = {
 };
 
 function makeClient(docs: Record<string, unknown>[] = []) {
+  /** find 链式 mock（sort/skip/limit 可链可断言） */
+  type FindChain = {
+    sort: (s: unknown) => FindChain;
+    skip: (n: number) => FindChain;
+    limit: (n: number) => FindChain;
+    toArray: () => Promise<Record<string, unknown>[]>;
+  };
   const coll = {
-    find: vi.fn((_f?: unknown, _o?: unknown) => ({ toArray: vi.fn(async () => docs) })),
+    find: vi.fn((_f?: unknown, _o?: unknown): FindChain => {
+      const chain = {} as FindChain;
+      chain.sort = vi.fn(() => chain);
+      chain.skip = vi.fn(() => chain);
+      chain.limit = vi.fn(() => chain);
+      chain.toArray = vi.fn(async () => docs);
+      return chain;
+    }),
     aggregate: vi.fn(() => ({
       limit: vi.fn(() => ({ toArray: vi.fn(async () => docs) })),
     })),
@@ -53,10 +68,17 @@ function makeClient(docs: Record<string, unknown>[] = []) {
 }
 
 describe('DANGEROUS_OPS 常量完备性', () => {
-  it('含全部 8 项', () => {
+  it('含全部 11 项（含复数别名与 renameCollection）', () => {
     expect([...DANGEROUS_OPS].sort()).toEqual(
-      ['createIndex', 'deleteMany', 'dropCollection', 'dropDatabase', 'dropIndex', 'replSetStepDown', 'shutdown', 'updateMany'].sort(),
+      ['createIndex', 'createIndexes', 'deleteMany', 'dropCollection', 'dropDatabase',
+        'dropIndex', 'dropIndexes', 'renameCollection', 'replSetStepDown', 'shutdown', 'updateMany'].sort(),
     );
+  });
+  it('READ_OPS 导出且为 10 项只读白名单', () => {
+    expect(READ_OPS.size).toBe(10);
+    expect(READ_OPS.has('find')).toBe(true);
+    expect(READ_OPS.has('aggregate')).toBe(true);
+    expect(READ_OPS.has('insertOne')).toBe(false);
   });
 });
 
@@ -131,6 +153,17 @@ describe('query', () => {
     const a = await createMongoAdapter(conn, { client: makeClient().client });
     await expect(a.query('{"aggregate":"u","pipeline":[{"$match":{"$where":"1"}}]}')).rejects.toThrow('$where');
   });
+  it('aggregate pipeline 内 $function/$accumulator 拒绝（服务端 JS 注入面）', async () => {
+    const a = await createMongoAdapter(conn, { client: makeClient().client });
+    await expect(a.query('{"aggregate":"u","pipeline":[{"$match":{"$expr":{"$function":{"body":"1","args":[],"lang":"js"}}}}]}')).rejects.toThrow('$function');
+    await expect(a.query('{"aggregate":"u","pipeline":[{"$accumulator":{"init":"1","accumulate":"1","accumulateArgs":[],"merge":"1","finalize":"1","lang":"js"}}]}')).rejects.toThrow('$accumulator');
+  });
+  it('aggregate 写副作用阶段 $out/$merge/$unionWith 拒绝（ro 通道不可写）', async () => {
+    const a = await createMongoAdapter(conn, { client: makeClient().client });
+    await expect(a.query('{"aggregate":"u","pipeline":[{"$match":{}},{"$out":"copy"}]}')).rejects.toThrow('$out');
+    await expect(a.query('{"aggregate":"u","pipeline":[{"$merge":{"into":"target"}}]}')).rejects.toThrow('$merge');
+    await expect(a.query('{"aggregate":"u","pipeline":[{"$unionWith":{"coll":"other"}}]}')).rejects.toThrow('$unionWith');
+  });
   it('非法 JSON 拒绝', async () => {
     const a = await createMongoAdapter(conn, { client: makeClient().client });
     await expect(a.query('{find:')).rejects.toThrow('不是合法 JSON');
@@ -180,5 +213,29 @@ describe('execute 白名单与防线', () => {
     const a = await createMongoAdapter(conn, { mode: 'ro', client: makeClient([{ _id: 'i', v: 1 }]).client });
     const r = await a.query('{"find":"u","limit":5}');
     expect(r.rowCount).toBe(1);
+  });
+});
+
+describe('previewRows（offset 翻页）', () => {
+  /** 取 find 链上的 skip mock（find→sort→chain，skip 为 chain 上的 vi.fn） */
+  function findSkip(coll: ReturnType<typeof makeClient>['coll']): ReturnType<typeof vi.fn> {
+    const ret = (coll.find as ReturnType<typeof vi.fn>).mock.results[0]!.value as { sort: ReturnType<typeof vi.fn> };
+    const chain = ret.sort.mock.results[0]!.value as { skip: ReturnType<typeof vi.fn> };
+    return chain.skip;
+  }
+  it('find 路径透传 skip（clamp ≥0）与 limit', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.previewRows('users', 20, undefined, 40);
+    const skipMock = findSkip(coll);
+    expect(skipMock).toHaveBeenCalledWith(40);
+    const limited = skipMock.mock.results[0]!.value as { limit: ReturnType<typeof vi.fn> };
+    expect(limited.limit).toHaveBeenCalledWith(20);
+  });
+  it('offset 缺省/负数按 0 处理', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.previewRows('users', 10, undefined, -5);
+    expect(findSkip(coll)).toHaveBeenCalledWith(0);
   });
 });

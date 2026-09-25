@@ -119,6 +119,7 @@ export function apply(ctx: DshContext): void {
         database: { type: 'string', description: '库/schema（可选）' },
         table: { type: 'string', description: '表/集合/键（schema/preview 用）' },
         limit: { type: 'number', description: 'preview 行数上限（≤50）' },
+        offset: { type: 'number', description: 'preview 行偏移（翻页用，默认 0）' },
         code: { type: 'string', description: 'run_script 的脚本源码' },
         challenge_id: {
           type: 'string',

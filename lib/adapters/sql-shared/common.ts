@@ -26,6 +26,12 @@ export function clampLimit(limit: number, max = 50): number {
   return n > max ? max : n;
 }
 
+/** preview offset 钳制到 [0, ∞)（服务层已限 ≥0，适配器再兜底一次；缺省 0） */
+export function clampOffset(offset?: number): number {
+  const n = Math.floor(Number(offset ?? 0));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /** 任意单元格 → NormalizedCell（string | number | null） */
 export function normalizeCell(v: unknown): NormalizedCell {
   if (v === null || v === undefined) return null;

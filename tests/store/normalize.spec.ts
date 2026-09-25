@@ -42,4 +42,14 @@ describe('normalizeProjectKey', () => {
     const once = normalizeProjectKey(process.platform === 'win32' ? 'C:\\A\\B' : '/a/b');
     expect(normalizeProjectKey(once)).toBe(once);
   });
+
+  it('路径穿越段（..）被 resolve 消解，不产生可绕过的新 key', () => {
+    if (process.platform === 'win32') {
+      expect(normalizeProjectKey('C:\\Code\\Proj\\sub\\..')).toBe(normalizeProjectKey('C:\\Code\\Proj'));
+      expect(normalizeProjectKey('..\\..\\Windows')).not.toBe(normalizeProjectKey('C:\\Code\\Proj'));
+    } else {
+      expect(normalizeProjectKey('/tmp/proj/sub/..')).toBe(normalizeProjectKey('/tmp/proj'));
+      expect(normalizeProjectKey('../sibling')).not.toBe(normalizeProjectKey('/tmp/proj'));
+    }
+  });
 });

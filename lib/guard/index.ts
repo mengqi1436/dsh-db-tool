@@ -7,7 +7,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { DANGEROUS_COMMANDS, READ_COMMANDS, WRITE_COMMANDS, parseRedisCommand } from '../adapters/redis/index.js';
-import { DANGEROUS_OPS } from '../adapters/mongodb/index.js';
+import { DANGEROUS_OPS, READ_OPS } from '../adapters/mongodb/index.js';
 import type { DbKind } from '../adapters/types.js';
 
 export type DangerLevel = 'danger' | 'warning' | 'none';
@@ -30,15 +30,20 @@ const SQL_DML_RE = /^\s*(insert|update|delete|merge|replace|upsert|call|do)\b/i;
 /** 维护类（oracle/dm 等：shutdown/startup/analyze 等） */
 const SQL_MAINT_RE = /^\s*(shutdown|startup|archive\s+log|recover|analyze|optimize|check\s+table|repair|lock|unlock|kill|flush)\b/i;
 
-/** 读取语句内出现即 danger 的片段（多语句、文件读写、全局设置等） */
-const SQL_HIDDEN_DANGER_RE = /[;]\s*\S|into\s+(outfile|dumpfile)|load_file\s*\(|set\s+(global|persist)|select\s+.*\bfor\s+update\b/i;
+/** 读取语句内出现即 danger 的片段（多语句、文件读写、全局设置、跨行锁读） */
+const SQL_HIDDEN_DANGER_RE = /[;]\s*\S|into\s+(outfile|dumpfile)|load_file\s*\(|set\s+(global|persist)|select\s+[\s\S]*\bfor\s+update\b/i;
+/** 读语句体内出现写关键字即 danger（WITH...DELETE / EXPLAIN ANALYZE DELETE 等） */
+const SQL_WRITE_BODY_RE = /\b(insert|update|delete|merge|drop|alter|truncate)\b/i;
+
+/** MongoDB 读操作白名单（复用 mongodb 适配器导出的 READ_OPS，单一事实来源） */
+const MONGO_READ_OPS: ReadonlySet<string> = READ_OPS;
 
 /** MongoDB 写操作清单（适配器未导出，此处按 DANGEROUS_OPS 之外的写命令复述） */
 const MONGO_WRITE_OPS: ReadonlySet<string> = new Set([
   'insert', 'insertOne', 'insertMany',
-  'updateOne', 'updateMany', 'replaceOne', 'findOneAndUpdate', 'bulkWrite',
+  'updateOne', 'updateMany', 'replaceOne', 'findOneAndUpdate', 'findAndModify', 'bulkWrite',
   'deleteOne',
-  'createCollection', 'renameCollection',
+  'createCollection', 'renameCollection', 'mapReduce',
 ]);
 
 /** 首个 SQL 关键字（剥掉注释与括号） */
@@ -63,8 +68,8 @@ export function statementHash(statement: string): string {
  * 的合法场景由各适配器会话级只读兜底）。
  */
 export function classifyStatement(kind: DbKind, statement: string, op: 'query' | 'execute'): GuardVerdict {
-  if (kind === 'redis') return classifyRedis(statement);
-  if (kind === 'mongodb') return classifyMongo(statement);
+  if (kind === 'redis') return classifyRedis(statement, op);
+  if (kind === 'mongodb') return classifyMongo(statement, op);
   return classifySql(statement, op);
 }
 
@@ -78,6 +83,10 @@ function classifySql(statement: string, op: 'query' | 'execute'): GuardVerdict {
   if (isRead) {
     if (SQL_HIDDEN_DANGER_RE.test(statement)) {
       return { level: 'danger', reason: '读语句包含危险片段（多语句 / 文件读写 / 全局设置 / 锁读），需要确认' };
+    }
+    // 读头不等于只读：WITH...DELETE / EXPLAIN ANALYZE DELETE 语句体内含写关键字
+    if (SQL_WRITE_BODY_RE.test(statement)) {
+      return { level: 'danger', reason: '读语句体内包含写操作关键字（如 WITH...DELETE / EXPLAIN 写语句），需要确认' };
     }
     return { level: 'none' };
   }
@@ -96,7 +105,7 @@ function classifySql(statement: string, op: 'query' | 'execute'): GuardVerdict {
 
 /* ---------------- Redis ---------------- */
 
-function classifyRedis(statement: string): GuardVerdict {
+function classifyRedis(statement: string, op: 'query' | 'execute'): GuardVerdict {
   const parts = parseRedisCommand(statement);
   const head = (parts[0] ?? '').toUpperCase();
   if (head === '') return { level: 'danger', reason: '无法解析 Redis 命令，按危险命令处理' };
@@ -105,16 +114,18 @@ function classifyRedis(statement: string): GuardVerdict {
     return { level: 'danger', reason: `Redis 危险命令 ${head}，可能清空/重配置实例，需要确认` };
   }
   if (WRITE_COMMANDS.has(head)) {
+    if (op === 'query') return { level: 'danger', reason: `只读通道（query）出现 Redis 写命令 ${head}，需要确认` };
     return { level: 'warning', reason: `Redis 写命令 ${head} 将修改数据` };
   }
   if (READ_COMMANDS.has(head)) return { level: 'none' };
+  if (op === 'query') return { level: 'danger', reason: `只读通道（query）出现未识别的 Redis 命令（${head}），需要确认` };
   return { level: 'warning', reason: `未识别的 Redis 命令（${head}），请确认后执行` };
 }
 
 /* ---------------- MongoDB ---------------- */
 
 /** MongoDB 命令：JSON 对象，首键为操作名 */
-function classifyMongo(statement: string): GuardVerdict {
+function classifyMongo(statement: string, op: 'query' | 'execute'): GuardVerdict {
   let head = '';
   try {
     const parsed: unknown = JSON.parse(statement);
@@ -130,8 +141,11 @@ function classifyMongo(statement: string): GuardVerdict {
     return { level: 'danger', reason: `MongoDB 危险操作 ${head}，可能删库/删集合，需要确认` };
   }
   if (MONGO_WRITE_OPS.has(head)) {
+    if (op === 'query') return { level: 'danger', reason: `只读通道（query）出现 MongoDB 写操作 ${head}，需要确认` };
     return { level: 'warning', reason: `MongoDB 写操作 ${head} 将修改数据` };
   }
+  if (MONGO_READ_OPS.has(head)) return { level: 'none' };
+  if (op === 'query') return { level: 'danger', reason: `只读通道（query）出现未识别的 MongoDB 操作（${head}），需要确认` };
   return { level: 'none' };
 }
 
@@ -142,6 +156,15 @@ export interface Challenge {
   statementHash: string;
   createdAt: number;
   expiresAt: number;
+  /** 绑定作用域：challenge 只能在同一连接+项目上消费，防跨库重放 */
+  connId?: string;
+  projectKey?: string;
+}
+
+/** challenge 的作用域（创建时绑定，消费时必须一致） */
+export interface ChallengeScope {
+  connId: string;
+  projectKey: string;
 }
 
 export interface ChallengeStoreOptions {
@@ -174,8 +197,8 @@ export class ChallengeStore {
     }
   }
 
-  /** 生成绑定语句的一次性 challenge */
-  create(statement: string): Challenge {
+  /** 生成绑定语句+作用域的一次性 challenge */
+  create(statement: string, scope?: ChallengeScope): Challenge {
     if (this.disposed) throw new Error('ChallengeStore 已关闭');
     const now = this.nowFn();
     const ch: Challenge = {
@@ -183,18 +206,23 @@ export class ChallengeStore {
       statementHash: statementHash(statement),
       createdAt: now,
       expiresAt: now + this.ttl,
+      ...(scope ? { connId: scope.connId, projectKey: scope.projectKey } : {}),
     };
     this.map.set(ch.id, ch);
     return ch;
   }
 
-  /** 一次性消费：通过返回 true 并立即失效；否则 false（不改状态） */
-  consume(id: string, statement: string): boolean {
+  /** 一次性消费：存在 + 未过期 + hash 与作用域一致才通过，且立即失效；否则 false（不改状态） */
+  consume(id: string, statement: string, scope?: ChallengeScope): boolean {
     const ch = this.map.get(id);
     if (!ch) return false;
     this.map.delete(id); // 无论成败都取走，防重放探测
     if (this.nowFn() > ch.expiresAt) return false;
-    return ch.statementHash === statementHash(statement);
+    if (ch.statementHash !== statementHash(statement)) return false;
+    // 作用域绑定：创建时带 scope 则消费时必须完全一致（防同语句跨连接/跨项目重放）
+    if (ch.connId !== undefined && ch.connId !== scope?.connId) return false;
+    if (ch.projectKey !== undefined && ch.projectKey !== scope?.projectKey) return false;
+    return true;
   }
 
   /** 清理过期项 */

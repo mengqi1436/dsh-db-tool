@@ -113,6 +113,24 @@ describe('Oracle query/execute（mock pool）', () => {
     const opts = pool.execute.mock.calls[0]![2] as { maxRows?: number };
     expect(opts.maxRows).toBe(501);
   });
+  it('query 显式 autoCommit:true（SELECT 立即结束隐式事务，避免事务悬挂）', async () => {
+    const pool = makeOraPool();
+    const a = await createOracleAdapter(oraConn, { pool });
+    await a.query('SELECT 1 FROM dual');
+    const opts = pool.execute.mock.calls[0]![2] as { autoCommit?: boolean };
+    expect(opts.autoCommit).toBe(true);
+  });
+  it('tx 事务内 execute 显式 autoCommit:false（由 commit/rollback 收口）', async () => {
+    const pool = makeOraPool();
+    const a = await createOracleAdapter(oraConn, { pool });
+    const withTx = a as typeof a & { tx: (fn: (exec: (sql: string, binds?: unknown[]) => Promise<unknown>) => Promise<unknown>) => Promise<unknown> };
+    await withTx.tx(async (exec) => exec('UPDATE t SET x = 1'));
+    const connObj = await pool.getConnection.mock.results[0]!.value;
+    // calls[0] 是 SET TRANSACTION READ WRITE（无 opts）；取带 opts 的业务语句调用
+    const calls = connObj.execute.mock.calls as Array<[string, unknown[]?, { autoCommit?: boolean }?]>;
+    const stmtCall = calls.find((c) => c[2] !== undefined);
+    expect(stmtCall![2]!.autoCommit).toBe(false);
+  });
   it('ro 模式拒绝 execute（错误信息含「连接为只读(ro)模式」）', async () => {
     const a = await createOracleAdapter(oraConn, { mode: 'ro', pool: makeOraPool() });
     await expect(a.execute('DELETE FROM t')).rejects.toThrow('连接为只读(ro)模式');
@@ -166,13 +184,16 @@ describe('Oracle 元数据（mock pool）', () => {
     expect(cols[1]!.dataType).toBe('VARCHAR2(100)');
     expect(cols[1]!.default).toBe("'x'");
   });
-  it('previewRows 用 FETCH NEXT 分页且 limit 绑定', async () => {
+  it('previewRows 用 FETCH NEXT 分页、offset/limit 均 bind 透传', async () => {
     const pool = makeOraPool([{ A: 1 }], [{ name: 'A' }]);
     const a = await createOracleAdapter(oraConn, { pool });
     const r = await a.previewRows('emp', 9999);
-    expect(pool.execute.mock.calls[0]![0] as string).toContain('FETCH NEXT :n ROWS ONLY');
-    expect(pool.execute.mock.calls[0]![1]).toEqual([500]);
+    expect(pool.execute.mock.calls[0]![0] as string).toContain('OFFSET :o ROWS FETCH NEXT :n ROWS ONLY');
+    expect(pool.execute.mock.calls[0]![1]).toEqual([0, 500]);
     expect(r.rows).toEqual([[1]]);
+    await a.previewRows('emp', 10, undefined, 20);
+    expect(pool.execute.mock.calls[1]![0] as string).toContain('OFFSET :o ROWS FETCH NEXT :n ROWS ONLY');
+    expect(pool.execute.mock.calls[1]![1]).toEqual([20, 10]);
   });
 });
 
@@ -193,16 +214,37 @@ describe('达梦 DM（mock pool）', () => {
     const a = await createDmAdapter(dmConn, { pool: makeDmPool() });
     await expect(a.query('DROP TABLE t')).rejects.toThrow('仅允许 SELECT/WITH');
   });
+  it('query 显式 autoCommit:true 且 maxRows=501（SELECT 立即结束隐式事务，避免事务悬挂）', async () => {
+    const pool = makeDmPool();
+    const a = await createDmAdapter(dmConn, { pool });
+    await a.query('SELECT 1 FROM dual');
+    const opts = pool.execute.mock.calls[0]![2] as { maxRows?: number; autoCommit?: boolean };
+    expect(opts.maxRows).toBe(501);
+    expect(opts.autoCommit).toBe(true);
+  });
+  it('tx 事务内 execute 显式 autoCommit:false', async () => {
+    const pool = makeDmPool();
+    const a = await createDmAdapter(dmConn, { pool });
+    const withTx = a as typeof a & { tx: (fn: (exec: (sql: string, binds?: unknown[]) => Promise<unknown>) => Promise<unknown>) => Promise<unknown> };
+    await withTx.tx(async (exec) => exec('INSERT INTO t VALUES (1)'));
+    const connObj = await pool.getConnection.mock.results[0]!.value;
+    const opts = connObj.execute.mock.calls[0]![2] as { autoCommit?: boolean };
+    expect(opts.autoCommit).toBe(false);
+    expect(connObj.commit).toHaveBeenCalled();
+  });
   it('DDL 附注隐式提交（推断标注）', async () => {
     const a = await createDmAdapter(dmConn, { pool: makeDmPool() });
     const r = await a.execute('TRUNCATE TABLE t');
     expect(r.message).toContain('DDL 已隐式提交，不可回滚');
   });
-  it('previewRows 统一 ANSI 分页 FETCH FIRST', async () => {
+  it('previewRows 统一 ANSI 分页，OFFSET/FETCH bind 透传（offset 用例）', async () => {
     const pool = makeDmPool([{ A: 1 }], [{ name: 'A' }]);
     const a = await createDmAdapter(dmConn, { pool });
     await a.previewRows('t', 10);
-    expect(pool.execute.mock.calls[0]![0] as string).toContain('FETCH FIRST 10 ROWS ONLY');
+    expect(pool.execute.mock.calls[0]![0] as string).toContain('OFFSET :o ROWS FETCH FIRST :n ROWS ONLY');
+    expect(pool.execute.mock.calls[0]![1]).toEqual([0, 10]);
+    await a.previewRows('t', 5, undefined, 15);
+    expect(pool.execute.mock.calls[1]![1]).toEqual([15, 5]);
   });
   it('listTables 复用 ALL_TABLES 数据字典', async () => {
     const pool = makeDmPool([{ TABLE_NAME: 'T1' }], [{ name: 'TABLE_NAME' }]);

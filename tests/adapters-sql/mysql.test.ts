@@ -16,21 +16,22 @@ const conn: ResolvedConnection = {
   ...(url ? { url } : {}),
 };
 
-beforeAll(async () => {
-  adapter = await createMysqlAdapter(conn);
-  await adapter.execute('DROP TABLE IF EXISTS dbt_test_users');
-  await adapter.execute(
-    'CREATE TABLE dbt_test_users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(64) NOT NULL, score DECIMAL(10,2), created DATETIME)',
-  );
-});
-
-afterAll(async () => {
-  if (!adapter) return;
-  await adapter.execute('DROP TABLE IF EXISTS dbt_test_users').catch(() => {});
-  await adapter.close();
-});
-
 suite('mysql 适配器（真机，DBT_TEST_MYSQL_URL 门控）', () => {
+  // 钩子必须在 suite 回调内：skip 时随用例一起跳过，避免无 URL 时真连炸整个文件
+  beforeAll(async () => {
+    adapter = await createMysqlAdapter(conn);
+    await adapter.execute('DROP TABLE IF EXISTS dbt_test_users');
+    await adapter.execute(
+      'CREATE TABLE dbt_test_users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(64) NOT NULL, score DECIMAL(10,2), created DATETIME)',
+    );
+  });
+
+  afterAll(async () => {
+    if (!adapter) return;
+    await adapter.execute('DROP TABLE IF EXISTS dbt_test_users').catch(() => {});
+    await adapter.close();
+  });
+
   it('testConnect 返回版本', async () => {
     const r = await adapter.testConnect();
     expect(r.ok).toBe(true);

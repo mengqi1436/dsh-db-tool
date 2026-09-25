@@ -13,7 +13,7 @@ import type {
   ResolvedConnection,
   TableInfo,
 } from '../types.js';
-import { assertIdent, clampLimit, humanize, normalizeCell, quoteIdent } from '../sql-shared/common.js';
+import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent } from '../sql-shared/common.js';
 
 type SqliteDb = InstanceType<typeof Database>;
 
@@ -122,13 +122,14 @@ export async function createSqliteAdapter(
         });
       }),
 
-    previewRows: (table, limit) =>
+    previewRows: (table, limit, _database, offset) =>
       humanize('sqlite 预览行', async () => {
         const tbl = quoteIdent(assertIdent(table, '表名'));
         const lim = clampLimit(limit);
+        const off = clampOffset(offset);
         const stmt = db.prepare(`SELECT * FROM ${tbl} LIMIT ? OFFSET ?`);
         const columns = stmt.columns().map((c) => c.name);
-        const raw = stmt.all(lim, 0) as Record<string, unknown>[];
+        const raw = stmt.all(lim, off) as Record<string, unknown>[];
         return toQueryResult(raw, columns);
       }),
 

@@ -34,13 +34,14 @@ import type {
   TestConnectResult,
 } from '../types.js';
 
-/** 危险操作：服务层拦截器用于确认流程。deleteMany/updateMany 仅空 filter 时危险（适配器已拦截）；createIndex 在大集合上可能阻塞。 */
+/** 危险操作：服务层拦截器用于确认流程。deleteMany/updateMany 仅空 filter 时危险（适配器已拦截）；createIndex 在大集合上可能阻塞。createIndexes/dropIndexes 为单数形式别名，renameCollection 影响集合可见性。 */
 export const DANGEROUS_OPS: ReadonlySet<string> = new Set([
-  'dropDatabase', 'dropCollection', 'deleteMany', 'updateMany',
-  'createIndex', 'dropIndex', 'shutdown', 'replSetStepDown',
+  'dropDatabase', 'dropCollection', 'renameCollection', 'deleteMany', 'updateMany',
+  'createIndex', 'createIndexes', 'dropIndex', 'dropIndexes', 'shutdown', 'replSetStepDown',
 ]);
 
-const READ_OPS: ReadonlySet<string> = new Set([
+/** 只读操作白名单（guard 层确认分级用，导出） */
+export const READ_OPS: ReadonlySet<string> = new Set([
   'find', 'aggregate', 'count', 'countDocuments', 'estimatedDocumentCount',
   'distinct', 'listCollections', 'dbStats', 'collStats', 'indexes',
 ]);
@@ -84,7 +85,12 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** 递归检测命令文档中的 $where（代码注入面），命中即拒绝 */
+/** 可执行服务端 JS 的键（代码注入面） */
+const JS_INJECTION_KEYS: ReadonlySet<string> = new Set(['$where', '$function', '$accumulator']);
+/** 有写副作用的聚合阶段（只读 query 通道禁止） */
+const WRITE_STAGE_KEYS: ReadonlySet<string> = new Set(['$out', '$merge', '$unionWith']);
+
+/** 递归检测命令文档：拒绝服务端 JS 键（$where/$function/$accumulator）与写副作用聚合阶段（$out/$merge/$unionWith） */
 function assertNoWhere(node: unknown, path = '$'): void {
   if (Array.isArray(node)) {
     node.forEach((child, i) => assertNoWhere(child, `${path}[${i}]`));
@@ -92,8 +98,11 @@ function assertNoWhere(node: unknown, path = '$'): void {
   }
   if (isPlainObject(node)) {
     for (const [k, v] of Object.entries(node)) {
-      if (k === '$where') {
-        throw new Error(`MongoDB 查询拒绝使用 $where（${path}.${k}）：可执行 JS 代码，存在注入风险；请改用查询运算符`);
+      if (JS_INJECTION_KEYS.has(k)) {
+        throw new Error(`MongoDB 查询拒绝使用 ${k}（${path}.${k}）：可执行服务端 JS 代码，存在注入风险；请改用查询运算符`);
+      }
+      if (WRITE_STAGE_KEYS.has(k)) {
+        throw new Error(`MongoDB 查询拒绝聚合阶段 ${k}（${path}.${k}）：该阶段有写副作用（写入/创建目标集合），只读通道不允许；如需落盘请走 execute 通道并评估权限`);
       }
       assertNoWhere(v, `${path}.${k}`);
     }
@@ -460,10 +469,11 @@ export async function createMongoAdapter(
       }
     },
 
-    async previewRows(name: string, limit: number): Promise<QueryResult> {
+    async previewRows(name: string, limit: number, _database?: string, offset?: number): Promise<QueryResult> {
       try {
         const n = Math.max(1, Math.min(Math.floor(limit) || 20, FIND_MAX_LIMIT));
-        const docs = await db.collection(name).find({}).sort({ _id: 1 }).limit(n).toArray();
+        const skip = Math.max(0, Math.floor(offset ?? 0) || 0);
+        const docs = await db.collection(name).find({}).sort({ _id: 1 }).skip(skip).limit(n).toArray();
         return docsToResult(docs, false);
       } catch (e) {
         throw wrap(e);

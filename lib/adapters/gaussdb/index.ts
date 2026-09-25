@@ -22,7 +22,8 @@ import {
 
 const require = createRequire(import.meta.url);
 // packages 布局：pg lib 内 require('../../pg-protocol'/'../../pg-pool') 按 monorepo 假设向上两级解析
-const VENDOR_PATH = '../../vendor/gaussdb-pg/packages/pg';
+// 相对 createRequire base（lib/adapters/gaussdb/）需三级到项目根：gaussdb/ → adapters/ → lib/ → root
+const VENDOR_PATH = '../../../vendor/gaussdb-pg/packages/pg';
 
 function loadGaussDriver(): PgLikeDriver {
   try {

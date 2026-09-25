@@ -119,8 +119,9 @@ export interface DatabaseAdapter {
   /** 表结构 / 集合字段推断（Mongo 用抽样推断并标注） / Redis 键类型+编码+长度 */
   describeTable(table: string, database?: string): Promise<ColumnInfo[]>;
 
-  /** 预览行（SQL: LIMIT/OFFSET 或 FETCH FIRST；上限 50 由服务层强制） */
-  previewRows(table: string, limit: number, database?: string): Promise<QueryResult>;
+  /** 预览行（SQL: LIMIT/OFFSET 或 FETCH；上限 50 由服务层强制）。
+   *  offset 为行偏移（默认 0）实现真翻页；无偏移语义的 KV 型（Redis）可忽略。 */
+  previewRows(table: string, limit: number, database?: string, offset?: number): Promise<QueryResult>;
 
   close(): Promise<void>;
 

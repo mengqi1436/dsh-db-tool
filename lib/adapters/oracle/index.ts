@@ -169,7 +169,8 @@ export async function createOracleAdapter(
     };
   }
 
-  const execOpts: oracledb.ExecuteOptions = { outFormat: oracledb.OBJECT, maxRows: ROWS_MAX + 1, ...BLOB_FETCH };
+  // autoCommit 默认 true：query/元数据 SELECT 结束隐式事务避免 ro 事务悬挂；tx 专用连接显式 autoCommit:false 覆盖
+  const execOpts: oracledb.ExecuteOptions = { outFormat: oracledb.OBJECT, maxRows: ROWS_MAX + 1, autoCommit: true, ...BLOB_FETCH };
 
   /** owner 解析：database 参数或默认当前用户（大写） */
   function ownerOf(database?: string): string {
@@ -223,7 +224,7 @@ export async function createOracleAdapter(
     async execute(statement: string, params?: unknown[]): Promise<ExecResult> {
       requireRw('execute');
       try {
-        const r = await pool.execute(statement, params ?? [], { ...execOpts, autoCommit: true });
+        const r = await pool.execute(statement, params ?? [], execOpts);
         return await toExecResult(statement, r);
       } catch (e) {
         throw humanizeOraError(e);
@@ -329,14 +330,15 @@ export async function createOracleAdapter(
       }
     },
 
-    async previewRows(table: string, limit: number, database?: string): Promise<QueryResult> {
+    async previewRows(table: string, limit: number, database?: string, offset?: number): Promise<QueryResult> {
       const owner = ownerOf(database);
       const tab = sanitizeIdentifier(table, '表名');
       const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
+      const off = Math.max(0, Math.floor(offset ?? 0) || 0);
       try {
         const r = await pool.execute(
-          `SELECT * FROM "${owner}"."${tab}" OFFSET 0 ROWS FETCH NEXT :n ROWS ONLY`,
-          [n],
+          `SELECT * FROM "${owner}"."${tab}" OFFSET :o ROWS FETCH NEXT :n ROWS ONLY`,
+          [off, n],
           execOpts,
         );
         const rows = (r.rows as Record<string, unknown>[] | undefined) ?? [];

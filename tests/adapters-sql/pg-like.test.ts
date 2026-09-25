@@ -14,30 +14,38 @@ import type { ResolvedConnection } from '../../lib/adapters/types.js';
 class FakeClient implements PgLikeClient {
   executed: { sql: string; params: unknown[] | undefined }[] = [];
   released = 0;
+  releaseErr: unknown;
   constructor(
     private pool: FakePool,
     public result: { rows: Record<string, unknown>[]; fields?: { name: string }[]; rowCount: number | null } = { rows: [], rowCount: null },
+    public failSqlPrefix?: string,
   ) {}
   async query(sql: string, params?: unknown[]) {
+    if (this.failSqlPrefix && sql.startsWith(this.failSqlPrefix)) throw new Error(`mock SET 失败: ${sql}`);
     this.executed.push({ sql, params });
     return this.result;
   }
-  release() {
+  release(err?: unknown) {
     this.released++;
+    this.releaseErr = err;
     this.pool.liveClients = this.pool.liveClients.filter((c) => c !== this);
   }
 }
 
 class FakePool implements PgLikePool {
   connectHandlers: ((c: PgLikeClient) => void)[] = [];
+  errorHandlers: ((c: PgLikeClient) => void)[] = [];
   liveClients: FakeClient[] = [];
   executed: { sql: string; params: unknown[] | undefined }[] = [];
   ended = 0;
   /** 每次 pool.query 返回的结果（按序出队） */
   queue: { rows: Record<string, unknown>[]; fields?: { name: string }[]; rowCount: number | null }[] = [];
+  /** 注入：新建 client 对匹配前缀的 SQL 抛错（模拟 ro SET 失败） */
+  clientFailSqlPrefix?: string;
 
   on(event: string, cb: (c: PgLikeClient) => void) {
     if (event === 'connect') this.connectHandlers.push(cb);
+    else if (event === 'error') this.errorHandlers.push(cb);
     return this;
   }
   async query(sql: string, params?: unknown[]) {
@@ -46,7 +54,7 @@ class FakePool implements PgLikePool {
     return res;
   }
   async connect() {
-    const c = new FakeClient(this);
+    const c = new FakeClient(this, { rows: [], rowCount: null }, this.clientFailSqlPrefix);
     this.liveClients.push(c);
     for (const h of this.connectHandlers) h(c);
     return c;
@@ -154,6 +162,16 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(r.rowCount).toBe(1);
   });
 
+  it('previewRows offset 透传（第 4 参数，缺省 0）', async () => {
+    const { a, pool } = await make('postgresql');
+    pool.queue = [okRes([], ['id']), okRes([], ['id'])];
+    await a.previewRows('users', 50, 'public', 10);
+    expect(pool.executed[0]?.sql).toBe('SELECT * FROM "public"."users" LIMIT $1 OFFSET $2');
+    expect(pool.executed[0]?.params).toEqual([50, 10]); // OFFSET 10
+    await a.previewRows('users', 50);
+    expect(pool.executed[1]?.params).toEqual([50, 0]);
+  });
+
   it('ro 模式：connect 钩子设置只读会话', async () => {
     const pool = new FakePool();
     const driver: PgLikeDriver = { Pool: function () { return pool; } as unknown as PgLikeDriver['Pool'] };
@@ -161,6 +179,22 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(pool.connectHandlers.length).toBe(1);
     const c = await pool.connect();
     expect(c.executed[0]?.sql).toBe('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY');
+  });
+
+  it('ro 模式：会话级 SET 失败 → fail-closed（release(err) 销毁连接）', async () => {
+    const pool = new FakePool();
+    pool.clientFailSqlPrefix = 'SET SESSION';
+    const driver: PgLikeDriver = { Pool: function () { return pool; } as unknown as PgLikeDriver['Pool'] };
+    await createPgLikeAdapter('postgresql', driver, conn(), { mode: 'ro' });
+    const c = await pool.connect(); // 触发 connect 钩子 → SET reject → release(err)
+    await new Promise((r) => setTimeout(r, 0)); // flush 微任务，让 .catch 执行
+    expect(c.released).toBe(1);
+    expect(c.releaseErr).toBeInstanceOf(Error);
+    expect(pool.liveClients.length).toBe(0); // 已被 release 移除
+    expect(pool.errorHandlers.length).toBe(1); // 兜底监听 pool 'error' 防进程崩溃
+    // 非 ro 模式不注册 error 兜底
+    const { pool: p2 } = await make('postgresql');
+    expect(p2.errorHandlers.length).toBe(0);
   });
 
   it('非 ro 模式不设置只读钩子', async () => {

@@ -103,6 +103,16 @@ describe('sqlite 适配器（真机）', () => {
     expect(r.rowCount).toBe(r.rows.length);
   });
 
+  it('previewRows offset 真翻页（第 4 参数行偏移，缺省 0）', async () => {
+    const page2 = await adapter.previewRows('users', 5, undefined, 10);
+    expect(page2.rowCount).toBe(5);
+    expect(page2.rows[0]?.[0]).toBe(11); // 跳过前 10 行
+    expect(page2.rows[0]?.[1]).toBe('user11');
+    expect(page2.rows[4]?.[0]).toBe(15);
+    const page1 = await adapter.previewRows('users', 5);
+    expect(page1.rows[0]?.[0]).toBe(1); // offset 缺省 0
+  });
+
   it('非法标识符被拒绝（防注入）', async () => {
     await expect(adapter.describeTable('users; DROP TABLE users')).rejects.toThrow(/非法/);
     await expect(adapter.previewRows('users"--', 10)).rejects.toThrow(/非法/);

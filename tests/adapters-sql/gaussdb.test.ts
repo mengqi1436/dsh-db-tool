@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createGaussdbAdapter } from '../../lib/adapters/gaussdb/index.js';
 import type { ResolvedConnection } from '../../lib/adapters/types.js';
 
-const vendorPkg = fileURLToPath(new URL('../../vendor/gaussdb-pg/package.json', import.meta.url));
+const vendorPkg = fileURLToPath(new URL('../../vendor/gaussdb-pg/packages/pg/package.json', import.meta.url));
 const vendorReady = existsSync(vendorPkg);
 
 const conn: ResolvedConnection = {

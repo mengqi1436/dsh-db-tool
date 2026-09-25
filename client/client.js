@@ -20,7 +20,6 @@ window.__ModuleLoader__.load({
 			projectLabel: "项目: {path}",
 			projectUnbound: "未识别当前项目路径，请在下方填写 workspace 绝对路径",
 			projectPathPlaceholder: "workspace 绝对路径（如 E:\\Code\\my-app）",
-			refresh: "刷新",
 			viewManage: "连接管理",
 			viewGrants: "项目授权",
 			viewBrowse: "数据浏览",
@@ -30,7 +29,6 @@ window.__ModuleLoader__.load({
 			newConn: "新建连接",
 			editConn: "编辑连接",
 			noConns: "还没有连接，点击「新建连接」添加。",
-			kind: "数据库类型",
 			connName: "名称 / 别名",
 			connId: "连接 ID",
 			urlMode: "URL 方式",
@@ -59,7 +57,6 @@ window.__ModuleLoader__.load({
 			auditAction: "操作",
 			auditConn: "连接",
 			auditDetail: "详情",
-			auditOk: "通过",
 			auditDenied: "拒绝",
 			auditConfirmed: "已确认",
 			// 授权
@@ -67,10 +64,7 @@ window.__ModuleLoader__.load({
 			modeNone: "未授权",
 			modeRo: "只读 ro",
 			modeRw: "读写 rw",
-			savingGrant: "更新中…",
 			// 浏览
-			database: "库 / Schema",
-			table: "表",
 			noDatabases: "无可用数据库",
 			noTables: "无表",
 			structure: "结构",
@@ -86,7 +80,6 @@ window.__ModuleLoader__.load({
 			pageInfo: "第 {page} 页（每页 50 行）",
 			previewTruncated: "结果已截断",
 			// SQL 控制台
-			mode: "模式",
 			modeQuery: "只读查询 query",
 			modeExecute: "写入执行 execute",
 			modeScript: "脚本 script",
@@ -107,17 +100,12 @@ window.__ModuleLoader__.load({
 			// 通用
 			error: "错误",
 			ok: "确定",
-			close: "关闭",
-			copy: "复制",
-			loading: "加载中…",
-			empty: "（空）",
 		};
 		const en = {
 			tabTitle: "Databases",
 			projectLabel: "Project: {path}",
 			projectUnbound: "Cannot detect current project path; enter the workspace absolute path below",
 			projectPathPlaceholder: "workspace absolute path (e.g. /home/me/my-app)",
-			refresh: "Refresh",
 			viewManage: "Connections",
 			viewGrants: "Project Access",
 			viewBrowse: "Browse",
@@ -126,7 +114,6 @@ window.__ModuleLoader__.load({
 			newConn: "New Connection",
 			editConn: "Edit Connection",
 			noConns: "No connections yet. Click \"New Connection\" to add one.",
-			kind: "Database kind",
 			connName: "Name / alias",
 			connId: "Connection ID",
 			urlMode: "URL",
@@ -155,16 +142,12 @@ window.__ModuleLoader__.load({
 			auditAction: "Action",
 			auditConn: "Conn",
 			auditDetail: "Detail",
-			auditOk: "allowed",
 			auditDenied: "denied",
 			auditConfirmed: "confirmed",
 			grantsHint: "Grant connections to the current project. ro = read-only (query/browse), rw = read-write (execute/script allowed). Unauthorized connections are always rejected.",
 			modeNone: "none",
 			modeRo: "read-only ro",
 			modeRw: "read-write rw",
-			savingGrant: "Updating…",
-			database: "Database / Schema",
-			table: "Table",
 			noDatabases: "No databases available",
 			noTables: "No tables",
 			structure: "Structure",
@@ -179,7 +162,6 @@ window.__ModuleLoader__.load({
 			prevPage: "Prev",
 			pageInfo: "Page {page} (50 rows/page)",
 			previewTruncated: "Result truncated",
-			mode: "Mode",
 			modeQuery: "query (read-only)",
 			modeExecute: "execute (write)",
 			modeScript: "script",
@@ -199,10 +181,6 @@ window.__ModuleLoader__.load({
 			cancelled: "Cancelled",
 			error: "Error",
 			ok: "OK",
-			close: "Close",
-			copy: "Copy",
-			loading: "Loading…",
-			empty: "(empty)",
 		};
 
 		let activeLocale = "zh";
@@ -606,22 +584,26 @@ window.__ModuleLoader__.load({
 
 			React.useEffect(() => {
 				if (!connId || !projectPath) { setDatabases([]); return; }
+				let cancelled = false;
 				api("databases" + qs({ project: projectPath, connId }))
-					.then((list) => { setDatabases(list || []); setDatabase((list || [])[0] || ""); })
-					.catch((e) => props.onError(e));
+					.then((list) => { if (cancelled) return; setDatabases(list || []); setDatabase((list || [])[0] || ""); })
+					.catch((e) => { if (!cancelled) props.onError(e); });
+				return () => { cancelled = true; };
 			}, [connId, projectPath]);
 			React.useEffect(() => {
 				if (!connId || !projectPath) { setTables([]); return; }
+				let cancelled = false;
 				api("tables" + qs({ project: projectPath, connId, database }))
-					.then((list) => { setTables(list || []); setTable(null); setSchema([]); setPreview(null); })
-					.catch((e) => props.onError(e));
+					.then((list) => { if (cancelled) return; setTables(list || []); setTable(null); setSchema([]); setPreview(null); })
+					.catch((e) => { if (!cancelled) props.onError(e); });
+				return () => { cancelled = true; };
 			}, [connId, database, projectPath]);
 			const openTable = React.useCallback((tb, pg) => {
 				if (!tb || !connId || !projectPath) return;
 				setBusy("open");
 				Promise.all([
 					api("schema" + qs({ project: projectPath, connId, database, table: tb.name })),
-					api("preview" + qs({ project: projectPath, connId, database, table: tb.name, limit: PAGE_SIZE })),
+					api("preview" + qs({ project: projectPath, connId, database, table: tb.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
 				])
 					.then(([sch, prev]) => { setSchema(sch || []); setPreview(prev); setPage(pg || 1); })
 					.catch((e) => props.onError(e))
@@ -719,7 +701,6 @@ window.__ModuleLoader__.load({
 		function ConsoleView(props) {
 			const { conns, projectPath, askConfirm } = props;
 			const [connId, setConnId] = React.useState("");
-			const [database, setDatabase] = React.useState("");
 			const [mode, setMode] = React.useState("query"); // query | execute | script
 			const [sql, setSql] = React.useState("");
 			const [params, setParams] = React.useState("");
@@ -793,7 +774,6 @@ window.__ModuleLoader__.load({
 					React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
 						React.createElement("option", { value: "" }, t("viewManage") + "…"),
 						conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
-					React.createElement("input", { placeholder: t("database"), value: database, onChange: (e) => setDatabase(e.target.value), style: { maxWidth: 140 } }),
 					React.createElement("select", { value: mode, onChange: (e) => setMode(e.target.value) },
 						React.createElement("option", { value: "query" }, t("modeQuery")),
 						React.createElement("option", { value: "execute" }, t("modeExecute")),

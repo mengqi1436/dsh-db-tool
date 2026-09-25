@@ -137,9 +137,10 @@ export async function createDmAdapter(
     }
   }
 
-  /** 默认 execute 选项：显式 maxRows + 显式 autoCommit（dmdb 默认分别为 0/false，必须覆盖） */
-  const execOpts = { outFormat: db.OUT_FORMAT_OBJECT, maxRows: ROWS_MAX + 1, autoCommit: false };
-  const execOptsAuto = { ...execOpts, autoCommit: true };
+  /** 默认 execute 选项：显式 maxRows + 显式 autoCommit:true（dmdb 默认分别为 0/false，必须覆盖；SELECT 立即结束隐式事务，避免 ro 事务悬挂） */
+  const execOpts = { outFormat: db.OUT_FORMAT_OBJECT, maxRows: ROWS_MAX + 1, autoCommit: true };
+  /** 事务内 execute：显式关闭自动提交，由 tx 的 commit/rollback 收口 */
+  const execOptsTx = { ...execOpts, autoCommit: false };
 
   function requireRw(action: string): void {
     if (mode === 'ro') {
@@ -218,8 +219,8 @@ export async function createDmAdapter(
     async execute(statement: string, params?: unknown[]): Promise<ExecResult> {
       requireRw('execute');
       try {
-        // 单语句语义：显式 autoCommit: true（dmdb 默认非自动提交）
-        const r = await pool.execute(statement, params ?? [], execOptsAuto);
+        // 单语句语义：autoCommit: true（execOpts 默认已开启）
+        const r = await pool.execute(statement, params ?? [], execOpts);
         return await toExecResult(statement, r);
       } catch (e) {
         throw humanizeDmError(e);
@@ -232,7 +233,7 @@ export async function createDmAdapter(
       const c = await pool.getConnection();
       try {
         const exec = async (sql: string, binds?: unknown[]): Promise<ExecResult> => {
-          const r = await c.execute(sql, binds ?? [], execOpts);
+          const r = await c.execute(sql, binds ?? [], execOptsTx);
           return toExecResult(sql, r);
         };
         const out = await fn(exec);
@@ -321,15 +322,16 @@ export async function createDmAdapter(
       }
     },
 
-    async previewRows(table: string, limit: number, database?: string): Promise<QueryResult> {
+    async previewRows(table: string, limit: number, database?: string, offset?: number): Promise<QueryResult> {
       const owner = ownerOf(database);
       const tab = sanitizeIdentifier(table, '表名').toUpperCase();
       const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
+      const off = Math.max(0, Math.floor(offset ?? 0) || 0);
       try {
-        // 统一 ANSI 分页（不依赖 compatibleMode=oracle）⚠️ 推断（未真机验证）
+        // 统一 ANSI 分页（不依赖 compatibleMode=oracle），OFFSET/FETCH 均走 bind ⚠️ 推断（未真机验证）
         const r = await pool.execute(
-          `SELECT * FROM "${owner}"."${tab}" OFFSET 0 ROWS FETCH FIRST ${n} ROWS ONLY`,
-          [],
+          `SELECT * FROM "${owner}"."${tab}" OFFSET :o ROWS FETCH FIRST :n ROWS ONLY`,
+          [off, n],
           execOpts,
         );
         return await rowsToQueryResult(r);

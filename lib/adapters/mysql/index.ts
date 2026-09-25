@@ -2,7 +2,8 @@
  * MySQL 适配器（mysql2/promise）。
  * query=读用 pool.query()；execute=写用 pool.execute()（真 prepare，占位符 ?）。
  * DECIMAL 官方默认 string 保持；dateStrings:true 使 DATE/DATETIME 直接输出字符串。
- * ro 模式：multipleStatements 固定 false（防堆叠注入），服务层拦截 execute。
+ * ro 模式：multipleStatements 固定 false（防堆叠注入）；建连后会话级只读（SET SESSION
+ * TRANSACTION READ ONLY）+ query 首词只读白名单双保险；服务层拦截 execute。
  */
 import mysql, {
   type FieldPacket,
@@ -21,7 +22,10 @@ import type {
   ResolvedConnection,
   TableInfo,
 } from '../types.js';
-import { assertIdent, clampLimit, humanize, normalizeCell, quoteIdent } from '../sql-shared/common.js';
+import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent } from '../sql-shared/common.js';
+
+/** ro 模式下 query 允许的读语句首词白名单 */
+const RO_READ_PREFIX = /^(select|show|desc|describe|explain|use|help|table)\b/i;
 
 function connOptions(conn: ResolvedConnection): mysql.PoolOptions {
   const base: mysql.PoolOptions = {
@@ -66,7 +70,17 @@ export async function createMysqlAdapter(
   opts?: { mode?: AccessMode },
 ): Promise<DatabaseAdapter & { tx: MysqlTx }> {
   const pool = mysql.createPool(connOptions(conn));
-  void opts; // ro 拦截在服务层；适配器层 multipleStatements:false 已固定
+  const readOnly = opts?.mode === 'ro';
+  if (readOnly) {
+    // 服务器级 ro 强制：每个新底层连接自动设为只读会话（应用层另有 query 白名单双保险）。
+    // 运行时连接可能是 promise 包装或 callback 版：query() 返回 promise 才需要吞掉 SET 失败。
+    pool.on('connection', (c) => {
+      const r = c.query('SET SESSION TRANSACTION READ ONLY') as unknown;
+      if (r && typeof (r as Promise<unknown>).catch === 'function') {
+        void (r as Promise<unknown>).catch(() => {});
+      }
+    });
+  }
 
   /** 事务激活期间路由到同一连接，保证 BEGIN/COMMIT 生效 */
   let txConn: PoolConnection | null = null;
@@ -120,9 +134,15 @@ export async function createMysqlAdapter(
   };
 
   const defaultDb = (): string => {
-    const db = conn.fields?.database != null ? String(conn.fields.database) : '';
+    let db = conn.fields?.database != null ? String(conn.fields.database) : '';
+    if (!db && conn.url) {
+      // URL 配置：默认库取 pathname 首段（与 connOptions 的解析一致）
+      const p = new URL(conn.url).pathname.slice(1);
+      if (p) db = p;
+    }
     if (!db) throw new Error('未指定数据库：请传入 database 参数或配置默认库');
-    return db;
+    // fields/URL 提供的库名统一过标识符校验（防注入）
+    return assertIdent(db, '库名');
   };
 
   return {
@@ -138,6 +158,11 @@ export async function createMysqlAdapter(
 
     query: (sql, params) =>
       humanize('mysql 查询失败', async () => {
+        if (readOnly && !RO_READ_PREFIX.test(sql.trimStart())) {
+          throw new Error(
+            'DRIVER_ERROR: 只读(ro)模式下 query 仅允许读语句（select/show/desc/describe/explain/use/help/table），写操作请使用可写连接',
+          );
+        }
         const [rows, fields] = await runner().query(sql, params ?? []);
         if (!Array.isArray(rows)) return { columns: [], rows: [], rowCount: 0 };
         return toQueryResult(rows as RowDataPacket[], fields);
@@ -213,14 +238,15 @@ export async function createMysqlAdapter(
         });
       }),
 
-    previewRows: (table, limit, database) =>
+    previewRows: (table, limit, database, offset) =>
       humanize('mysql 预览行', async () => {
         const db = quoteIdent(database ? assertIdent(database, '库名') : defaultDb(), '`');
         const tbl = quoteIdent(assertIdent(table, '表名'), '`');
         const lim = clampLimit(limit);
+        const off = clampOffset(offset);
         const [rows, fields] = await pool.query(
           `SELECT * FROM ${db}.${tbl} LIMIT ? OFFSET ?`,
-          [lim, 0],
+          [lim, off],
         );
         if (!Array.isArray(rows)) return { columns: [], rows: [], rowCount: 0 };
         return toQueryResult(rows as RowDataPacket[], fields);

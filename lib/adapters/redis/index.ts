@@ -23,10 +23,11 @@ import type {
   TestConnectResult,
 } from '../types.js';
 
-/** 危险命令：服务层拦截器在用户确认前拒绝执行（KEYS 同时被 query 白名单禁用） */
+/** 危险命令：服务层拦截器在用户确认前拒绝执行（KEYS 同时被 query 白名单禁用）。对齐官方 ACL dangerous 类。 */
 export const DANGEROUS_COMMANDS: ReadonlySet<string> = new Set([
   'FLUSHALL', 'FLUSHDB', 'SWAPDB', 'CONFIG', 'DEBUG', 'SAVE', 'SHUTDOWN',
-  'REPLICAOF', 'MIGRATE', 'RESTORE', 'SORT', 'ACL', 'KEYS',
+  'REPLICAOF', 'SLAVEOF', 'MIGRATE', 'RESTORE', 'SORT', 'SORT_RO', 'ACL', 'KEYS',
+  'MODULE', 'FUNCTION', 'SCRIPT', 'RESET',
 ]);
 
 /** 读白名单（OBJECT 仅限 ENCODING、MEMORY 仅限 USAGE 子命令） */
@@ -56,8 +57,11 @@ const LENGTH_CMD_BY_TYPE: Record<string, { cmd: string; method: 'strLen' | 'hLen
 
 const CELL_TRUNC = 1000;
 const SCAN_COUNT = 100;
+const SCAN_MAX_KEYS = 200;
 const LIST_TABLES_MAX = 500;
 const PREVIEW_MAX = 50;
+/** query 通道集合类读命令（HGETALL/HKEYS/HVALS/SMEMBERS）结果行数上限 */
+const READ_CLAMP = 500;
 
 function trunc(s: string, max = CELL_TRUNC): string {
   return s.length > max ? `${s.slice(0, max)}…[截断,共${s.length}字符]` : s;
@@ -219,13 +223,26 @@ export async function createRedisAdapter(
         const cmd = args[0]!.toUpperCase();
         const rest = args.slice(1);
 
-        // SCAN：scanIterator 实现，禁用 KEYS
+        // SCAN：scanIterator 实现，禁用 KEYS；透传用户 MATCH/COUNT，行数仍 clamp 200
         if (cmd === 'SCAN') {
+          let match = '*';
+          let count = SCAN_COUNT;
+          for (let i = 0; i < rest.length; i++) {
+            const a = (rest[i] ?? '').toUpperCase();
+            if (a === 'MATCH' && rest[i + 1] !== undefined) {
+              match = rest[i + 1]!;
+              i++;
+            } else if (a === 'COUNT' && rest[i + 1] !== undefined) {
+              const c = Number(rest[i + 1]);
+              if (Number.isInteger(c) && c > 0) count = c;
+              i++;
+            }
+          }
           const rows: NormalizedCell[][] = [];
           const keys: string[] = [];
-          for await (const k of client.scanIterator({ MATCH: '*', COUNT: SCAN_COUNT })) {
+          for await (const k of client.scanIterator({ MATCH: match, COUNT: count })) {
             keys.push(...(Array.isArray(k) ? k : [String(k)]));
-            if (keys.length >= 200) break;
+            if (keys.length >= SCAN_MAX_KEYS) break;
           }
           if (keys.length > 0) {
             const multi = client.multi();
@@ -235,7 +252,7 @@ export async function createRedisAdapter(
               rows.push([keys[i] ?? '', cell(types[i] ?? 'none')]);
             }
           }
-          return { columns: ['key', 'type'], rows, rowCount: rows.length, truncated: keys.length >= 200 || undefined };
+          return { columns: ['key', 'type'], rows, rowCount: rows.length, truncated: keys.length >= SCAN_MAX_KEYS || undefined };
         }
 
         // SELECT：切换逻辑库
@@ -305,18 +322,21 @@ export async function createRedisAdapter(
           case 'ZRANK': return kv(rest[1] ?? '', await client.zRank(key, rest[1] ?? ''));
           case 'HGETALL': {
             const map = await client.hGetAll(key);
-            const rows = Object.entries(map).map(([f, v]) => [cell(f), cell(v)] as NormalizedCell[]);
-            return { columns: ['field', 'value'], rows, rowCount: rows.length };
+            const all = Object.entries(map).map(([f, v]) => [cell(f), cell(v)] as NormalizedCell[]);
+            const rows = all.slice(0, READ_CLAMP);
+            return { columns: ['field', 'value'], rows, rowCount: rows.length, truncated: all.length > READ_CLAMP || undefined };
           }
           case 'HKEYS': {
             const vals = await client.hKeys(key);
-            const rows = (vals ?? []).map((f) => [cell(f)] as NormalizedCell[]);
-            return { columns: ['field'], rows, rowCount: rows.length };
+            const all = (vals ?? []).map((f) => [cell(f)] as NormalizedCell[]);
+            const rows = all.slice(0, READ_CLAMP);
+            return { columns: ['field'], rows, rowCount: rows.length, truncated: all.length > READ_CLAMP || undefined };
           }
           case 'HVALS': {
             const vals = await client.hVals(key);
-            const rows = (vals ?? []).map((v) => [cell(v)] as NormalizedCell[]);
-            return { columns: ['value'], rows, rowCount: rows.length };
+            const all = (vals ?? []).map((v) => [cell(v)] as NormalizedCell[]);
+            const rows = all.slice(0, READ_CLAMP);
+            return { columns: ['value'], rows, rowCount: rows.length, truncated: all.length > READ_CLAMP || undefined };
           }
           case 'LRANGE': {
             const all = await client.lRange(key, Number(rest[1] ?? 0), Number(rest[2] ?? -1));
@@ -325,8 +345,9 @@ export async function createRedisAdapter(
           }
           case 'SMEMBERS': {
             const vals = await client.sMembers(key);
-            const rows = (vals ?? []).map((v) => [cell(v)] as NormalizedCell[]);
-            return { columns: ['member'], rows, rowCount: rows.length };
+            const all = (vals ?? []).map((v) => [cell(v)] as NormalizedCell[]);
+            const rows = all.slice(0, READ_CLAMP);
+            return { columns: ['member'], rows, rowCount: rows.length, truncated: all.length > READ_CLAMP || undefined };
           }
           case 'ZRANGE': {
             const withScores = rest.slice(3).some((a) => a.toUpperCase() === 'WITHSCORES');
@@ -427,7 +448,8 @@ export async function createRedisAdapter(
       }
     },
 
-    async previewRows(key: string, limit: number): Promise<QueryResult> {
+    // KV 型无行偏移语义（契约允许忽略 database/offset），仅按 limit 取样本
+    async previewRows(key: string, limit: number, _database?: string, _offset?: number): Promise<QueryResult> {
       try {
         const n = Math.max(1, Math.min(Math.floor(limit) || PREVIEW_MAX, PREVIEW_MAX));
         const type = await client.type(key);

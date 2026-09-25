@@ -14,7 +14,7 @@ import type {
   ResolvedConnection,
   TableInfo,
 } from '../types.js';
-import { assertIdent, clampLimit, humanize, normalizeCell, quoteIdent } from './common.js';
+import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent } from './common.js';
 
 /** 与 pg / gaussdb vendor 驱动结构兼容的最小接口 */
 export interface PgLikeResult {
@@ -24,7 +24,8 @@ export interface PgLikeResult {
 }
 export interface PgLikeClient {
   query(text: string, values?: unknown[]): Promise<PgLikeResult>;
-  release(): void;
+  /** pg 约定：release(err) 会销毁该连接并让等待的 acquire 收到错误 */
+  release(err?: unknown): void;
 }
 export interface PgLikePool {
   on(event: string, cb: (client: PgLikeClient) => void): unknown;
@@ -75,10 +76,15 @@ export async function createPgLikeAdapter(
   const readOnly = opts?.mode === 'ro';
   if (readOnly) {
     // 服务器级 ro 强制（官方手段）：每个新连接会话设为只读事务。
-    // 钩子失败不阻塞连接（服务层仍会拦截 execute，属双保险之一）。
+    // fail-closed：SET 失败时 release(err) 让驱动销毁该连接、等待的 acquire 收到错误——
+    // 会话级只读是 ro 的最后防线，不允许静默降级成可写连接。
     pool.on('connect', (c) => {
-      void c.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY').catch(() => {});
+      void c.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY').catch((err: unknown) => {
+        c.release(err instanceof Error ? err : new Error(String(err)));
+      });
     });
+    // pg 约定：release(err) 若无等待者会 emit pool 'error'，不监听会崩进程
+    pool.on('error', () => {});
   }
 
   // 事务激活期间所有 query/execute 路由到同一 client
@@ -223,14 +229,15 @@ export async function createPgLikeAdapter(
         });
       }),
 
-    previewRows: (table, limit, database) =>
+    previewRows: (table, limit, database, offset) =>
       humanize(`${kind} 预览行`, async () => {
         const schema = database ? assertIdent(database, 'schema') : defaultSchema();
         const tbl = assertIdent(table, '表名');
         const lim = clampLimit(limit);
+        const off = clampOffset(offset);
         const res = await run(
           `SELECT * FROM ${quoteIdent(schema)}.${quoteIdent(tbl)} LIMIT $1 OFFSET $2`,
-          [lim, 0],
+          [lim, off],
         );
         return toQueryResult(res);
       }),

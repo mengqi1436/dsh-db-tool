@@ -4,10 +4,10 @@
  *  - DbToolService：授权（GrantStore.check + normalizeProjectKey）→ guard 分类 →
  *    challenge 确认 → 适配器调用 → 审计。HTTP 与模型工具共用同一套语义。
  *  - handleToolAction：模型工具（单工具多 action）的纯分发层，便于离线测试。
- *  - run_script：node:vm 新 context、60s 超时、仅注入受限 db 句柄
- *    （无 require/process/network/fs；ro 连接拒绝写句柄）。
+ *  - run_script：子进程隔离执行（permission model 禁 fs + 新 vm realm 双层），
+ *    60s SIGKILL 强超时，仅注入受限 db 句柄（经 IPC 走完整 guard/审计链路；
+ *    ro 连接拒绝写句柄）。
  */
-import * as vm from 'node:vm';
 import type {
   ColumnInfo,
   ConnectionMeta,
@@ -22,6 +22,7 @@ import { getAdapter, type AdapterFactory } from './adapters/index.js';
 import {
   ChallengeStore,
   classifyStatement,
+  type ChallengeScope,
   type GuardVerdict,
 } from './guard/index.js';
 import {
@@ -30,6 +31,7 @@ import {
   type AuditEntry,
   type DangerLevel,
 } from './store/index.js';
+import { runScriptInChild } from './script/runner.js';
 
 /* ---------------- 错误与结果类型 ---------------- */
 
@@ -101,6 +103,8 @@ export class DbToolService {
   updateConnection(id: string, patch: Parameters<DbToolStore['connections']['update']>[1]): ConnectionMeta {
     const meta = this.store.connections.update(id, patch);
     if (!meta) throw new DbToolError('NOT_FOUND', `连接不存在: ${id}`);
+    // url/凭证/ssl 变更后旧适配器仍持旧连接串，必须作废重建
+    void this.dropAdapters(id);
     this.audit('', id, 'update_connection', id, 'none', false, true);
     return meta;
   }
@@ -108,7 +112,7 @@ export class DbToolService {
   removeConnection(id: string): boolean {
     const ok = this.store.connections.remove(id);
     if (!ok) throw new DbToolError('NOT_FOUND', `连接不存在: ${id}`);
-    this.adapterCache.delete(id);
+    void this.dropAdapters(id);
     this.audit('', id, 'remove_connection', id, 'none', false, true);
     return ok;
   }
@@ -137,12 +141,15 @@ export class DbToolService {
   grant(projectPath: string, connId: string, mode: 'ro' | 'rw'): void {
     const key = normalizeProjectKey(projectPath);
     this.store.grants.grant(key, connId, mode);
+    // 授权模式变更（含 rw→ro 降级）必须作废旧会话适配器，否则降级不生效
+    void this.dropAdapters(connId);
     this.audit(key, connId, 'grant', `${connId} -> ${mode}`, 'none', false, true);
   }
 
   revokeGrant(projectPath: string, connId: string): void {
     const key = normalizeProjectKey(projectPath);
     this.store.grants.revoke(key, connId);
+    void this.dropAdapters(connId);
     this.audit(key, connId, 'revoke', connId, 'none', false, true);
   }
 
@@ -191,16 +198,18 @@ export class DbToolService {
     table: string,
     limit?: number,
     database?: string,
+    offset?: number,
   ): Promise<QueryResult> {
     const t = assertNonEmpty(table, 'table');
     const capped = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+    const off = Math.max(0, Math.floor(Number(offset) || 0));
     const { key, adapter } = await this.authorize(projectPath, connId, false);
     try {
-      const result = await adapter.previewRows(t, capped, database);
-      this.audit(key, connId, 'preview', `PREVIEW ${t} LIMIT ${capped}`, 'none', false, true, undefined, result.rowCount);
+      const result = await adapter.previewRows(t, capped, database, off);
+      this.audit(key, connId, 'preview', `PREVIEW ${t} LIMIT ${capped} OFFSET ${off}`, 'none', false, true, undefined, result.rowCount);
       return result;
     } catch (e) {
-      this.audit(key, connId, 'preview', `PREVIEW ${t} LIMIT ${capped}`, 'none', false, false, this.errText(e));
+      this.audit(key, connId, 'preview', `PREVIEW ${t} LIMIT ${capped} OFFSET ${off}`, 'none', false, false, this.errText(e));
       throw this.toDriverError(e);
     }
   }
@@ -246,9 +255,12 @@ export class DbToolService {
   }
 
   /**
-   * run_script：node:vm 新 context，60s 超时；仅注入 { db, console }。
-   * db.execute 仅 rw 连接可用；危险语句走 guard（脚本内 NEEDS_CONFIRMATION 以
-   * DbToolError 形式抛出，message 为 JSON，由入口层还原为 NEEDS_CONFIRMATION 响应）。
+   * run_script：子进程隔离执行（lib/script/worker.cjs + permission model + 新 vm realm）。
+   *  - 会话专用适配器（不走缓存，超时即 close 中断在途调用，不污染共享缓存）；
+   *  - db 句柄经 IPC 回父进程，走完整 guard/challenge/审计链路；
+   *  - 脚本内 NEEDS_CONFIRMATION 以 DbToolError 形式抛出（message 为 JSON），
+   *    由入口层还原为 NEEDS_CONFIRMATION 响应；
+   *  - 审计后置：仅在拿到真实执行结果（成功/失败）后落盘。
    */
   async runScript(
     projectPath: string | undefined,
@@ -257,45 +269,38 @@ export class DbToolService {
     challengeId?: string,
   ): Promise<unknown | NeedConfirm> {
     const src = assertNonEmpty(code, 'code');
-    const { key, mode, adapter } = await this.authorize(projectPath, connId, true);
+    // authorize(needWrite=true) 已拒绝 ro 授权；脚本内写句柄再经 runGuarded 双重校验
+    const { key, mode } = await this.authorize(projectPath, connId, true);
+    // 会话专用适配器：独立于缓存实例，脚本超时可立即 close（中断在途查询）
+    const rc = this.requireConn(connId);
+    const factory = await this.resolver(rc.meta.kind);
+    const sessionAdapter = await factory(rc, { mode }).catch((e: unknown) => {
+      throw e instanceof DbToolError ? e : this.toDriverError(e);
+    });
 
-    const db = {
-      query: async (sql: string, params?: unknown[]): Promise<unknown> => {
-        const r = await this.query(key, connId, sql, params);
-        return this.unwrapForScript(r);
-      },
-      execute: async (statement: string, params?: unknown[]): Promise<unknown> => {
-        const r = await this.execute(key, connId, statement, params, challengeId);
-        return this.unwrapForScript(r);
-      },
-    };
-    // ro 连接：写句柄直接拒（authorize needWrite 已拦，此处为句柄级兜底）
-    if (mode !== 'rw') {
-      db.execute = async () => {
-        throw new DbToolError('READ_ONLY', '该连接对本项目为只读授权（ro），脚本不可执行写操作');
-      };
-    }
-
-    this.audit(key, connId, 'script', src.length > 200 ? src.slice(0, 200) + '…' : src, 'none', false, true);
-    const sandbox: Record<string, unknown> = {
-      db,
-      console: { log: (...a: unknown[]) => console.log('[db-script]', ...a), error: (...a: unknown[]) => console.error('[db-script]', ...a) },
-    };
+    const auditStmt = src.length > 200 ? src.slice(0, 200) + '…' : src;
     try {
-      const p = vm.runInNewContext(`(async () => {\n${src}\n})()`, sandbox, {
-        timeout: 60_000,
-        filename: 'db-script.js',
-      }) as Promise<unknown>;
-      return await Promise.race([
-        p,
-        new Promise<never>((_, rej) => {
-          const t = setTimeout(() => rej(new DbToolError('SCRIPT_TIMEOUT', '脚本执行超时（60s）')), 60_000);
-          t.unref?.();
-        }),
-      ]);
+      const result = await runScriptInChild({
+        code: src,
+        dbQuery: async (sql, params) => this.unwrapForScript(await this.query(key, connId, sql, params)),
+        dbExecute: async (statement, params) =>
+          this.unwrapForScript(await this.execute(key, connId, statement, params, challengeId)),
+        onLog: (level, text) =>
+          level === 'error' ? console.error('[db-script]', text) : console.log('[db-script]', text),
+        onTimeout: () => {
+          void sessionAdapter.close().catch(() => {});
+        },
+      });
+      this.audit(key, connId, 'script', auditStmt, 'none', false, true);
+      return result;
     } catch (e) {
+      if (!(e instanceof DbToolError && e.code === 'NEEDS_CONFIRMATION')) {
+        this.audit(key, connId, 'script', auditStmt, 'none', false, false, this.errText(e));
+      }
       if (e instanceof DbToolError) throw e;
       throw this.toDriverError(e);
+    } finally {
+      await sessionAdapter.close().catch(() => {});
     }
   }
 
@@ -367,18 +372,35 @@ export class DbToolService {
     return { key, mode, adapter };
   }
 
+  /** 关闭指定连接的全部缓存适配器（mode 变更/凭证变更/删除时） */
+  private async dropAdapters(connId: string): Promise<void> {
+    const keys = [...this.adapterCache.keys()].filter((k) => k.startsWith(`${connId}@mode=`));
+    for (const k of keys) {
+      const p = this.adapterCache.get(k);
+      this.adapterCache.delete(k);
+      if (!p) continue;
+      try {
+        const a = await p;
+        await a.close().catch(() => {});
+      } catch {
+        // 加载失败或已断开的旧实例直接忽略
+      }
+    }
+  }
+
   private adapterFor(connId: string, mode: 'ro' | 'rw'): Promise<DatabaseAdapter> {
-    let p = this.adapterCache.get(connId);
+    const cacheKey = `${connId}@mode=${mode}`;
+    let p = this.adapterCache.get(cacheKey);
     if (!p) {
       p = (async () => {
         const rc = this.requireConn(connId);
         const factory = await this.resolver(rc.meta.kind);
         return factory(rc, { mode });
       })().catch((e) => {
-        this.adapterCache.delete(connId);
+        this.adapterCache.delete(cacheKey);
         throw e instanceof DbToolError ? e : this.toDriverError(e);
       });
-      this.adapterCache.set(connId, p);
+      this.adapterCache.set(cacheKey, p);
     }
     return p;
   }
@@ -389,22 +411,27 @@ export class DbToolService {
     connId: string;
     op: 'query' | 'execute';
     statement: string;
+    params?: unknown[];
     challengeId?: string;
     run: (adapter: DatabaseAdapter) => Promise<T>;
     rowsAffected?: (r: T) => number | undefined;
   }): Promise<T | NeedConfirm> {
     const { projectPath, connId, op, statement, challengeId } = args;
+    if (args.params !== undefined && !Array.isArray(args.params)) {
+      throw new DbToolError('INVALID_ARGUMENT', 'params 必须是数组（绑定参数）');
+    }
     const { key, adapter } = await this.authorize(projectPath, connId, op === 'execute');
     const kind = adapter.kind;
     const verdict = classifyStatement(kind, statement, op);
 
     if (verdict.level === 'danger') {
+      const scope: ChallengeScope = { connId, projectKey: key };
       if (!challengeId) {
-        const { id: cid } = this.challenges.create(statement);
+        const { id: cid } = this.challenges.create(statement, scope);
         this.audit(key, connId, op, statement, 'danger', false, false, 'NEEDS_CONFIRMATION');
         return { needConfirmation: true, challengeId: cid, statement, danger: 'danger', reason: verdict.reason ?? '危险操作，需要用户确认' };
       }
-      if (!this.challenges.consume(challengeId, statement)) {
+      if (!this.challenges.consume(challengeId, statement, scope)) {
         this.audit(key, connId, op, statement, 'danger', false, false, 'INVALID_CHALLENGE');
         throw new DbToolError('INVALID_CHALLENGE', '确认凭据无效（不存在、已使用、已过期或语句已变更），请重新发起');
       }
@@ -477,6 +504,7 @@ export interface ToolActionArgs {
   database?: string;
   table?: string;
   limit?: number;
+  offset?: number;
   code?: string;
   challenge_id?: string;
   challengeId?: string;
@@ -523,7 +551,7 @@ export async function handleToolAction(
       }
 
       case 'preview': {
-        const r = await service.preview(projectPath, requireConn(connId), assertArg(args.table, 'table'), args.limit, args.database);
+        const r = await service.preview(projectPath, requireConn(connId), assertArg(args.table, 'table'), args.limit, args.database, args.offset);
         return j(r);
       }
 

@@ -141,12 +141,14 @@ async function route(
       const id = str(b['id']);
       const kind = str(b['kind']);
       if (!id || !kind) return send(res, 400, { ok: false, error: '缺少 id 或 kind', code: 'INVALID_ARGUMENT' });
+      const ssl = parseSsl(b['ssl']);
+      if (ssl === 'invalid') return send(res, 400, { ok: false, error: 'ssl 必须是布尔值', code: 'INVALID_ARGUMENT' });
       return sendOk(res, service.createConnection({
         id, kind: kind as never,
         ...(b['name'] !== undefined ? { name: str(b['name']) } : {}),
         ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
         ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
-        ...(b['ssl'] !== undefined ? { ssl: Boolean(b['ssl']) } : {}),
+        ...(ssl !== undefined ? { ssl } : {}),
       }));
     }
   }
@@ -159,11 +161,13 @@ async function route(
     }
     if (req.method === 'PUT') {
       const b = await readBody(req);
+      const ssl = parseSsl(b['ssl']);
+      if (ssl === 'invalid') return send(res, 400, { ok: false, error: 'ssl 必须是布尔值', code: 'INVALID_ARGUMENT' });
       return sendOk(res, service.updateConnection(id, {
         ...(b['name'] !== undefined ? { name: str(b['name']) } : {}),
         ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
         ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
-        ...(b['ssl'] !== undefined ? { ssl: Boolean(b['ssl']) } : {}),
+        ...(ssl !== undefined ? { ssl } : {}),
       }));
     }
     if (req.method === 'DELETE') {
@@ -202,7 +206,7 @@ async function route(
   }
   if (path === '/api/preview' && req.method === 'GET') {
     const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
-    return sendOk(res, await service.preview(projectOf(q), required(q, 'connId'), required(q, 'table'), limit, q.get('database') ?? undefined));
+    return sendOk(res, await service.preview(projectOf(q), required(q, 'connId'), required(q, 'table'), limit, q.get('database') ?? undefined, q.get('offset') ? Number(q.get('offset')) : undefined));
   }
 
   if (path === '/api/query' && req.method === 'POST') {
@@ -373,6 +377,15 @@ function isNeedConfirm(v: unknown): v is NeedConfirm {
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+/** ssl 字段严格布尔解析：防 Boolean("false") === true 的坑。非法值返回 'invalid' */
+function parseSsl(v: unknown): boolean | undefined | 'invalid' {
+  if (v === undefined) return undefined;
+  if (typeof v === 'boolean') return v;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return 'invalid';
 }
 
 function optStr(v: unknown): string | undefined {

@@ -16,21 +16,22 @@ const conn: ResolvedConnection = {
   ...(url ? { url } : {}),
 };
 
-beforeAll(async () => {
-  adapter = await createPostgresqlAdapter(conn);
-  await adapter.execute('DROP TABLE IF EXISTS dbt_test_users');
-  await adapter.execute(
-    'CREATE TABLE dbt_test_users (id SERIAL PRIMARY KEY, name VARCHAR(64) NOT NULL, score NUMERIC(10,2), created TIMESTAMPTZ)',
-  );
-});
-
-afterAll(async () => {
-  if (!adapter) return;
-  await adapter.execute('DROP TABLE IF EXISTS dbt_test_users').catch(() => {});
-  await adapter.close();
-});
-
 suite('postgresql 适配器（真机，DBT_TEST_PG_URL 门控）', () => {
+  // 钩子必须在 suite 回调内：skip 时随用例一起跳过，避免无 URL 时真连炸整个文件
+  beforeAll(async () => {
+    adapter = await createPostgresqlAdapter(conn);
+    await adapter.execute('DROP TABLE IF EXISTS dbt_test_users');
+    await adapter.execute(
+      'CREATE TABLE dbt_test_users (id SERIAL PRIMARY KEY, name VARCHAR(64) NOT NULL, score NUMERIC(10,2), created TIMESTAMPTZ)',
+    );
+  });
+
+  afterAll(async () => {
+    if (!adapter) return;
+    await adapter.execute('DROP TABLE IF EXISTS dbt_test_users').catch(() => {});
+    await adapter.close();
+  });
+
   it('testConnect 返回版本', async () => {
     const r = await adapter.testConnect();
     expect(r.ok).toBe(true);

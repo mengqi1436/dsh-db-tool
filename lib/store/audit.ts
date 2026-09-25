@@ -38,7 +38,10 @@ export class AuditLog {
     return full;
   }
 
-  /** 最近 n 条（时间正序）。文件不存在返回空数组；损坏行跳过 */
+  /** 最近 n 条（时间正序）。文件不存在返回空数组；损坏行跳过。
+   *  设计取舍：tail 全量读入后取尾。审计日志不轮转（保留完整历史是审计语义），
+   *  单用户桌面工具的量级（数十万行 ≈ 数十 MB）一次性读取在可接受范围；
+   *  反向块读的复杂度不值得。若未来出现服务端长驻场景再优化。 */
   tail(n: number): AuditEntry[] {
     if (!fs.existsSync(this.file)) return [];
     const lines = fs.readFileSync(this.file, 'utf8').split('\n');

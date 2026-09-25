@@ -60,8 +60,9 @@ describe('classifyStatement: Redis', () => {
     expect(classifyStatement('redis', '["GET","key"]', 'query').level).toBe('none');
   });
 
-  it('未知命令 warning', () => {
-    expect(classifyStatement('redis', 'WHATCOMMAND a b', 'query').level).toBe('warning');
+  it('未知命令 fail-closed：query 通道 danger、execute 通道 warning', () => {
+    expect(classifyStatement('redis', 'WHATCOMMAND a b', 'query').level).toBe('danger');
+    expect(classifyStatement('redis', 'WHATCOMMAND a b', 'execute').level).toBe('warning');
   });
 });
 

@@ -49,14 +49,21 @@ interface ConnectionsFile {
   connections: ConnRecord[];
 }
 
-/** 将 URL 中的密码段替换为 ***：scheme://user:pass@host → scheme://user:***@host */
+/** 将 URL 中的密码段替换为 ***：scheme://user:pass@host → scheme://user:***@host。
+ *  密码可能包含 / ? # @ 等字符：先取 scheme:// 到首个 /?#  的 authority 段，
+ *  在 authority 内以最后一个 @ 分界取 userinfo，再以最后一个 : 分界取密码。 */
 export function redactUrl(url: string): string {
-  const m = url.match(/^([a-z][a-z0-9+.-]*:\/\/)([^/]*)@/i);
+  const m = url.match(/^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*)/i);
   if (!m) return url;
-  const creds = m[2] ?? '';
-  const idx = creds.lastIndexOf(':');
-  if (idx < 0) return url; // 无密码段
-  return `${m[1]}${creds.slice(0, idx + 1)}***@${url.slice(m[0].length)}`;
+  const authority = m[2] ?? '';
+  const at = authority.lastIndexOf('@');
+  if (at < 0) return url; // 无 userinfo
+  const userinfo = authority.slice(0, at);
+  const colon = userinfo.lastIndexOf(':');
+  if (colon < 0) return url; // 只有用户名，无密码段
+  const redacted =
+    m[1] + userinfo.slice(0, colon + 1) + '***@' + authority.slice(at + 1);
+  return redacted + url.slice(m[0].length);
 }
 
 function splitPassword(fields: Record<string, unknown> | undefined): {
@@ -163,15 +170,17 @@ export class ConnectionStore {
     return toMeta(rec);
   }
 
-  /** 删除连接，级联删除 secrets 与该连接的所有项目授权 */
+  /** 删除连接，级联删除 secrets 与该连接的所有项目授权。
+   *  顺序按"失败开放"原则：先删权限（grants），再删机密（secrets），最后改
+   *  连接表——中途崩溃最多残留垃圾机密，绝不残留可用授权。 */
   remove(id: string): boolean {
     const data = this.load();
     const idx = data.connections.findIndex((c) => c.id === id);
     if (idx < 0) return false;
+    this.grants.removeConn(id);
+    this.secrets.delete(id);
     data.connections.splice(idx, 1);
     this.save(data);
-    this.secrets.delete(id);
-    this.grants.removeConn(id);
     return true;
   }
 

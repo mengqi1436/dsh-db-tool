@@ -295,6 +295,30 @@ describe('业务路由与确认流程', () => {
     expect(replay.json).toMatchObject({ ok: false, code: 'INVALID_CHALLENGE' });
   });
 
+  it('query 危险读（FOR UPDATE）→ NEEDS_CONFIRMATION；携 challengeId 重发放行；篡改语句与重放均被拒', async () => {
+    const { fx } = await ensureStarted();
+    const sql = 'SELECT * FROM users FOR UPDATE';
+    const first = await post('/api/query', { projectPath: fx.projectA, connId: CONN_ID, sql });
+    expect(first.json).toMatchObject({ ok: false, code: 'NEEDS_CONFIRMATION', statement: sql, danger: 'danger' });
+    expect(first.json.challengeId).toMatch(/^c_[0-9a-f]{24}$/);
+
+    const second = await post('/api/query', {
+      projectPath: fx.projectA, connId: CONN_ID, sql, challengeId: first.json.challengeId,
+    });
+    expect(second.json).toMatchObject({ ok: true, data: { rowCount: 1 } });
+
+    // challenge 已消费：篡改语句重放 → INVALID_CHALLENGE（consume 无论成败都取走，防探测）
+    const tampered = await post('/api/query', {
+      projectPath: fx.projectA, connId: CONN_ID, sql: 'SELECT * FROM other FOR UPDATE', challengeId: first.json.challengeId,
+    });
+    expect(tampered.json).toMatchObject({ ok: false, code: 'INVALID_CHALLENGE' });
+
+    const replay = await post('/api/query', {
+      projectPath: fx.projectA, connId: CONN_ID, sql, challengeId: first.json.challengeId,
+    });
+    expect(replay.json).toMatchObject({ ok: false, code: 'INVALID_CHALLENGE' });
+  });
+
   it('改语句带原 challengeId → INVALID_CHALLENGE', async () => {
     const { fx } = await ensureStarted();
     const first = await post('/api/execute', { projectPath: fx.projectA, connId: CONN_ID, statement: 'DROP TABLE old' });

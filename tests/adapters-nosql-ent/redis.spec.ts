@@ -41,10 +41,10 @@ function makeClient(): MockClient {
     xRange: vi.fn(async () => [{ id: '1-1', message: { f: 'v' } }]),
     lRange: vi.fn(async () => ['x', 'y']),
     sMembers: vi.fn(async () => ['m1']),
-    scanIterator: async function* () {
+    scanIterator: vi.fn(async function* () {
       yield 'k1';
       yield 'k2';
-    },
+    }),
     multi: vi.fn(() => {
       const m = { type: vi.fn(() => m), exec: vi.fn(async () => ['hash', 'string']) };
       return m;
@@ -72,10 +72,16 @@ describe('parseRedisCommand', () => {
 });
 
 describe('危险命令与白名单常量', () => {
-  it('DANGEROUS_COMMANDS 含全部 13 项', () => {
+  it('DANGEROUS_COMMANDS 含全部 19 项（对齐官方 ACL dangerous 类）', () => {
     expect([...DANGEROUS_COMMANDS].sort()).toEqual(
-      ['ACL', 'CONFIG', 'DEBUG', 'FLUSHALL', 'FLUSHDB', 'KEYS', 'MIGRATE', 'REPLICAOF', 'RESTORE', 'SAVE', 'SHUTDOWN', 'SORT', 'SWAPDB'].sort(),
+      ['ACL', 'CONFIG', 'DEBUG', 'FLUSHALL', 'FLUSHDB', 'FUNCTION', 'KEYS', 'MIGRATE', 'MODULE',
+        'REPLICAOF', 'RESET', 'RESTORE', 'SAVE', 'SCRIPT', 'SHUTDOWN', 'SLAVEOF', 'SORT', 'SORT_RO', 'SWAPDB'].sort(),
     );
+  });
+  it('危险清单含 SLAVEOF/MODULE/FUNCTION/SCRIPT/SORT_RO/RESET（review 补项）', () => {
+    for (const c of ['SLAVEOF', 'MODULE', 'FUNCTION', 'SCRIPT', 'SORT_RO', 'RESET']) {
+      expect(DANGEROUS_COMMANDS.has(c)).toBe(true);
+    }
   });
   it('KEYS 不在读白名单（禁用全键扫描）', () => {
     expect(READ_COMMANDS.has('KEYS')).toBe(false);
@@ -135,6 +141,34 @@ describe('query 白名单与规范化', () => {
     const r = await a.query('SCAN');
     expect(r.columns).toEqual(['key', 'type']);
     expect(r.rows).toEqual([['k1', 'hash'], ['k2', 'string']]);
+  });
+  it('SCAN 透传用户 MATCH/COUNT 给 scanIterator（默认 MATCH * / COUNT 100）', async () => {
+    const c = makeClient();
+    const a = await createRedisAdapter(conn, { client: c });
+    await a.query('SCAN MATCH user:* COUNT 50');
+    expect(c.scanIterator).toHaveBeenCalledWith({ MATCH: 'user:*', COUNT: 50 });
+    const c2 = makeClient();
+    const a2 = await createRedisAdapter(conn, { client: c2 });
+    await a2.query('SCAN');
+    expect(c2.scanIterator).toHaveBeenCalledWith({ MATCH: '*', COUNT: 100 });
+  });
+  it('HGETALL 超过 500 行截断并标 truncated（HKEYS/HVALS/SMEMBERS 同规则）', async () => {
+    const c = makeClient();
+    const big: Record<string, string> = {};
+    for (let i = 0; i < 600; i++) big[`f${i}`] = `v${i}`;
+    c.hGetAll = vi.fn(async () => big);
+    const a = await createRedisAdapter(conn, { client: c });
+    const r = await a.query('HGETALL h');
+    expect(r.rowCount).toBe(500);
+    expect(r.truncated).toBe(true);
+    expect(r.rows[0]).toEqual(['f0', 'v0']);
+    expect(r.rows[499]).toEqual(['f499', 'v499']);
+    const c2 = makeClient();
+    c2.hKeys = vi.fn(async () => Array.from({ length: 501 }, (_, i) => `k${i}`));
+    const a2 = await createRedisAdapter(conn, { client: c2 });
+    const r2 = await a2.query('HKEYS h');
+    expect(r2.rowCount).toBe(500);
+    expect(r2.truncated).toBe(true);
   });
 });
 

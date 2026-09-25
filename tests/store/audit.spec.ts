@@ -33,7 +33,15 @@ describe('AuditLog', () => {
 
     const lines = fs.readFileSync(path.join(home, 'db-tool', 'audit.jsonl'), 'utf8').trim().split('\n');
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ connId: 'c1', statement: 'SELECT 1', ok: true });
+    expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({
+      projectPathKey: '/p',
+      connId: 'c1',
+      statement: 'SELECT 1',
+      danger: 'none',
+      confirmed: false,
+      ok: true,
+      rowsAffected: 1,
+    });
   });
 
   it('tail 返回最近 n 条且时间正序', () => {
