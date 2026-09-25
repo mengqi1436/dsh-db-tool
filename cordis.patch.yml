@@ -1,10 +1,7 @@
-# dsh-db-tool 本地开发注册补丁
-# 用法：dsh web --patch ./cordis.patch.yml
-# 发布安装（用户侧）：
-#   dsh plugin --profile web add "dsh-db-tool@github:<user>/dsh-db-tool"
-patches:
-  - insert:
-      - $set:
-          id: db-tool
-          # 本地开发：指向本插件入口（发布模式下改为包名 dsh-db-tool）
-          name: 'dsh-db-tool'
+# dsh-db-tool bundle patch（dsh.bundle.patch：顶层数组 loader patch entries）
+# 本地开发安装：dsh plugin --profile web add "link:E:\Code\dsh\dsh-db-tool"
+# 发布安装（用户侧）：dsh plugin --profile web add "dsh-db-tool@github:<user>/dsh-db-tool"
+- insert:
+    - $set:
+        id: db-tool
+        name: dsh-db-tool
