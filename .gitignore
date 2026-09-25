@@ -1,0 +1,9 @@
+node_modules/
+vendor/gaussdb-pg/
+*.log
+.env
+.env.*
+!.env.example
+dist/
+coverage/
+.vitest/
