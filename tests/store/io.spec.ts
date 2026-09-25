@@ -60,6 +60,7 @@ describe('io：原子写与损坏容错', () => {
     const again = new DbToolStore(home);
     expect(again.secrets.get('c1')).toBeUndefined();
     expect(again.secrets.get('c1')).toBeUndefined(); // 二次读同样安全
+    expect(fs.readFileSync(`${secretsFile}.bak`, 'utf8')).toContain('not json'); // 损坏现场保留
     again.secrets.set('c2', { password: 'q' });
     expect(again.secrets.get('c2')).toEqual({ password: 'q' });
     expect(readStoreFile(home, 'secrets.json')).toContain('q');

@@ -108,8 +108,12 @@ export function resolveOracleConn(conn: ResolvedConnection): { user: string; pas
     if (!u.hostname || service === '') {
       throw new Error('Oracle URL 格式应为 oracle://user:pass@host:1521/SERVICE_NAME');
     }
+    const user = decodeURIComponent(u.username);
+    if (user === '') {
+      throw new Error('Oracle URL 缺少用户名：应为 oracle://user:pass@host:1521/SERVICE_NAME');
+    }
     return {
-      user: decodeURIComponent(u.username),
+      user,
       password: decodeURIComponent(u.password),
       connectString: `${u.hostname}:${u.port || 1521}/${service}`,
     };
@@ -121,8 +125,12 @@ export function resolveOracleConn(conn: ResolvedConnection): { user: string; pas
   if (host === '' || service === '') {
     throw new Error('Oracle 连接需要 url（oracle://user:pass@host:1521/SERVICE）或 fields（host/port/service）');
   }
+  const user = typeof f.user === 'string' ? f.user : '';
+  if (user === '') {
+    throw new Error('Oracle 连接缺少用户名（fields.user）');
+  }
   return {
-    user: typeof f.user === 'string' ? f.user : '',
+    user,
     password: typeof f.password === 'string' ? f.password : '',
     connectString: `${host}:${port}/${service}`,
   };
@@ -193,6 +201,19 @@ export async function createOracleAdapter(
     }
   }
 
+  // 注意：currentUser / 系统 schema 名单在 adapter 对象之前声明，
+  // 不再依赖「方法仅运行期调用」的隐式 TDZ 保证（审查项：脆弱模式消除）
+  const currentUser = resolveOracleConn(conn).user.toUpperCase();
+
+  /** Oracle 内建系统 schema（核心名单 + APEX/flows 组件前缀）：业务不可查询，列表中过滤 */
+  const ORA_SYSTEM_SCHEMAS = new Set([
+    'SYS', 'SYSTEM', 'OUTLN', 'XDB', 'CTXSYS', 'MDSYS', 'OLAPSYS', 'ORDDATA', 'ORDSYS',
+    'WMSYS', 'DBSNMP', 'APPQOSSYS', 'AUDSYS', 'LBACSYS', 'DVSYS', 'OJVMSYS', 'DBSFWUSER',
+    'GSMADMIN_INTERNAL', 'GSMCATUSER', 'GGSYS', 'REMOTE_SCHEDULER_AGENT', 'ANONYMOUS',
+  ]);
+  const isOraSystemSchema = (o: string) =>
+    ORA_SYSTEM_SCHEMAS.has(o) || /^(APEX|FLOWS)_/.test(o);
+
   /** owner 解析：database 参数或默认当前用户（保留原样——引用创建的 schema 大小写敏感） */
   function ownerOf(database?: string): string {
     return sanitizeIdentifier(database ?? currentUser, 'schema/owner 名');
@@ -215,8 +236,15 @@ export async function createOracleAdapter(
         const row = (r.rows as Record<string, unknown>[] | undefined)?.[0];
         const banner = row ? String(Object.values(row)[0] ?? '') : '';
         return { ok: true, serverInfo: banner };
-      } catch (e) {
-        return { ok: false, error: humanizeOraError(e).message };
+      } catch {
+        // v$version 在部分受限环境对普通用户不可读（ORA-00942/ORA-01031）：
+        // 版本信息尽力而为，连通性本身用 dual 兜底判定，避免误报连接失败
+        try {
+          await withConn((c) => c.execute('SELECT 1 FROM dual', [], execOpts));
+          return { ok: true, serverInfo: 'Oracle（版本信息不可读：v$version 无权限）' };
+        } catch (e) {
+          return { ok: false, error: humanizeOraError(e).message };
+        }
       }
     },
 
@@ -397,17 +425,6 @@ export async function createOracleAdapter(
       } catch { /* 已关闭忽略 */ }
     },
   };
-
-  const currentUser = resolveOracleConn(conn).user.toUpperCase();
-
-  /** Oracle 内建系统 schema（核心名单 + APEX/flows 组件前缀）：业务不可查询，列表中过滤 */
-  const ORA_SYSTEM_SCHEMAS = new Set([
-    'SYS', 'SYSTEM', 'OUTLN', 'XDB', 'CTXSYS', 'MDSYS', 'OLAPSYS', 'ORDDATA', 'ORDSYS',
-    'WMSYS', 'DBSNMP', 'APPQOSSYS', 'AUDSYS', 'LBACSYS', 'DVSYS', 'OJVMSYS', 'DBSFWUSER',
-    'GSMADMIN_INTERNAL', 'GSMCATUSER', 'GGSYS', 'REMOTE_SCHEDULER_AGENT', 'ANONYMOUS',
-  ]);
-  const isOraSystemSchema = (o: string) =>
-    ORA_SYSTEM_SCHEMAS.has(o) || /^(APEX|FLOWS)_/.test(o);
 
   return adapter;
 }

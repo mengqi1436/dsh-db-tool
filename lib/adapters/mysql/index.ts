@@ -23,6 +23,7 @@ import type {
   TableInfo,
 } from '../types.js';
 import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent } from '../sql-shared/common.js';
+import type { TxHandle } from '../sql-shared/pg-like.js';
 
 /** ro 模式下 query 允许的读语句首词白名单 */
 const RO_READ_PREFIX = /^(select|show|desc|describe|explain|use|help|table)\b/i;
@@ -45,8 +46,12 @@ function connOptions(conn: ResolvedConnection): mysql.PoolOptions {
     const u = new URL(conn.url);
     base.host = u.hostname;
     base.port = Number(u.port) || 3306;
-    if (u.username) base.user = decodeURIComponent(u.username);
-    if (u.password) base.password = decodeURIComponent(u.password);
+    try {
+      if (u.username) base.user = decodeURIComponent(u.username);
+      if (u.password) base.password = decodeURIComponent(u.password);
+    } catch {
+      throw new Error('mysql 连接 URL 的用户名或密码 percent 编码非法（如含未编码的 %），请 URL 编码后重试');
+    }
     const db = u.pathname.replace(/^\//, '');
     if (db) base.database = db;
     const ssl = u.searchParams.get('ssl');
@@ -68,7 +73,7 @@ function connOptions(conn: ResolvedConnection): mysql.PoolOptions {
 export async function createMysqlAdapter(
   conn: ResolvedConnection,
   opts?: { mode?: AccessMode },
-): Promise<DatabaseAdapter & { tx: MysqlTx }> {
+): Promise<DatabaseAdapter & { tx: TxHandle }> {
   const pool = mysql.createPool(connOptions(conn));
   const readOnly = opts?.mode === 'ro';
   if (readOnly) {
@@ -96,7 +101,7 @@ export async function createMysqlAdapter(
     };
   }
 
-  const tx: MysqlTx = {
+  const tx: TxHandle = {
     begin: () =>
       humanize('mysql 事务开启', async () => {
         if (txConn) throw new Error('事务已开启，请勿重复 begin');
@@ -254,12 +259,6 @@ export async function createMysqlAdapter(
 
     close: () => humanize('mysql 关闭连接', () => pool.end()),
   };
-}
-
-interface MysqlTx {
-  begin(): Promise<void>;
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
 }
 
 export const factory: AdapterFactory = (conn) => createMysqlAdapter(conn);

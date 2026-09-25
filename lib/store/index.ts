@@ -38,7 +38,8 @@ export class DbToolStore {
   readonly audit: AuditLog;
 
   constructor(homeDir?: string) {
-    const home = homeDir ?? process.env['DSH_HOME'] ?? path.join(os.homedir(), '.dsh');
+    // || 而非 ??: DSH_HOME=""（空串）视为未设置，避免产出相对路径 'db-tool/'
+    const home = homeDir ?? (process.env['DSH_HOME'] || path.join(os.homedir(), '.dsh'));
     this.dir = path.join(home, 'db-tool');
     fs.mkdirSync(this.dir, { recursive: true });
     chmodBestEffort(this.dir, 0o700);

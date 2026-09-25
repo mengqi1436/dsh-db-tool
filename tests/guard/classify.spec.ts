@@ -139,6 +139,23 @@ describe('classifyStatement: MongoDB', () => {
   it('非法 JSON danger', () => {
     expect(classifyStatement('mongodb', 'not json at all', 'query').level).toBe('danger');
   });
+
+  it('命令文档形式：drop 为 danger（等同 dropCollection），delete/update/create 为 warning', () => {
+    const drop = classifyStatement('mongodb', '{"drop":"users"}', 'execute');
+    expect(drop.level).toBe('danger');
+    expect(drop.reason).toContain('dropCollection');
+    for (const op of ['delete', 'update', 'create', 'insert']) {
+      expect(classifyStatement('mongodb', `{"${op}":"t"}`, 'execute').level).toBe('warning');
+    }
+    expect(classifyStatement('mongodb', '{"drop":"users"}', 'query').level).toBe('danger');
+  });
+
+  it('未识别操作 fail-closed：execute 通道 warning（不得为 none）、query 通道 danger', () => {
+    const v = classifyStatement('mongodb', '{"unknownOp":1}', 'execute');
+    expect(v.level).toBe('warning');
+    expect(v.reason).toContain('未识别的 MongoDB 操作');
+    expect(classifyStatement('mongodb', '{"unknownOp":1}', 'query').level).toBe('danger');
+  });
 });
 
 describe('statementHash', () => {

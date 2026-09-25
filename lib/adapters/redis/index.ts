@@ -127,7 +127,7 @@ function parseInfo(raw: string): [string, NormalizedCell][] {
 function buildUrl(fields: Record<string, unknown> | undefined, ssl?: boolean): string {
   const host = typeof fields?.host === 'string' && fields.host !== '' ? fields.host : '127.0.0.1';
   const port = typeof fields?.port === 'number' ? fields.port : 6379;
-  const user = typeof fields?.user === 'string' ? fields.user : '';
+  const user = typeof fields?.user === 'string' && fields.user !== '' ? encodeURIComponent(fields.user) : '';
   const pass = typeof fields?.password === 'string' ? `:${encodeURIComponent(fields.password)}@` : '';
   const db = typeof fields?.database === 'number' && fields.database !== 0 ? `/${fields.database}` : '';
   const scheme = ssl || connSsl(fields) ? 'rediss' : 'redis';
@@ -191,6 +191,9 @@ export async function createRedisAdapter(
     if ((cmd === 'OBJECT' && (args[1] ?? '').toUpperCase() !== 'ENCODING') ||
         (cmd === 'MEMORY' && (args[1] ?? '').toUpperCase() !== 'USAGE')) {
       throw new Error(`Redis ${action} 仅支持 OBJECT ENCODING 与 MEMORY USAGE`);
+    }
+    if ((cmd === 'OBJECT' || cmd === 'MEMORY') && args.length < 3) {
+      throw new Error(`Redis ${cmd} ${cmd === 'OBJECT' ? 'ENCODING' : 'USAGE'} 缺少 key 参数`);
     }
     if (args.length < 2 && !['DBSIZE', 'INFO', 'SCAN', 'SELECT'].includes(cmd)) {
       throw new Error(`Redis ${cmd} 缺少参数`);
@@ -260,7 +263,7 @@ export async function createRedisAdapter(
           const db = Number(rest[0]);
           if (!Number.isInteger(db) || db < 0) throw new Error('SELECT 需要非负整数库号，如 "SELECT 1"');
           await client.select(db);
-          return { columns: ['name', 'value'], rows: [['db', db]], rowCount: 1, };
+          return { columns: ['name', 'value'], rows: [['db', db]], rowCount: 1 };
         }
 
         // INFO：解析为 key/value 行

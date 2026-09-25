@@ -45,7 +45,7 @@ const INSTALL_HINTS: Record<DbKind, string> = {
 export function driverMissingError(kind: DbKind, cause?: unknown): Error {
   const detail = cause instanceof Error ? cause.message : String(cause ?? '');
   const err = new Error(
-    `${kind} 驱动不可用：${detail}。请安装/构建后重试：${INSTALL_HINTS[kind]}`,
+    `${kind} 驱动不可用${detail ? `：${detail}` : ''}。请安装/构建后重试：${INSTALL_HINTS[kind]}`,
   );
   err.name = 'DriverMissingError';
   return err;

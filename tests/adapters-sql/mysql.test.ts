@@ -4,6 +4,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMysqlAdapter } from '../../lib/adapters/mysql/index.js';
+import type { TxHandle } from '../../lib/adapters/sql-shared/pg-like.js';
 import type { DatabaseAdapter, ResolvedConnection } from '../../lib/adapters/types.js';
 
 const url = process.env.DBT_TEST_MYSQL_URL;
@@ -71,7 +72,7 @@ suite('mysql 适配器（真机，DBT_TEST_MYSQL_URL 门控）', () => {
   });
 
   it('事务 begin/commit（同一连接生效）', async () => {
-    const a = adapter as DatabaseAdapter & { tx: { begin(): Promise<void>; commit(): Promise<void>; rollback(): Promise<void> } };
+    const a = adapter as DatabaseAdapter & { tx: TxHandle };
     await a.tx.begin();
     await adapter.execute("INSERT INTO dbt_test_users (name) VALUES ('tx-row')");
     await a.tx.commit();

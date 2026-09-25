@@ -59,3 +59,37 @@
 
 - Stryker（vitest runner，范围 lib/guard + lib/manager + lib/store）：初版 vitest@5 与 Stryker 兼容性缺陷（phantom survivors，假分 2%）→ 降级 vitest@4 后正常。
 - 基线 57.29%（654 killed / 367 survived / 122 no-cov），高价值存活项已定向补测试（dispose 生命周期、normalize/io 边界、redactUrl 变体、grants 边界、guard 注释剥离、manager 构造默认值）。
+
+## 第二轮：全库审查+优化（5 teammate 按模块并行）
+
+35 项修复 + 13 项报告保留，全量 277 passed / 18 skipped，tsc 0。
+
+### 已修复（按模块）
+
+| 模块 | 修复 |
+|---|---|
+| lib 核心（guard-tool） | ① runScript 脚本内 dbQuery 句柄补传顶层 challengeId（原仅 dbExecute 传，行为不一致）；② runner.ts IPC `msg:any` → unknown+结构类型，msg.args 加 Array.isArray 守卫；③ lib/index.ts 重复 import 合并；④ TOOL_DESCRIPTION run_script 描述与子进程实现同步；⑤ **[high] Mongo execute 通道未识别 op fail-open（none）→ warning（fail-closed，与 SQL/Redis 对齐）**；⑥ MONGO_WRITE_OPS 补命令文档形式 delete/deleteMany/update/create，`{drop:...}` 归 danger（等同 dropCollection，MONGO_DANGEROUS_EXTRA）；⑦ **fork env 白名单 minimalEnv()（11 项），宿主敏感环境变量不再透传脚本子进程**；+5 测试用例（tests/tool/runner-env.spec.ts 新建） |
+| store（store-adapters-core） | ① **[high] writeJsonAtomic 临时文件以目标 fileMode 创建**（原 0644 出生，rename 前窗口期明文机密宽权限暴露）；② DSH_HOME 空串产出相对路径 → `?? (…\|\|…)`；③ 删死类型 AdapterRegistry；④ driverMissingError cause 空时文案去多余冒号；⑤ io.spec 补 .bak 现场保留断言 |
+| SQL 适配器（sql-adapters） | ① **mysql-offline 假绿断言实锤**：`.catch()` 吞外层断言失败且 label 拼错（「列出数据库」vs 实际「列出表」），旧白名单回归完全逃逸测试 → 改先捕获再双断言；② mysql URL decodeURIComponent 非法编码裸 URIError → 人类可读提示；③ gaussdb 驱动加载失败附原始错误（区分未构建 vs 产物损坏）；④ gaussdb 条件用例 if-return 假 pass → it.skipIf；⑤ MysqlTx/测试 inline 类型统一复用共享 TxHandle |
+| NoSQL/企业适配器（nosql-ent-adapters） | ① oracle resolveOracleConn url/fields 两分支 user 空串校验；② oracle/dmdb testConnect 在 v$version/V$VERSION 不可读（ORA-00942 受限环境）时兜底 `SELECT 1 FROM dual` 判活，不再误报连接失败；③ oracle 声明 TDZ 隐式依赖消除（上移到使用点前）；④ dmdb DmPoolLike 删未使用的 execute 成员（与「Pool 无 execute」注释矛盾）；⑤ redis buildUrl user 加 encodeURIComponent 且空串跳过（含 @/: 用户名坏 URL）；⑥ redis OBJECT/MEMORY 缺 key 参数拦截；⑦ mongodb insertOne 删 cmd.insert 误导性别名；+4 测试用例 |
+| client/skill/docs（client-skill） | ① openTable 竞态：openSeq 序号守卫，旧翻页/切表响应晚到不再覆盖新数据；② auditTable 先截断 80 字符致 title 也是截断版 → 全文进 td+ellipsis，title 显示全文；③ CSS .dbt-tree* 双份定义去重、mono 字体 3 处硬编码统一 var(--dbt-mono)；④ i18n ok 文案「确定」→「操作完成」（语义修正，key 冻结）；⑤ SKILL.md run_script 段按子进程+permission model 重写、challengeId 示例改真实格式 c_[0-9a-f]{24}、补 {text,isError} 返回契约说明 |
+
+### 报告保留（附理由）
+
+| 级别 | 项 | 理由 |
+|---|---|---|
+| medium | pg/gaussdb ro query 无应用层写白名单（仅服务器级只读会话） | CTE（WITH...INSERT）使首词白名单在 PG 语义下不可行；服务层 guard query 通道已拦写语句（SQL_WRITE_BODY_RE 覆盖 CTE 写），双防线已足够 |
+| medium | mysql ro 会话 SET 失败静默 catch | mysql2 无 release(err) 语义；destroy 有重连风暴风险，权衡后保留 |
+| medium | connections update url↔fields 互切残留旧机密 | 与客户端「留空=保留旧密码」语义自洽，url 优先约定由适配器工厂执行；将来可文档固化 |
+| medium | connections create 两阶段写无回滚（孤儿 secrets） | 失败开放方向正确（残留机密好过残留授权）；将来可加启动期清扫 |
+| low | guard 字符串字面量内写词误报（SELECT 'delete me'） | 方向安全（误报优于漏报），精确化需字符串感知剥离，成本大于收益 |
+| low | ro 连接 query+challenge 确认后由适配器只读兜底拒绝 | 语义无洞（ro 写不可能成功），仅体验 |
+| low | /api/grants PUT 不校验 connId 存在性 | 授权到不存在连接无实害 |
+| low | oracle/dmdb toExecResult 双份同构实现 | 合并需跨模块共享工具层，架构决策，收益低 |
+| low | mongodb aggregate/distinct truncated 用 rows.length>=500 近似 | 恰 500 行误标，精确判定需额外查询，代价大于收益 |
+| low | dm 免密（trust 登录）场景 user 空串未强制校验 | 保留免密可能性，不武断加校验 |
+| low | 事务悬挂时适配器 close 挂起 | 服务层 tx 已 finally rollback 覆盖正常路径；跨适配器行为变更留待需要时 |
+| low | ManageView testConn/loadAudit 无 busy 保护 | 幂等读，testInfo 按 id 分 key 不互踩 |
+| low | 翻页按钮 disabled 在 truncated undefined 时可点 | 可能翻到空页，无数据损害；后端已恒返回 truncated 后可收紧 |
+
+> 注：文档早前「DANGEROUS_OPS 8 项」实为 11 项（createIndexes/dropIndexes/renameCollection），以代码为准。

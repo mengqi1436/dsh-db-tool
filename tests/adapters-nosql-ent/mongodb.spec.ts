@@ -136,14 +136,10 @@ describe('query', () => {
     expect(r.columns).toContain('name');
   });
   it('显式 sort 被尊重', async () => {
-    const { coll } = makeClient([]);
-    const a = await createMongoAdapter(conn, { client: makeClient().client });
-    void a;
-    const c2 = makeClient([]);
-    const adapter = await createMongoAdapter(conn, { client: c2.client });
-    await adapter.query('{"find":"users","sort":{"age":-1}}');
-    expect((c2.coll.find.mock.calls[0]![1] as { sort: unknown }).sort).toEqual({ age: -1 });
-    void coll;
+    const { client, coll } = makeClient([]);
+    const a = await createMongoAdapter(conn, { client });
+    await a.query('{"find":"users","sort":{"age":-1}}');
+    expect((coll.find.mock.calls[0]![1] as { sort: unknown }).sort).toEqual({ age: -1 });
   });
   it('$where 拒绝', async () => {
     const a = await createMongoAdapter(conn, { client: makeClient().client });

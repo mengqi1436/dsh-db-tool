@@ -103,10 +103,9 @@ export interface DmAdapterOptions {
   pool?: unknown;
 }
 
-/** dmdb 池/连接的最小结构（与 oracledb 兼容的返回形状） */
+/** dmdb 池的最小结构（与 oracledb 一致：Pool 没有 execute，语句必须在 Connection 上执行） */
 interface DmPoolLike {
   getConnection(): Promise<DmConnLike>;
-  execute(sql: string, binds?: unknown[], opts?: Record<string, unknown>): Promise<DmResultLike>;
   close(): Promise<void>;
 }
 interface DmConnLike {
@@ -220,8 +219,15 @@ export async function createDmAdapter(
         const row = r.rows?.[0];
         const banner = row ? String(Object.values(row)[0] ?? '') : '';
         return { ok: true, serverInfo: banner };
-      } catch (e) {
-        return { ok: false, error: humanizeDmError(e).message };
+      } catch {
+        // V$VERSION 为推断兼容项（部分 DM 版本/驱动可能不可读）：
+        // 版本信息尽力而为，连通性本身用 dual 兜底判定，避免误报连接失败
+        try {
+          await withConn((c) => c.execute('SELECT 1 FROM DUAL', [], execOpts));
+          return { ok: true, serverInfo: 'DM 数据库（版本信息不可读：V$VERSION 不可用）' };
+        } catch (e) {
+          return { ok: false, error: humanizeDmError(e).message };
+        }
       }
     },
 

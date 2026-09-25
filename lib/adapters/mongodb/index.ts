@@ -358,7 +358,8 @@ export async function createMongoAdapter(
         const c = db.collection(name);
         switch (op) {
           case 'insertOne': {
-            const doc = requireObject(cmd.document ?? cmd.insert, 'insertOne.document');
+            // 不设 cmd.insert 别名：该键语义是集合名（insertMany 命令形态），混用会误导报错方向
+            const doc = requireObject(cmd.document, 'insertOne.document');
             const r = await c.insertOne(doc as object);
             return { affectedRows: 1, message: `已插入 1 条文档到 ${name}（_id=${String(r.insertedId)}）` };
           }

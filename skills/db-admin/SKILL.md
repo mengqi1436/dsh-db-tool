@@ -11,7 +11,7 @@ description: 通过 dsh-db-tool 插件操作 8 种数据库（MySQL、PostgreSQL
 
 - 每次调用必须带 `action`；除 `list_connections` 外都必须带 `conn_id`（先 `list_connections` 拿到连接 id）。
 - 参数以 snake_case 为主，兼容 camelCase（`conn_id`/`connId` 均可）。
-- 返回值为 JSON 文本。成功时是结果对象；失败时形如 `{"ok":false,"error":"...","code":"..."}`，`code` 取值：`UNAUTHORIZED_PROJECT`（当前项目未授权该连接）、`READ_ONLY`（只读授权下拒绝写）、`NEEDS_CONFIRMATION`（危险操作，见下文确认流程）、`INVALID_CHALLENGE`（challenge 无效/过期，需从头重试）、`INVALID_ARGUMENT`、`NOT_FOUND`、`DRIVER_ERROR`。
+- 工具返回 `{text, isError}`：`text` 是 JSON 文本——成功时是结果对象；失败时形如 `{"ok":false,"error":"...","code":"..."}`。`isError=true` 仅用于被拒/失败；`NEEDS_CONFIRMATION` 不是失败（`isError=false`），但 `text` 中 `code` 为该值，见下文确认流程。`code` 取值：`UNAUTHORIZED_PROJECT`（当前项目未授权该连接）、`READ_ONLY`（只读授权下拒绝写）、`NEEDS_CONFIRMATION`（危险操作，见下文确认流程）、`INVALID_CHALLENGE`（challenge 无效/过期，需从头重试）、`INVALID_ARGUMENT`、`NOT_FOUND`、`DRIVER_ERROR`。
 - `query`/`execute`/`run_script` 都接受可选 `challenge_id`，用于危险操作确认后的重试。
 
 ## 六个 action
@@ -68,14 +68,27 @@ DatabaseManager({ action: "preview", conn_id: "c1", table: "users", limit: 20, d
 - `table` 必填；`limit` 上限 50（服务端强制截断）；`database` 可选。
 - 返回 `{columns, rows, rowCount, truncated?}`；`truncated: true` 表示还有更多行。
 
-### 6. run_script — 执行 Redis 命令 / Mongo 文档（需 rw 或触发确认）
+### 6. run_script — 沙箱脚本 / Redis 命令 / Mongo 文档（需 rw，危险句柄触发确认）
+
+`code` 是一段 JS 脚本，在**子进程隔离沙箱**中执行（无 require/process/fs/网络，60 秒超时）。沙箱注入两个句柄，均走完整 guard/challenge/审计链路（ro 授权下 `db.execute` 被拒）：
+
+- `db.query(sql, params)` — 只读查询，返回结果对象；
+- `db.execute(statement, params)` — 写执行，危险语句在沙箱内以异常抛出 `NEEDS_CONFIRMATION` JSON，需按确认流程携 `challenge_id` 重试。
+
+脚本返回值即工具返回值（须可 JSON 序列化）。示例：
+
+```
+DatabaseManager({ action: "run_script", conn_id: "c1", code: "return (await db.query('SELECT count(*) AS n FROM users', [])).rows" })
+```
+
+Redis 与 MongoDB 没有 SQL，`code` 直接传**命令数组 / BSON 命令文档**的 JSON 文本（此时脚本体即该 JSON）：
 
 ```
 DatabaseManager({ action: "run_script", conn_id: "redis1", code: '["GET","user:1"]' })
 DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users","filter":{"age":{"$gt":18}}}' })
 ```
 
-- Redis：`code` 是**命令数组**的 JSON 文本；MongoDB：`code` 是**BSON 命令文档**的 JSON 文本。这是这两种库唯一的执行入口（query/execute 不适用）。
+这是这两种库唯一的执行入口（query/execute 不适用）。
 
 ## 八库方言速查
 
@@ -97,14 +110,14 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 收到形如以下的返回时：
 
 ```json
-{"ok":false,"code":"NEEDS_CONFIRMATION","challengeId":"ch_xxx","statement":"DROP TABLE users","danger":"danger","reason":"DDL 不可回滚（隐式提交）","hint":"..."}
+{"ok":false,"code":"NEEDS_CONFIRMATION","challengeId":"c_9f8e7d6c5b4a3210fedcba98","statement":"DROP TABLE users","danger":"danger","reason":"DDL 不可回滚（隐式提交）","hint":"..."}
 ```
 
 必须按顺序执行：
 
 1. **停下**，向用户原文说明：语句内容、危险原因（`reason`）。
 2. 用户**明确同意**后，携带**同一个 `challenge_id`** 重试同一语句：
-   `DatabaseManager({ action: "execute", conn_id: "c1", statement: "DROP TABLE users", challenge_id: "ch_xxx" })`
+   `DatabaseManager({ action: "execute", conn_id: "c1", statement: "DROP TABLE users", challenge_id: "c_9f8e7d6c5b4a3210fedcba98" })`
 3. 用户拒绝则放弃，不重试。
 
 Challenge 属性：**一次性**（用过即失效）、绑定语句 hash（改语句后失效）、5 分钟过期。过期或无效会返回 `INVALID_CHALLENGE`，此时重新发起调用、走完整确认流程。**严禁**未经用户确认就重试；也**不要**为绕过确认而改写语句。

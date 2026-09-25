@@ -38,13 +38,19 @@ const SQL_WRITE_BODY_RE = /\b(insert|update|delete|merge|drop|alter|truncate)\b/
 /** MongoDB 读操作白名单（复用 mongodb 适配器导出的 READ_OPS，单一事实来源） */
 const MONGO_READ_OPS: ReadonlySet<string> = READ_OPS;
 
-/** MongoDB 写操作清单（适配器未导出，此处按 DANGEROUS_OPS 之外的写命令复述） */
+/** MongoDB 写操作清单（适配器未导出，此处按 DANGEROUS_OPS 之外的写命令复述；含命令文档形式 insert/update/delete/create） */
 const MONGO_WRITE_OPS: ReadonlySet<string> = new Set([
   'insert', 'insertOne', 'insertMany',
-  'updateOne', 'updateMany', 'replaceOne', 'findOneAndUpdate', 'findAndModify', 'bulkWrite',
-  'deleteOne',
-  'createCollection', 'renameCollection', 'mapReduce',
+  'updateOne', 'updateMany', 'update', 'replaceOne', 'findOneAndUpdate', 'findAndModify', 'bulkWrite',
+  'deleteOne', 'deleteMany', 'delete',
+  'createCollection', 'create', 'renameCollection', 'mapReduce',
 ]);
+
+/**
+ * 命令文档形式的删集合：{ drop: 'coll' } 语义等同 dropCollection（删整个集合），
+ * 但适配器导出的 DANGEROUS_OPS 只含 helper 形式（dropCollection），故此处按 danger 补位。
+ */
+const MONGO_DANGEROUS_EXTRA: ReadonlySet<string> = new Set(['drop']);
 
 /** 剥掉块注释/行注释（sqlHead 与语句体分析共用；写词藏在注释里不应触发分级） */
 function stripSqlComments(statement: string): string {
@@ -148,13 +154,17 @@ function classifyMongo(statement: string, op: 'query' | 'execute'): GuardVerdict
   if (DANGEROUS_OPS.has(head)) {
     return { level: 'danger', reason: `MongoDB 危险操作 ${head}，可能删库/删集合，需要确认` };
   }
+  if (MONGO_DANGEROUS_EXTRA.has(head)) {
+    return { level: 'danger', reason: `MongoDB 危险操作 ${head}（删除整个集合，等同 dropCollection），需要确认` };
+  }
   if (MONGO_WRITE_OPS.has(head)) {
     if (op === 'query') return { level: 'danger', reason: `只读通道（query）出现 MongoDB 写操作 ${head}，需要确认` };
     return { level: 'warning', reason: `MongoDB 写操作 ${head} 将修改数据` };
   }
   if (MONGO_READ_OPS.has(head)) return { level: 'none' };
   if (op === 'query') return { level: 'danger', reason: `只读通道（query）出现未识别的 MongoDB 操作（${head}），需要确认` };
-  return { level: 'none' };
+  // fail-closed：未识别的操作在 execute 通道也不静默放行（与 SQL/Redis 未识别语义对齐）
+  return { level: 'warning', reason: `未识别的 MongoDB 操作（${head}），请确认后执行` };
 }
 
 /* ---------------- ChallengeStore ---------------- */

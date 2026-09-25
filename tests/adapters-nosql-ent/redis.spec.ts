@@ -105,6 +105,11 @@ describe('query 白名单与规范化', () => {
     const a = await createRedisAdapter(conn, { client: makeClient() });
     await expect(a.query('OBJECT REFCOUNT k')).rejects.toThrow('仅支持 OBJECT ENCODING');
   });
+  it('MEMORY USAGE / OBJECT ENCODING 缺 key 参数拒绝', async () => {
+    const a = await createRedisAdapter(conn, { client: makeClient() });
+    await expect(a.query('MEMORY USAGE')).rejects.toThrow('缺少 key 参数');
+    await expect(a.query('OBJECT ENCODING')).rejects.toThrow('缺少 key 参数');
+  });
   it('缺参数拒绝', async () => {
     const a = await createRedisAdapter(conn, { client: makeClient() });
     await expect(a.query('GET')).rejects.toThrow('缺少参数');

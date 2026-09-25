@@ -137,6 +137,3 @@ export interface DatabaseAdapter {
 
 /** 每种 DbKind 的适配器工厂。实现方在各自模块注册。 */
 export type AdapterFactory = (conn: ResolvedConnection) => Promise<DatabaseAdapter>;
-
-/** 适配器注册表：adapterRegistry[kind] = factory */
-export type AdapterRegistry = Partial<Record<DbKind, AdapterFactory>>;

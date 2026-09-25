@@ -8,8 +8,7 @@
  *    http-trust 逻辑（Host loopback / trustedHosts + Origin 同源校验）。
  *  - ctx.effect 收尾：注销 HTTP 路由、关适配器、停 challenge 清理。
  */
-import { DbToolStore } from './store/index.js';
-import { normalizeProjectKey } from './store/index.js';
+import { DbToolStore, normalizeProjectKey } from './store/index.js';
 import { DbToolService, handleToolAction, type ToolActionArgs } from './manager.js';
 import { handleDbToolRequest } from './http/index.js';
 
@@ -66,8 +65,9 @@ action 说明：
 - execute：写操作/DDL（conn_id, statement, params?）。
 - schema：结构浏览（conn_id；给 table 查列、给 database 查表、都不给列库）。
 - preview：预览行，limit≤50（conn_id, table, database?, limit?）。
-- run_script：node:vm 沙箱脚本（conn_id, code），60s 超时，仅注入受限 db.query/db.execute
-  句柄（无 require/process/fs/网络），rw 连接才有写能力。`;
+- run_script：子进程沙箱脚本（conn_id, code），60s 超时强杀，permission model 禁文件
+  访问 + 新 vm realm 双层隔离，仅注入受限 db.query/db.execute 句柄（经完整
+  guard/审计链路），rw 连接才有写能力。`;
 
 export function apply(ctx: DshContext): void {
   const log = ctx.logger ?? { info: () => {}, error: () => {} };

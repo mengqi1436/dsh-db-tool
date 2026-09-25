@@ -100,7 +100,7 @@ window.__ModuleLoader__.load({
 			cancelled: "已取消",
 			// 通用
 			error: "错误",
-			ok: "确定",
+			ok: "操作完成",
 		};
 		const en = {
 			tabTitle: "Databases",
@@ -182,7 +182,7 @@ window.__ModuleLoader__.load({
 			confirmHint: "The server flagged this statement as dangerous; it only runs after manual confirmation (challenge valid for 5 minutes).",
 			cancelled: "Cancelled",
 			error: "Error",
-			ok: "OK",
+			ok: "Done",
 		};
 
 		let activeLocale = "zh";
@@ -315,16 +315,7 @@ window.__ModuleLoader__.load({
 				".dbt-listrow{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--dbt-separator);transition:background .18s var(--dbt-ease);}",
 				".dbt-listrow:last-child{border-bottom:none;}",
 				".dbt-listrow:hover{background:var(--dbt-surface-strong);}",
-				/* Navicat 式对象树：行、chevron 旋转、名称省略 */
 				".dbt-tree{display:flex;flex-direction:column;}",
-				".dbt-treerow{display:flex;gap:6px;align-items:center;padding:7px 12px;font-size:13px;border-bottom:1px solid var(--dbt-separator);cursor:pointer;user-select:none;transition:background .18s var(--dbt-ease);}",
-				".dbt-treerow:last-child{border-bottom:none;}",
-				".dbt-treerow:hover{background:var(--dbt-surface-strong);}",
-				".dbt-treerow.active{color:var(--dbt-accent);font-weight:600;}",
-				".dbt-chev{flex:none;font-size:10px;color:var(--dbt-muted);transition:transform .18s var(--dbt-ease);line-height:1;}",
-				".dbt-chev.open{transform:rotate(90deg);}",
-				".dbt-chev.leaf{visibility:hidden;}",
-				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
 				"/* ===== Navicat 式对象树（数据浏览） ===== */",
 				".dbt-treerow{display:flex;gap:6px;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;user-select:none;border-bottom:1px solid var(--dbt-separator);transition:background .15s var(--dbt-ease);}",
 				".dbt-treerow:last-child{border-bottom:none;}",
@@ -341,7 +332,6 @@ window.__ModuleLoader__.load({
 				".dbt-seg{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;}",
 				".dbt-seg button{flex:none;border:none;background:transparent;color:inherit;font-size:11px;padding:3px 10px;border-radius:var(--dbt-radius-pill);cursor:pointer;transition:all .18s var(--dbt-ease);}",
 				".dbt-seg button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
-				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
 				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
 				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog{backdrop-filter:none;-webkit-backdrop-filter:none;background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}}",
 				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog{background:#f5f5f7;}.dbt-table th{background:#f2f2f7;}}",
@@ -418,9 +408,9 @@ window.__ModuleLoader__.load({
 						(a.ok === false ? "（" + t("auditDenied") + (a.error ? "：" + a.error : "") + "）" : "") +
 						(a.confirmed ? "（" + t("auditConfirmed") + "）" : ""),
 					a.connId || "",
-					(a.statement || "").slice(0, 80),
+					a.statement || "",
 				]),
-				(row, cell, j) => (j === 3 ? (row[3] || "") : cell === null ? "NULL" : String(cell)),
+				// statement 全文进 td：视觉截断由 .dbt-table td 的 ellipsis 承担，title 悬浮看全文
 			);
 		}
 
@@ -623,12 +613,12 @@ window.__ModuleLoader__.load({
 									React.createElement(
 										"div",
 										{ className: "dbt-row" },
-										React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: "11px", lineHeight: 1.45 } }, c.kind),
+										React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: MONO_FONT, fontSize: "11px", lineHeight: 1.45 } }, c.kind),
 										React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
 									),
 									(c.safeUrl || c.host) ? React.createElement(
 										"div",
-										{ className: "dbt-muted", style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 11, wordBreak: "break-all" } },
+										{ className: "dbt-muted", style: { fontFamily: MONO_FONT, fontSize: 11, wordBreak: "break-all" } },
 										c.safeUrl || (c.host + ":" + (c.port || "")),
 									) : null,
 									testInfo[c.id] ? React.createElement("div", { className: "dbt-muted" }, testInfo[c.id]) : null,
@@ -761,20 +751,24 @@ window.__ModuleLoader__.load({
 						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + d]: list || [] }));
 					}));
 			}
+			// 请求序号守卫：快速切换选中表/翻页时，丢弃晚到的旧响应，防止旧数据覆盖新选中项
+			const openSeq = React.useRef(0);
 			const openTable = React.useCallback((s, pg) => {
 				if (!s || !projectPath) return;
+				const seq = ++openSeq.current;
 				setBusy("open");
 				Promise.all([
 					api("schema" + qs({ project: projectPath, connId: s.connId, database: s.db, table: s.table.name })),
 					api("preview" + qs({ project: projectPath, connId: s.connId, database: s.db, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
 				])
-					.then(([sch, prev]) => { setSchema(sch || []); setPreview(prev); setPage(pg || 1); })
+					.then(([sch, prev]) => {
+						if (seq !== openSeq.current) return; // 旧请求晚到，丢弃
+						setSchema(sch || []); setPreview(prev); setPage(pg || 1);
+					})
 					.catch((e) => props.onError(e))
-					.finally(() => setBusy(""));
+					.finally(() => { if (seq === openSeq.current) setBusy(""); });
 			}, [projectPath]);
 			React.useEffect(() => { if (sel) openTable(sel, 1); }, [sel]); // eslint-disable-line
-
-			function cellTitle(_row, cell) { return cell === null ? "NULL" : String(cell); }
 
 			// 树行：chevron（▸ 展开旋转 90°）+ 名称 + 可选右侧标注
 			function treerow(key, level, isOpen, leaf, label, onClick, active, extra) {
@@ -843,12 +837,11 @@ window.__ModuleLoader__.load({
 							? resultTable(
 								[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],
 								schema.map((col) => [col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || ""]),
-								cellTitle,
 							)
 							: React.createElement(
 								React.Fragment,
 								null,
-								preview ? resultTable(preview.columns, preview.rows, cellTitle) : null,
+								preview ? resultTable(preview.columns, preview.rows) : null,
 								React.createElement(
 									"div",
 									{ className: "dbt-row", style: { justifyContent: "space-between" } },
@@ -864,8 +857,8 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ---------------- SQL 控制台 ---------------- */
-		// Apple 等宽字体栈（规范 §1）：SQL 与参数输入共用
-		const MONO_FONT = "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace";
+		// Apple 等宽字体栈（规范 §1）：优先样式层 --dbt-mono token，fallback 内联栈
+		const MONO_FONT = "var(--dbt-mono, ui-monospace, \"SF Mono\", Menlo, Consolas, monospace)";
 		function ConsoleView(props) {
 			const { conns, projectPath, askConfirm } = props;
 			const [connId, setConnId] = React.useState("");
@@ -970,7 +963,8 @@ window.__ModuleLoader__.load({
 			const scope = props.scope || {};
 			const [view, setView] = React.useState("manage");
 			const [projectPath, setProjectPath] = React.useState(scope.cwd || scope.workspacePath || "");
-			const [projectEdited, setProjectEdited] = React.useState(!(scope.cwd || scope.workspacePath));			const [conns, setConns] = React.useState([]);
+			const [projectEdited, setProjectEdited] = React.useState(!(scope.cwd || scope.workspacePath));
+			const [conns, setConns] = React.useState([]);
 			const [grants, setGrants] = React.useState([]);
 			const [busy, setBusy] = React.useState("");
 			const [error, setError] = React.useState("");

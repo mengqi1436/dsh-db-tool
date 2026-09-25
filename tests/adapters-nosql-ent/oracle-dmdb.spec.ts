@@ -166,6 +166,15 @@ describe('Oracle 元数据（mock pool）', () => {
     expect(r.ok).toBe(true);
     expect(r.serverInfo).toBe('Oracle Database 19c');
   });
+  it('testConnect：v$version 无权限时以 SELECT 1 FROM dual 兜底判活', async () => {
+    const pool = makeOraPool();
+    pool.connObj.execute.mockRejectedValueOnce(new Error('ORA-00942: table or view does not exist'))
+      .mockResolvedValueOnce({ rows: [{ ONE: 1 }], metaData: [], rowsAffected: 0 });
+    const a = await createOracleAdapter(oraConn, { pool });
+    const r = await a.testConnect();
+    expect(r.ok).toBe(true);
+    expect(r.serverInfo).toContain('版本信息不可读');
+  });
   it('listDatabases 列 all_tables 有表 schema，过滤内建系统 schema，空/失败回退当前用户', async () => {
     const pool = makeOraPool([{ OWNER: 'SCOTT' }, { OWNER: 'SYSTEM' }, { OWNER: 'APEX_2400' }, { OWNER: 'HR' }], [{ name: 'OWNER' }]);
     const a = await createOracleAdapter(oraConn, { pool });
@@ -240,6 +249,15 @@ describe('达梦 DM（mock pool）', () => {
   it('query 非 SELECT 拒绝', async () => {
     const a = await createDmAdapter(dmConn, { pool: makeDmPool() });
     await expect(a.query('DROP TABLE t')).rejects.toThrow('仅允许 SELECT/WITH');
+  });
+  it('testConnect：V$VERSION 不可用时以 SELECT 1 FROM DUAL 兜底判活（推断路径）', async () => {
+    const pool = makeDmPool();
+    pool.connObj.execute.mockRejectedValueOnce(new Error('[-2106]:无效的表或视图名'))
+      .mockResolvedValueOnce({ rows: [{ ONE: 1 }], metaData: [], rowsAffected: 0 });
+    const a = await createDmAdapter(dmConn, { pool });
+    const r = await a.testConnect();
+    expect(r.ok).toBe(true);
+    expect(r.serverInfo).toContain('版本信息不可读');
   });
   it('query 显式 autoCommit:true 且 maxRows=501（SELECT 立即结束隐式事务，避免事务悬挂）', async () => {
     const pool = makeDmPool();

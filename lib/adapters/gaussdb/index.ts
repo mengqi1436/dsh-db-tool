@@ -29,10 +29,13 @@ function loadGaussDriver(): PgLikeDriver {
   try {
     // vendor 为 CJS 产物，结构同 pg：module.exports = { Pool, Client, ... }
     return require(VENDOR_PATH) as unknown as PgLikeDriver;
-  } catch {
+  } catch (e) {
+    // 附原始错误：区分「vendor 未构建」与「构建产物损坏/依赖缺失」两类故障
+    const msg = e instanceof Error ? e.message : String(e);
     throw new Error(
       'GaussDB 驱动未找到：官方 openGauss-connector-nodejs 未发布 npm，' +
-        '请先执行 bash scripts/build-gaussdb.sh（或 npm run build:gaussdb）构建 vendor/gaussdb-pg',
+        '请先执行 bash scripts/build-gaussdb.sh（或 npm run build:gaussdb）构建 vendor/gaussdb-pg。' +
+        `原始错误: ${msg}`,
     );
   }
 }

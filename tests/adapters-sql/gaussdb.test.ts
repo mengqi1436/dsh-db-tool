@@ -17,14 +17,13 @@ const conn: ResolvedConnection = {
 };
 
 describe('gaussdb 适配器（mock，不依赖 vendor）', () => {
-  it('vendor 不存在时抛出带构建指引的错误', async () => {
-    if (vendorReady) return; // vendor 已构建时此路径不可达，由下一条覆盖
+  // skipIf 使报告显式呈现 skipped（原 if-return 写法显示为 pass，掩盖了用例未真正执行）
+  it.skipIf(vendorReady)('vendor 不存在时抛出带构建指引的错误', async () => {
     await expect(createGaussdbAdapter(conn)).rejects.toThrow(/build-gaussdb/);
     await expect(createGaussdbAdapter(conn)).rejects.toThrow(/vendor\/gaussdb-pg/);
   });
 
-  it('vendor 存在时创建成功，kind=gaussdb（Pool 构造不触发连接）', async () => {
-    if (!vendorReady) return; // 未构建 vendor 时跳过（mock 逻辑见 pg-like.test.ts）
+  it.skipIf(!vendorReady)('vendor 存在时创建成功，kind=gaussdb（Pool 构造不触发连接）', async () => {
     const a = await createGaussdbAdapter(conn);
     expect(a.kind).toBe('gaussdb');
     expect(a.connId).toBe('g1');

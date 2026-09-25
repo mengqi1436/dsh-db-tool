@@ -317,7 +317,7 @@ export class DbToolService {
     try {
       const result = await runScriptInChild({
         code: src,
-        dbQuery: async (sql, params) => this.unwrapForScript(await this.query(key, connId, sql, params)),
+        dbQuery: async (sql, params) => this.unwrapForScript(await this.query(key, connId, sql, params, challengeId)),
         dbExecute: async (statement, params) =>
           this.unwrapForScript(await this.execute(key, connId, statement, params, challengeId)),
         onLog: (level, text) =>

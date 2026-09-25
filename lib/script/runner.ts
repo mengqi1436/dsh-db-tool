@@ -32,6 +32,22 @@ function permissionFlags(): string[] {
   return major >= 22 ? ['--permission'] : ['--experimental-permission'];
 }
 
+/** worker 启动/运行所需的环境变量白名单（Windows/Unix 各取所需），其余一律不透传 */
+const ENV_ALLOWLIST = [
+  'PATH', 'SYSTEMROOT', 'SYSTEMDRIVE', 'TEMP', 'TMP', 'COMSPEC', 'PATHEXT',
+  'USERPROFILE', 'HOME', 'LANG', 'TZ',
+] as const;
+
+/** 最小化环境变量：--permission 只禁 fs，脚本仍可读 process.env，故 fork 时按白名单裁剪 */
+export function minimalEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ENV_ALLOWLIST) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
 interface DoneMsg {
   ok: boolean;
   result?: unknown;
@@ -42,6 +58,7 @@ export async function runScriptInChild(opts: ScriptRunOptions): Promise<unknown>
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const child = fork(WORKER_PATH, [], {
     execArgv: permissionFlags(),
+    env: minimalEnv(),
     stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
   });
 
@@ -59,8 +76,19 @@ export async function runScriptInChild(opts: ScriptRunOptions): Promise<unknown>
     }, timeoutMs);
     timer.unref?.();
 
-    child.on('message', (msg: any) => {
-      if (!msg || typeof msg !== 'object') return;
+    child.on('message', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const msg = raw as {
+        type?: string;
+        reqId?: unknown;
+        method?: unknown;
+        args?: unknown;
+        level?: unknown;
+        text?: unknown;
+        ok?: boolean;
+        result?: unknown;
+        error?: { name?: string; message?: string; code?: string; payload?: unknown };
+      };
       if (msg.type === 'db') {
         const reqId = Number(msg.reqId);
         // 先注册回包通道再发起调用（同一处理器内，保证时序）
@@ -69,7 +97,7 @@ export async function runScriptInChild(opts: ScriptRunOptions): Promise<unknown>
             /* 忽略回包失败（worker 可能已死） */
           });
         });
-        void handleDbCall(String(msg.method ?? ''), (msg.args ?? []) as unknown[])
+        void handleDbCall(String(msg.method ?? ''), Array.isArray(msg.args) ? msg.args : [])
           .then((result) => pendingDb.get(reqId)?.({ ok: true, result }))
           .catch((e) => pendingDb.get(reqId)?.({ ok: false, error: errorOf(e) }));
         return;

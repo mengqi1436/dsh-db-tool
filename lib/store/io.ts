@@ -25,7 +25,8 @@ export function writeJsonAtomic(file: string, value: unknown, fileMode?: number)
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true });
   const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
+  // tmp 以目标权限创建：机密文件（0600）在 rename 前的窗口期/失败残留时不暴露宽权限内容
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', { encoding: 'utf8', mode: fileMode ?? 0o666 });
   try {
     fs.renameSync(tmp, file);
   } catch (err) {
