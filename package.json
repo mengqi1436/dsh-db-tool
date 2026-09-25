@@ -4,6 +4,14 @@
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mengqi1436/dsh-db-tool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mengqi1436/dsh-db-tool/issues"
+  },
+  "homepage": "https://github.com/mengqi1436/dsh-db-tool#readme",
   "engines": {
     "node": ">=20",
     "dsh": ">=0.1.0-rc.6"
