@@ -25,8 +25,8 @@ export const CONN_URL = 'mysql://root:s3cret@127.0.0.1:3306/app';
 export interface FakeAdapterOptions {
   kind?: DbKind;
   connId?: string;
-  query?: (sql: string, params?: unknown[]) => Promise<QueryResult>;
-  execute?: (statement: string, params?: unknown[]) => Promise<ExecResult>;
+  query?: (sql: string, params?: unknown[], database?: string) => Promise<QueryResult>;
+  execute?: (statement: string, params?: unknown[], database?: string) => Promise<ExecResult>;
   previewRows?: (table: string, limit: number, database?: string) => Promise<QueryResult>;
 }
 

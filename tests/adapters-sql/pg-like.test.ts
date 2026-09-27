@@ -64,8 +64,8 @@ class FakePool implements PgLikePool {
   }
 }
 
-function conn(fields?: Record<string, unknown>): ResolvedConnection {
-  return { meta: { id: 'c1', kind: 'postgresql' }, ...(fields ? { fields } : { url: 'postgres://u:p@h:5432/db' }) };
+function conn(fields?: Record<string, unknown>, kind: 'postgresql' | 'gaussdb' = 'postgresql'): ResolvedConnection {
+  return { meta: { id: 'c1', kind }, ...(fields ? { fields } : { url: 'postgres://u:p@h:5432/db' }) };
 }
 
 function okRes(rows: Record<string, unknown>[], fields?: string[], rowCount?: number) {
@@ -77,15 +77,31 @@ function okRes(rows: Record<string, unknown>[], fields?: string[], rowCount?: nu
 }
 
 describe('createPgLikeAdapter（mock 驱动）', () => {
-  // createPgLikeAdapter 内部 new Driver.Pool(...)，用箭头构造器捕获同一 FakePool 实例
+  // createPgLikeAdapter 内部 new Driver.Pool(...)，用箭头构造器捕获同一 FakePool 实例与池配置
   async function make(kind: 'postgresql' | 'gaussdb', fields?: Record<string, unknown>) {
     const pool = new FakePool();
+    const configs: Record<string, unknown>[] = [];
     const driver: PgLikeDriver = {
-      Pool: function () { return pool; } as unknown as PgLikeDriver['Pool'],
+      Pool: function (config: Record<string, unknown>) {
+        configs.push(config ?? {});
+        return pool;
+      } as unknown as PgLikeDriver['Pool'],
     };
-    const a = await createPgLikeAdapter(kind, driver, conn(fields));
-    return { a, pool };
+    const a = await createPgLikeAdapter(kind, driver, conn(fields, kind));
+    return { a, pool, configs };
   }
+
+  it('fields 兜底默认值按 kind 区分：gaussdb 8000/gaussdb（官方），postgresql 5432/postgres 不变', async () => {
+    // 官方默认端口 8000：集中式 DN 与分布式 CN（HCS 26.861.0 devg-cent/gaussdb-42-0020、devg-dist/gaussdb-12-0319）
+    const g = await make('gaussdb', { host: 'h', database: 'postgres' });
+    expect(g.configs[0]).toMatchObject({ port: 8000, user: 'gaussdb' });
+    // postgresql 路径逐字节保持原有兜底
+    const p = await make('postgresql', { host: 'h', database: 'postgres' });
+    expect(p.configs[0]).toMatchObject({ port: 5432, user: 'postgres' });
+    // 字段齐全时不触发兜底
+    const full = await make('gaussdb', { host: 'h', port: 9000, user: 'ops', database: 'd' });
+    expect(full.configs[0]).toMatchObject({ port: 9000, user: 'ops' });
+  });
 
   it('query 规范化 + 参数透传', async () => {
     const { a, pool } = await make('postgresql');
@@ -208,9 +224,9 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(c.releaseErr).toBeInstanceOf(Error);
     expect(pool.liveClients.length).toBe(0); // 已被 release 移除
     expect(pool.errorHandlers.length).toBe(1); // 兜底监听 pool 'error' 防进程崩溃
-    // 非 ro 模式不注册 error 兜底
+    // 非 ro 模式同样注册 error 兜底（官方 Pool 文档：空闲连接故障 emit 'error'，无监听崩进程）
     const { pool: p2 } = await make('postgresql');
-    expect(p2.errorHandlers.length).toBe(0);
+    expect(p2.errorHandlers.length).toBe(1);
   });
 
   it('非 ro 模式不设置只读钩子', async () => {

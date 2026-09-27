@@ -99,7 +99,7 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 |---|---|---|---|---|
 | MySQL | `?` | `information_schema` | `LIMIT n OFFSET m` | |
 | PostgreSQL | `$1, $2…` | `information_schema` / `pg_catalog` | `LIMIT n OFFSET m` | |
-| GaussDB | `$1, $2…` | `information_schema` / `pg_catalog` | `LIMIT n OFFSET m` | PG 系 |
+| GaussDB | `$1, $2…` | `information_schema` / `pg_catalog` | `LIMIT n OFFSET m` | PG 系（默认端口 8000，见下方注记） |
 | SQLite | `?` | `sqlite_master` / `PRAGMA` | `LIMIT n OFFSET m` | 库列表固定 `['main']` |
 | Redis | 无（命令数组） | `SCAN`（禁用 `KEYS` 遍历） | `SCAN cursor` | `run_script` 传 `["SCAN","0","MATCH","user:*","COUNT","100"]` |
 | MongoDB | 无（BSON 文档） | `listCollections` | `find().skip().limit()` | `run_script` 传 `{"find":"users","filter":{},"limit":20,"skip":40}` |
@@ -107,6 +107,18 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 | 达梦(DM) | `:name` | 系统视图同 Oracle 风格 | `OFFSET m ROWS FETCH NEXT n ROWS ONLY`（8a 支持 `LIMIT`） | |
 
 **类型规范化**（工具返回值已自动处理，引用结果时注意）：`DECIMAL/NUMERIC` → string（避免精度丢失）；`Date/TIMESTAMP` → ISO 8601 string；`LOB/CLOB/BLOB` → string；MongoDB `ObjectId` → string。生成写语句时，DECIMAL 直接传字符串值、日期传 ISO 字符串即可。
+
+## GaussDB 官方对齐注记（HCS 26.861.0，集中式/分布式）
+
+依据华为云 GaussDB 官方文档（doc.hcs.huawei.com/db/zh-cn，26.861.0 双形态）与 openGauss 官方文档源仓库对齐；未真机验证处以代码内标注为准。
+
+- **认证**：驱动实现 openGauss SHA256 / MD5-SHA256 / SM3 握手，匹配服务端默认 `password_encryption_type = 2`（sha256）。连接报 `Invalid username/password, login denied` 时依次排查：① 认证配置（gs_hba.conf）需含 `host all all 0.0.0.0/0 sha256`；② 服务端密码加密方式变更后必须重设密码或新建用户（旧口令仍是旧加密）；③ 账号锁定用 `ALTER USER ... ACCOUNT UNLOCK`。
+- **默认端口 8000**（集中式 DN / 分布式 CN，官方 gsql 示例 `-p 8000`）；SSL 默认不强制（服务端可 require_ssl 强制）。本工具 SSL 仅开/关，**不支持** sslmode（require/verify-ca/verify-full）证书校验细分。
+- **ro 只读会话**：`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` 为官方语法（集中式/分布式均支持，rf-dist/gaussdb-08-0400、rf-cent/gaussdb-38-0416），连接建立时执行一次即对该连接所有后续事务生效。
+- **隔离级别差异**：READ UNCOMMITTED 等价 READ COMMITTED；**SERIALIZABLE 功能不支持，等价 REPEATABLE READ**——与 PG 真 SSI 行为不同，依赖 PG 串行化语义的脚本注意。
+- **元数据**：`pg_database` / `pg_catalog.pg_namespace` 为官方系统表；`information_schema.tables/columns` 集中式有官方视图文档，分布式参考无原生视图（仅 M-Compatibility 模式有），分布式实例上浏览以真机行为为准。
+- **兼容模式**：openGauss 有 sql_compatibility（A/B/C/PG）兼容模式，部分语法语义随模式变化（如 B 模式 SET SESSION TRANSACTION 需 `b_format_behavior_compat_options` 含 set_session_transaction 才生效），本工具按 PG 语义使用。
+- 驱动/默认值差异的代码内证据与证据 URL 见 `lib/adapters/gaussdb/index.ts` 头注释与 `lib/adapters/sql-shared/pg-like.ts`。
 
 ## 危险操作确认流程（NEEDS_CONFIRMATION）
 

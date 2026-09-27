@@ -18,9 +18,9 @@ const WORKER_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'wor
 export interface ScriptRunOptions {
   code: string;
   timeoutMs?: number;
-  /** 走完整 guard/challenge/审计链路的 db 句柄（由 DbToolService 提供） */
-  dbQuery: (sql: string, params?: unknown[]) => Promise<unknown>;
-  dbExecute: (statement: string, params?: unknown[]) => Promise<unknown>;
+  /** 走完整 guard/challenge/审计链路的 db 句柄（由 DbToolService 提供）；database? 即跨库路由目标 */
+  dbQuery: (sql: string, params?: unknown[], database?: string) => Promise<unknown>;
+  dbExecute: (statement: string, params?: unknown[], database?: string) => Promise<unknown>;
   onLog?: (level: 'log' | 'error', text: string) => void;
   /** 超时强杀后回调（关闭会话专用适配器，中断在途 db 调用） */
   onTimeout?: () => void;
@@ -147,9 +147,11 @@ export async function runScriptInChild(opts: ScriptRunOptions): Promise<unknown>
   });
 
   async function handleDbCall(method: string, args: unknown[]): Promise<unknown> {
-    const [statement, params] = args as [string, unknown[] | undefined];
-    if (method === 'query') return opts.dbQuery(statement, params);
-    if (method === 'execute') return opts.dbExecute(statement, params);
+    const [statement, params, rawDatabase] = args as [string, unknown[] | undefined, string | undefined];
+    // IPC JSON 序列化会把 undefined 变 null，归一回 undefined 保持与直连调用语义一致
+    const database = rawDatabase ?? undefined;
+    if (method === 'query') return opts.dbQuery(statement, params, database);
+    if (method === 'execute') return opts.dbExecute(statement, params, database);
     throw new DbToolError('INVALID_ARGUMENT', `未知 db 方法: ${method}`);
   }
 

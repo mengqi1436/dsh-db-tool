@@ -36,7 +36,7 @@ dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
 dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 ```
 
-GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；oracledb 安装脚本需 `npm approve-scripts oracledb`。详见 [docs/install.md](docs/install.md)。
+GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；运行要求 Node ≥ 22.12（产物依赖 p-limit@7 纯 ESM）。oracledb 安装脚本需 `npm approve-scripts oracledb`。详见 [docs/install.md](docs/install.md)。
 
 ## 安全模型
 

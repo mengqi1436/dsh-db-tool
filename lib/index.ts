@@ -67,7 +67,9 @@ action 说明：
 - preview：预览行，limit≤50（conn_id, table, database?, limit?）。
 - run_script：子进程沙箱脚本（conn_id, code），60s 超时强杀，permission model 禁文件
   访问 + 新 vm realm 双层隔离，仅注入受限 db.query/db.execute 句柄（经完整
-  guard/审计链路），rw 连接才有写能力。`;
+  guard/审计链路），rw 连接才有写能力。句柄签名 db.query(sql, params?, database?)：
+  第三参为跨库路由目标（pg/gaussdb 等按库路由，同 Navicat 式），多库统计在脚本内
+  循环逐库调用即可一次完成。`;
 
 export function apply(ctx: DshContext): void {
   const log = ctx.logger ?? { info: () => {}, error: () => {} };

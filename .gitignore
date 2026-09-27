@@ -13,3 +13,5 @@ stryker_out*.txt
 
 .playwright-cli/
 dsh-boot-diag*.txt
+
+.planning/

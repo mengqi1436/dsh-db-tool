@@ -224,6 +224,27 @@ describe('DbToolService: run_script 沙箱', () => {
     }
   });
 
+  it('脚本内 db.query 第三参 database 透传到适配器（跨库路由）', async () => {
+    const seenDb: (string | undefined)[] = [];
+    const fx = await makeFixture('rw', {
+      query: async (sql, _params, database) => {
+        seenDb.push(database);
+        return { columns: ['answer'], rows: [[sql]], rowCount: 1 };
+      },
+    });
+    try {
+      const r = await fx.service.runScript(
+        fx.projectA,
+        CONN_ID,
+        'const a = await db.query("SELECT 1", undefined, "app"); const b = await db.query("SELECT 2"); return [a.rows[0][0], b.rows[0][0]]',
+      );
+      expect(r).toEqual(['SELECT 1', 'SELECT 2']);
+      expect(seenDb).toEqual(['app', undefined]);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('脚本内危险语句 → NEEDS_CONFIRMATION（challengeId 为空时生成新 challenge）', async () => {
     const fx = await makeFixture('rw');
     try {

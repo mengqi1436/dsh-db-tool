@@ -43,6 +43,8 @@ rm -rf ../gaussdb-pg && cp -r packages/pg ../gaussdb-pg
 
 产物为 `vendor/gaussdb-pg`（CJS，结构同 `pg`：`{ Pool, Client, ... }`）。
 
+> **Node 版本要求**：≥ 22.12。构建脚本会补装 `p-limit@7`（纯 ESM，源码 package.json 未声明），依赖 Node 原生 require(esm)；更旧 Node 加载 GaussDB 驱动会抛 `ERR_REQUIRE_ESM`（其余 7 库不受影响）。
+
 ## oracledb approve-scripts
 
 `oracledb` 安装时需要运行安装脚本编译/下载二进制。仓库 `package.json` 已配置白名单：

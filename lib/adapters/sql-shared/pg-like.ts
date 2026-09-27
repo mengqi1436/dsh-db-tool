@@ -54,9 +54,13 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
     base.connectionString = conn.url;
   } else if (conn.fields) {
     const f = conn.fields;
+    // 兜底默认值按 kind 区分（仅表单字段被清空时触发）：GaussDB 官方默认端口 8000
+    // （华为云 HCS 26.861.0：集中式 DN 与分布式 CN 均为 8000，devg-cent/gaussdb-42-0020、
+    // devg-dist/gaussdb-12-0319）、默认管理用户 gaussdb；postgresql 维持社区默认 5432/postgres 不变。
+    const gb = conn.meta.kind === 'gaussdb';
     base.host = String(f.host ?? '127.0.0.1');
-    base.port = Number(f.port ?? 5432);
-    base.user = String(f.user ?? f.username ?? 'postgres');
+    base.port = Number(f.port ?? (gb ? 8000 : 5432));
+    base.user = String(f.user ?? f.username ?? (gb ? 'gaussdb' : 'postgres'));
     if (f.password != null) base.password = String(f.password);
     if (f.database != null) base.database = String(f.database);
   } else {
@@ -74,19 +78,23 @@ export async function createPgLikeAdapter(
 ): Promise<DatabaseAdapter & { tx: TxHandle }> {
   const pool = new Driver.Pool(poolConfig(conn));
   const readOnly = opts?.mode === 'ro';
-  // 服务器级 ro 强制（官方手段）：每个新连接会话设为只读事务。
+  // 所有池（主池 + 跨库池）统一走此初始化。
+  // pg 约定：release(err) 若无等待者会 emit pool 'error'，无监听器会崩进程——
+  // 官方 Pool 文档要求必须注册 error 监听（空闲连接因后端故障销毁时经此冒泡），无条件兜底。
+  // 服务器级 ro 强制（官方手段）：每个新连接会话设为只读事务，仅 ro 模式注册。
   // fail-closed：SET 失败时 release(err) 让驱动销毁该连接、等待的 acquire 收到错误——
   // 会话级只读是 ro 的最后防线，不允许静默降级成可写连接。
-  const setupReadOnly = (p: PgLikePool): void => {
-    p.on('connect', (c) => {
-      void c.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY').catch((err: unknown) => {
-        c.release(err instanceof Error ? err : new Error(String(err)));
-      });
-    });
-    // pg 约定：release(err) 若无等待者会 emit pool 'error'，不监听会崩进程
+  const setupPool = (p: PgLikePool): void => {
     p.on('error', () => {});
+    if (readOnly) {
+      p.on('connect', (c) => {
+        void c.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY').catch((err: unknown) => {
+          c.release(err instanceof Error ? err : new Error(String(err)));
+        });
+      });
+    }
   };
-  if (readOnly) setupReadOnly(pool);
+  setupPool(pool);
 
   // 事务激活期间所有 query/execute 路由到同一 client
   let txClient: PgLikeClient | null = null;
@@ -110,7 +118,7 @@ export async function createPgLikeAdapter(
     const cached = dbPools.get(db);
     if (cached) return cached;
     const created = new Driver.Pool({ ...poolConfig(conn), database: db });
-    if (readOnly) setupReadOnly(created);
+    setupPool(created); // 与主池一致：error 兜底 + ro 会话只读
     dbPools.set(db, created);
     return created;
   };
