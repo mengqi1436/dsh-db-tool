@@ -36,7 +36,7 @@ const INSTALL_HINTS: Record<DbKind, string> = {
   gaussdb: 'npm run build:gaussdb（构建 vendor/gaussdb-pg）',
   sqlite: 'npm install better-sqlite3',
   redis: 'npm install redis',
-  mongodb: 'npm install mongodb',
+  mongodb: 'npm run build:mongodb（构建 vendor/mongodb-driver.cjs；发布包已内置产物，仅在缺失时需要）',
   oracle: 'npm install oracledb',
   dmdb: 'npm install dmdb',
 };

@@ -36,7 +36,7 @@ dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
 dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 ```
 
-GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；运行要求 Node ≥ 22.12（产物依赖 p-limit@7 纯 ESM）。oracledb 安装脚本需 `npm approve-scripts oracledb`。详见 [docs/install.md](docs/install.md)。
+GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；运行要求 Node ≥ 22.12（产物依赖 p-limit@7 纯 ESM）。oracledb 安装脚本需 `npm approve-scripts oracledb`。mongodb 驱动已 bundle 进发布包（`vendor/mongodb-driver.cjs`，esbuild 构建，`npm run build:mongodb` 可重建），依赖树中不含 mongodb/punycode，详见 [docs/install.md](docs/install.md)。
 
 ## 安全模型
 
@@ -63,6 +63,8 @@ npm run patch:dsh:sh     # macOS / Linux
 
 脚本自动探测 DSH 安装根（`--dsh-root` 可显式指定）；补丁文件见 `patches/dsh-app-boot-route-scoped-hotfix.patch`，仅对 `0.1.7-rc.2` 声明兼容，其他版本会警告（`--force` 覆盖）。上游 issue：<https://github.com/mengqi1436/dsh-db-tool/issues>（占位，待上游仓库开放后替换）。
 
+**本插件的免补丁路径（0.1.9+）**：该 bug 的触发条件是依赖树中出现 core-module 同名包，mongodb 链（`mongodb-connection-string-url → whatwg-url → tr46 → punycode`）正是元凶。0.1.9 起 mongodb 驱动经 esbuild bundle 为 `vendor/mongodb-driver.cjs` 随包发布，生产依赖树不再含 mongodb 与 punycode——在**未修复宿主**（含桌面版 app.asar，无法打补丁）上也能正常安装加载。守卫测试 `tests/guard/deps-core-collision.spec.ts` 断言依赖树永不回退（dependencies 白名单 + lockfile 生产树 core 同名包零交集）。`patch:dsh` 仍保留，用于修复**其他**含同类依赖的插件或宿主自身报错。
+
 ## 测试
 
 ```bash
@@ -79,8 +81,8 @@ npx stryker run # 变异测试（范围 lib/guard + lib/manager + lib/store，�
 lib/        host 插件（store / adapters×8 / guard / manager / http / index）
 client/     侧边栏单文件产物（client.js，即源码）
 skills/     db-admin skill
-scripts/    GaussDB vendor 构建、DSH dsh-app-boot 热修复（patch:dsh）
+scripts/    GaussDB vendor 构建、mongodb 驱动 bundle（build:mongodb）、DSH dsh-app-boot 热修复（patch:dsh）
 docs/       安装、HTTP 契约（api-contract.md）、skill 说明
 tests/      vitest（离线 mock + DBT_TEST_* 门控真机）
-vendor/     gaussdb-pg 构建产物（gitignore，不入库）
+vendor/     gaussdb 构建源/产物与 mongodb-driver.cjs bundle（gitignore，发布经 files 白名单收录 bundle）
 ```

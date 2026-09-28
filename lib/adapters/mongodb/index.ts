@@ -10,17 +10,22 @@
  *  - execute() 写白名单；updateMany/deleteMany 空 filter 直接拒绝（适配器级防线）。
  *  - 错误判定用 instanceof MongoServerError（官方建议不解析 message）。
  *  - 只读账号由用户配置官方内置角色 read / readWrite（见文档）。
+ *  - 驱动不进依赖树：mongodb 经 esbuild bundle 成 vendor/mongodb-driver.cjs（见
+ *    scripts/build-mongodb.mjs），运行时经 createRequire 相对加载（不经宿主
+ *    dsh-app-boot 的模块解析器，规避其 resolve.paths 未防护的 for..of bug，
+ *    该 bug 会因依赖树中的 punycode 等核心模块同名包直接炸掉插件加载）。
+ *    bson 保持 dependencies（bundle 的 external），保证 BSON 类实例与外部一致。
  */
-import {
+import { createRequire } from 'node:module';
+import type {
   Binary,
   Decimal128,
-  MongoClient,
-  MongoServerError,
+  IndexDescription,
   Long,
+  MongoClient,
   ObjectId,
   Timestamp,
 } from 'mongodb';
-import type { IndexDescription } from 'mongodb';
 import type {
   AccessMode,
   AdapterFactory,
@@ -33,6 +38,33 @@ import type {
   TableInfo,
   TestConnectResult,
 } from '../types.js';
+
+type MongoModule = typeof import('mongodb');
+
+let vendorCache: MongoModule | undefined;
+
+/** 容错加载 vendor bundle：缺失时返回 undefined（调用方降级处理），成功后缓存。
+ * 失败不缓存 → vendor 构建完成后无需重启即可恢复。 */
+function vendorOrNull(): MongoModule | undefined {
+  if (vendorCache === undefined) {
+    try {
+      // 相对路径从本模块出发：dist/adapters/mongodb/ 或 lib/adapters/mongodb/ 均指向包根 vendor/
+      vendorCache = createRequire(import.meta.url)('../../../vendor/mongodb-driver.cjs') as MongoModule;
+    } catch {
+      return undefined;
+    }
+  }
+  return vendorCache;
+}
+
+/** 严格加载 vendor bundle：缺失时抛带修复指引的错误 */
+function vendor(): MongoModule {
+  const m = vendorOrNull();
+  if (m === undefined) {
+    throw new Error('mongodb 驱动不可用：缺少 vendor/mongodb-driver.cjs。请在插件目录运行 npm run build:mongodb 构建后重试');
+  }
+  return m;
+}
 
 /** 危险操作：服务层拦截器用于确认流程。deleteMany/updateMany 仅空 filter 时危险（适配器已拦截）；createIndex 在大集合上可能阻塞。createIndexes/dropIndexes 为单数形式别名，renameCollection 影响集合可见性。 */
 export const DANGEROUS_OPS: ReadonlySet<string> = new Set([
@@ -60,17 +92,20 @@ function trunc(s: string, max = CELL_TRUNC): string {
   return s.length > max ? `${s.slice(0, max)}…[截断,共${s.length}字符]` : s;
 }
 
-/** NormalizedCell 规范化：ObjectId/Decimal128/Long/Timestamp → toString()；Binary → hex 截断；Date → ISO；嵌套对象/数组 → JSON 截断 1000 */
+/** NormalizedCell 规范化：ObjectId/Decimal128/Long/Timestamp → toString()；Binary → hex 截断；Date → ISO；嵌套对象/数组 → JSON 截断 1000。
+ * BSON 类型判别依赖 vendor bundle 的类（external bson，与外部 require('bson') 同实例）；
+ * vendor 缺失时降级为普通对象处理，不阻断非 BSON 值的规范化。 */
 export function normalizeMongoCell(v: unknown): NormalizedCell {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : String(v);
   if (typeof v === 'string') return trunc(v);
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (v instanceof Date) return v.toISOString();
-  if (v instanceof ObjectId || v instanceof Decimal128 || v instanceof Long || v instanceof Timestamp) {
+  const M = vendorOrNull();
+  if (M && (v instanceof M.ObjectId || v instanceof M.Decimal128 || v instanceof M.Long || v instanceof M.Timestamp)) {
     return trunc(v.toString());
   }
-  if (v instanceof Binary) return trunc(Buffer.from(v.buffer ?? []).toString('hex') || String(v));
+  if (M && v instanceof M.Binary) return trunc(Buffer.from(v.buffer ?? []).toString('hex') || String(v));
   if (typeof v === 'object') {
     try {
       return trunc(JSON.stringify(v) ?? String(v));
@@ -155,7 +190,7 @@ export async function createMongoAdapter(
     client = opts.client as MongoClient;
   } else {
     const uri = conn.url ?? buildUri(conn.fields, conn.ssl);
-    client = new MongoClient(uri, {
+    client = new (vendor().MongoClient)(uri, {
       maxPoolSize: 10,
       readPreference: 'primary',
       w: 'majority',
@@ -175,7 +210,8 @@ export async function createMongoAdapter(
   const db = client.db(dbName);
 
   function wrap(e: unknown): Error {
-    if (e instanceof MongoServerError) {
+    const M = vendorOrNull();
+    if (M && e instanceof M.MongoServerError) {
       return new Error(`MongoDB 服务端错误：${e.message}${e.codeName ? `（${e.codeName}）` : ''}`);
     }
     return new Error(`MongoDB 错误：${e instanceof Error ? e.message : String(e)}`);
@@ -509,11 +545,14 @@ function objectToResult(obj: Record<string, unknown>): QueryResult {
 
 function inferBsonType(v: unknown): string {
   if (v === null) return 'null';
-  if (v instanceof ObjectId) return 'ObjectId';
-  if (v instanceof Decimal128) return 'Decimal128';
-  if (v instanceof Long) return 'Long';
-  if (v instanceof Timestamp) return 'Timestamp';
-  if (v instanceof Binary) return 'Binary';
+  const M = vendorOrNull();
+  if (M) {
+    if (v instanceof M.ObjectId) return 'ObjectId';
+    if (v instanceof M.Decimal128) return 'Decimal128';
+    if (v instanceof M.Long) return 'Long';
+    if (v instanceof M.Timestamp) return 'Timestamp';
+    if (v instanceof M.Binary) return 'Binary';
+  }
   if (v instanceof Date) return 'date';
   if (Array.isArray(v)) return 'array';
   if (typeof v === 'object') return 'object';

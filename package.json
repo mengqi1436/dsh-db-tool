@@ -26,7 +26,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist/script',{recursive:true}); fs.copyFileSync('lib/script/worker.cjs','dist/script/worker.cjs'); console.log('build OK')\"",
+    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist/script',{recursive:true}); fs.copyFileSync('lib/script/worker.cjs','dist/script/worker.cjs'); console.log('build OK')\" && node scripts/build-mongodb.mjs",
+    "build:mongodb": "node scripts/build-mongodb.mjs",
+    "prepack": "npm run build",
     "build:gaussdb": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-gaussdb.ps1",
     "build:gaussdb:sh": "bash scripts/build-gaussdb.sh",
     "patch:dsh": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/apply-dsh-hotfix.ps1",
@@ -45,8 +47,8 @@
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
+    "bson": "^7.2.0",
     "dmdb": "^1.0.52452",
-    "mongodb": "^7.6.0",
     "mysql2": "^3.24.4",
     "oracledb": "^7.0.1",
     "pg": "^8.23.0",
@@ -57,6 +59,8 @@
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/better-sqlite3": "latest",
     "@types/node": "latest",
+    "esbuild": "^0.28.0",
+    "mongodb": "^7.6.0",
     "stryker-cli": "^1.1.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
@@ -76,6 +80,7 @@
     "docs",
     "patches",
     "scripts",
+    "vendor/mongodb-driver.cjs",
     "README.md"
   ]
 }
