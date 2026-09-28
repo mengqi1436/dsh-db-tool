@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * DSH ResolutionRouter hotfix —— 核心逻辑（纯 Node、零依赖、可被测试 import）。
+ * DSH dsh-app-boot resolve.paths hotfix —— 核心逻辑（纯 Node、零依赖、可被测试 import）。
  *
- * 修复的 bug：@deepseek-ai/dsh-app-boot 的 routeScoped() 直接对
- * `createRequire(parent).resolve.paths(name)` 做 for..of，而 Node 对 core-module
- * 同名包（punycode 等）返回 null，导致 hoisted profile 下 npm 安装插件导入失败
- * （TypeError: Cannot read properties of null）。
+ * 修复的 bug：@deepseek-ai/dsh-app-boot@0.1.7-rc.2 对
+ * `createRequire(parent).resolve.paths(name)` 的 for..of 无保护，而 Node 对
+ * core-module 同名包（punycode 等）返回 null，for..of null 直接抛 TypeError，
+ * 导致 hoisted profile 下 npm 安装插件导入失败。rc.2 中共两处同型缺陷：
+ * 1. routeScoped()（L1419 区域）—— 症状直接暴露；
+ * 2. nativePackageDir()（L1246 区域）—— 第二处，症状相同，一并修复。
  *
  * 用法：node scripts/hotfix-core.mjs [--dsh-root <dir>] [--patch-file <file>]
  *           [--force] [--revert] [--dry-run]
@@ -29,8 +31,27 @@ export const BACKUP_SUFFIX = '.bak-hotfix';
 export const ORIGINAL_LINE =
 	'\t\tfor (const searchPath of createRequire(parent).resolve.paths(name)) {';
 
+/** 原始（未打补丁）nativePackageDir 块 —— rc.2 中第二处同型缺陷（函数签名行做锚，保证匹配唯一）。 */
+export const ORIGINAL_NPD_BLOCK = [
+	'function nativePackageDir(parent, name) {',
+	'\tfor (const searchPath of createRequire(parent).resolve.paths(name)) {',
+].join('\n');
+
+/** nativePackageDir 修复后的 for 行（同时是幂等判据：`?? []` 形态全文件唯一）。 */
+export const NPD_FIXED_LINE =
+	'\tfor (const searchPath of createRequire(parent).resolve.paths(name) ?? []) {';
+
+/** nativePackageDir 热修复块 —— 与 patches/*.patch 第二个 hunk 的 + 行逐字节一致。 */
+export const FIXED_NPD_BLOCK = [
+	'function nativePackageDir(parent, name) {',
+	'\t/* local hotfix: nativePackageDir: resolve.paths returns null for core-module names',
+	'\t   (fs, node:fs, ...); an empty list means no local candidate, matching the',
+	'\t   guard in profile.ts:596. */',
+	NPD_FIXED_LINE,
+].join('\n');
+
 /** 热修复代码块 —— 与 patches/dsh-app-boot-route-scoped-hotfix.patch 的 + 行一致。 */
-const HOTFIX_BLOCK = [
+export const HOTFIX_BLOCK = [
 	'\t\t/* local hotfix: resolve.paths returns null for core-module names (e.g. "punycode"),',
 	'\t\t   which made the for..of throw TypeError and broke every hoisted profile install',
 	'\t\t   whose dependency tree requires such an npm package. Fall back to the standard',
@@ -46,28 +67,65 @@ export function isApplied(content) {
 	return content.includes(HOTFIX_MARKER);
 }
 
+/** nativePackageDir 修复是否已在（幂等判据：`?? []` 形态全文件唯一）。 */
+export function isNpdApplied(content) {
+	return content.includes(NPD_FIXED_LINE);
+}
+
+/** 单处修复的三态应用：already（已在）/ applied（本次注入）/ missing（原始行不在）。 */
+function applyOne(content, isDone, original, fixed) {
+	if (isDone(content)) return { content, status: 'already' };
+	if (content.includes(original)) {
+		return { content: content.replace(original, fixed), status: 'applied' };
+	}
+	return { content, status: 'missing' };
+}
+
 /**
- * 在文件内容上应用热修复（幂等：已应用时返回 already-applied）。
+ * 在文件内容上应用全部热修复（幂等）。
+ * 两处缺陷（routeScoped / nativePackageDir）独立判定、独立注入：
+ * - 任一「本次注入」→ ok:true；
+ * - 全部缺失原始行 → target-line-not-found（可能不是目标文件）；
+ * - 其余（全部已在）→ already-applied。
+ * 已打 FIX1 的机器只会补上 FIX2，反之亦然。
  * @returns {{ ok: boolean, reason?: string, content: string }}
  */
 export function applyToContent(content) {
-	if (isApplied(content)) return { ok: false, reason: 'already-applied', content };
-	if (!content.includes(ORIGINAL_LINE)) {
-		return { ok: false, reason: 'target-line-not-found', content };
+	const r1 = applyOne(content, isApplied, ORIGINAL_LINE, HOTFIX_BLOCK);
+	const r2 = applyOne(r1.content, isNpdApplied, ORIGINAL_NPD_BLOCK, FIXED_NPD_BLOCK);
+
+	if (r1.status === 'applied' || r2.status === 'applied') {
+		return { ok: true, content: r2.content };
 	}
-	return { ok: true, content: content.replace(ORIGINAL_LINE, HOTFIX_BLOCK) };
+	if (r1.status === 'missing' && r2.status === 'missing') {
+		return { ok: false, reason: 'target-line-not-found', content: r2.content };
+	}
+	return { ok: false, reason: 'already-applied', content: r2.content };
 }
 
 /**
  * 还原热修复（优先用内建块反替换；调用方在磁盘层面应优先用 .bak-hotfix 备份）。
+ * 注意：内建反替换只认分发版英文注释块；手工打过的非标准块（如中文注释）
+ * 反替换不到，届时请用 .bak-hotfix 备份整体还原。
  * @returns {{ ok: boolean, reason?: string, content: string }}
  */
 export function revertContent(content) {
-	if (!isApplied(content)) return { ok: false, reason: 'not-applied', content };
-	if (!content.includes(HOTFIX_BLOCK)) {
-		return { ok: false, reason: 'hotfix-block-not-found', content };
+	let changed = false;
+	let result = content;
+
+	if (isApplied(result)) {
+		if (!result.includes(HOTFIX_BLOCK)) {
+			return { ok: false, reason: 'hotfix-block-not-found', content };
+		}
+		result = result.replace(HOTFIX_BLOCK, ORIGINAL_LINE);
+		changed = true;
 	}
-	return { ok: true, content: content.replace(HOTFIX_BLOCK, ORIGINAL_LINE) };
+	if (result.includes(FIXED_NPD_BLOCK)) {
+		result = result.replace(FIXED_NPD_BLOCK, ORIGINAL_NPD_BLOCK);
+		changed = true;
+	}
+	if (!changed) return { ok: false, reason: 'not-applied', content };
+	return { ok: true, content: result };
 }
 
 /** 从补丁文本解析注释头声明的目标版本（无则返回 undefined）。 */
@@ -195,9 +253,13 @@ function commonGlobalRoots() {
 export function applyToIndexFile(indexFile, patchFile) {
 	if (isGitApplyable(indexFile, patchFile)) {
 		const bootRoot = path.dirname(path.dirname(indexFile));
-		execFileSync('git', ['apply', '-p1', '--directory', '.', patchFile], {
-			cwd: bootRoot,
-		});
+		// autocrlf=false：阻止 Windows 上 git apply 把整个文件转成 CRLF——
+		// 转换会破坏与内建替换路径的逐字节等价，并使内建 revert 兜底失配。
+		execFileSync(
+			'git',
+			['-c', 'core.autocrlf=false', 'apply', '-p1', '--directory', '.', patchFile],
+			{ cwd: bootRoot },
+		);
 		return 'git-apply';
 	}
 	const content = fs.readFileSync(indexFile, 'utf8');
@@ -211,9 +273,11 @@ function isGitApplyable(indexFile, patchFile) {
 	const bootRoot = path.dirname(path.dirname(indexFile));
 	try {
 		// --directory 只接受相对路径（git 拒绝绝对目标 "invalid path"），故以包根为 cwd。
-		execFileSync('git', ['apply', '--check', '-p1', '--directory', '.', patchFile], {
-			cwd: bootRoot,
-		});
+		execFileSync(
+			'git',
+			['-c', 'core.autocrlf=false', 'apply', '--check', '-p1', '--directory', '.', patchFile],
+			{ cwd: bootRoot },
+		);
 		return true;
 	} catch {
 		return false;
@@ -300,18 +364,28 @@ export function run(argv = process.argv.slice(2)) {
 		return 0;
 	}
 
-	if (isApplied(content)) {
-		console.log('[dsh-hotfix] already applied; nothing to do.');
+	/** 当前内容中尚未修复的缺陷名列表（dry-run 预览与结果汇报共用）。 */
+	function pendingFixes(c) {
+		const pending = [];
+		if (!isApplied(c)) pending.push('routeScoped');
+		if (!isNpdApplied(c)) pending.push('nativePackageDir');
+		return pending;
+	}
+
+	if (isApplied(content) && isNpdApplied(content)) {
+		console.log('[dsh-hotfix] already applied (both fixes); nothing to do.');
 		return 0;
 	}
 	if (dryRun) {
-		console.log(`[dsh-hotfix] dry-run: would apply patch to ${indexFile}.`);
+		console.log(`[dsh-hotfix] dry-run: would fix [${pendingFixes(content).join(', ')}] in ${indexFile}.`);
 		return 0;
 	}
 	const backup = indexFile + BACKUP_SUFFIX;
 	if (!fs.existsSync(backup)) fs.copyFileSync(indexFile, backup);
 	const method = applyToIndexFile(indexFile, patchFile);
-	console.log(`[dsh-hotfix] applied to ${indexFile} (via ${method}; backup at ${backup}).`);
+	console.log(
+		`[dsh-hotfix] fixed [${pendingFixes(content).join(', ')}] in ${indexFile} (via ${method}; backup at ${backup}).`,
+	);
 	return 0;
 }
 

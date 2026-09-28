@@ -52,7 +52,7 @@ GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb
 
 症状：DSH 启动后插件加载报 `failed to import`，伴随 `TypeError: Cannot read properties of null (reading 'Symbol(Symbol.iterator)')`，栈指向 `dsh-app-boot` 的 `routeScoped`。
 
-根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。
+根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。`0.1.7-rc.2` 中共两处同型缺陷：`routeScoped()` 与 `nativePackageDir()`，本补丁一并修复（两处分别独立判定，已打过旧版单处补丁的机器只会补上缺的那处）。
 
 一键修复（幂等，应用前自动备份为 `index.js.bak-hotfix`；`--revert` 可还原）：
 

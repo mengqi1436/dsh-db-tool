@@ -7,10 +7,15 @@ import { describe, expect, it } from 'vitest';
 import {
 	applyToContent,
 	BACKUP_SUFFIX,
+	FIXED_NPD_BLOCK,
 	findBootIndex,
+	HOTFIX_BLOCK,
 	HOTFIX_MARKER,
 	isApplied,
+	isNpdApplied,
+	NPD_FIXED_LINE,
 	ORIGINAL_LINE,
+	ORIGINAL_NPD_BLOCK,
 	parsePatchTargetVersion,
 	revertContent,
 	TARGET_VERSION,
@@ -33,6 +38,20 @@ function makeFakeDsh(root: string, indexContent: string): string {
 	return bootRoot;
 }
 
+/** 从 patch 文本中提取指定 hunk 的全部 + 行（去掉前缀 '+'，不含 '+++' 文件头）。 */
+function extractAddedLines(text: string, hunkHeader: string): string[] {
+	const lines = text.split('\n');
+	const start = lines.findIndex((l) => l.startsWith(hunkHeader));
+	expect(start).toBeGreaterThanOrEqual(0);
+	const added: string[] = [];
+	for (let i = start + 1; i < lines.length; i++) {
+		const line = lines[i]!;
+		if (line.startsWith('@@')) break;
+		if (line.startsWith('+')) added.push(line.slice(1));
+	}
+	return added;
+}
+
 describe('patch file contract', () => {
 	it('exists and declares the target version', () => {
 		expect(fs.existsSync(patchFile)).toBe(true);
@@ -43,6 +62,18 @@ describe('patch file contract', () => {
 		const text = fs.readFileSync(patchFile, 'utf8');
 		expect(text).toContain('@@ -1419,7 +1419,14 @@');
 		expect(text).toContain(HOTFIX_MARKER);
+	});
+
+	it('covers the second defect site (nativePackageDir) and matches builtin blocks byte-for-byte', () => {
+		const text = fs.readFileSync(patchFile, 'utf8');
+		expect(text).toContain('@@ -1244,7 +1244,10 @@');
+		expect(text).toContain('nativePackageDir: resolve.paths returns null');
+		// 内建替换块与 patch + 行必须逐字节一致（git apply 与 builtin-replace 两条路径等价的保证）。
+		// FIXED_NPD_BLOCK 的首行（函数签名）在 patch 中是上下文行，故从第二行起对比。
+		const fix1Added = extractAddedLines(text, '@@ -1419,7 +1419,14 @@');
+		expect(HOTFIX_BLOCK.split('\n')).toEqual(fix1Added);
+		const fix2Added = extractAddedLines(text, '@@ -1244,7 +1244,10 @@');
+		expect(FIXED_NPD_BLOCK.split('\n').slice(1)).toEqual(fix2Added);
 	});
 });
 
@@ -72,20 +103,67 @@ describe('applyToContent / revertContent (pure)', () => {
 	it('rejects content without the expected original line', () => {
 		expect(applyToContent('nothing to see here').reason).toBe('target-line-not-found');
 	});
+
+	it('applies both fixes to a full two-defect sample', () => {
+		const original = `before\n${ORIGINAL_LINE}\nmid\n${ORIGINAL_NPD_BLOCK}\n\tconst candidate = join(searchPath, name);\nafter\n`;
+		const applied = applyToContent(original);
+		expect(applied.ok).toBe(true);
+		expect(isApplied(applied.content)).toBe(true);
+		expect(isNpdApplied(applied.content)).toBe(true);
+		expect(applied.content).toContain('for (const searchPath of _hotPaths) {');
+		expect(applied.content).toContain(NPD_FIXED_LINE);
+		// 两处原始形态均不得残留
+		expect(applied.content).not.toContain(ORIGINAL_LINE);
+		expect(applied.content).not.toContain(ORIGINAL_NPD_BLOCK);
+		// 幂等：再应用 → already-applied
+		expect(applyToContent(applied.content).reason).toBe('already-applied');
+		// 还原 → 逐字节回到原文
+		const reverted = revertContent(applied.content);
+		expect(reverted.ok).toBe(true);
+		expect(reverted.content).toBe(original);
+	});
+
+	it('completes the second fix on a machine that already has the first hotfix', () => {
+		// 模拟只打过旧版（仅 routeScoped）补丁的机器：FIX1 已在 + FIX2 原始块
+		const fix1Only = applyToContent(`before\n${ORIGINAL_LINE}\nafter\n`);
+		expect(fix1Only.ok).toBe(true);
+		const partial = `${fix1Only.content}\n${ORIGINAL_NPD_BLOCK}\n\tconst candidate = join(searchPath, name);\n`;
+		const completed = applyToContent(partial);
+		expect(completed.ok).toBe(true);
+		expect(isApplied(completed.content)).toBe(true);
+		expect(isNpdApplied(completed.content)).toBe(true);
+		// FIX1 块不得被重复注入（幂等判据：HOTFIX_MARKER 只出现一次）
+		expect(completed.content.split(HOTFIX_MARKER).length - 1).toBe(1);
+	});
 });
 
 describe('apply-dsh-hotfix end-to-end (subprocess, temp DSH tree)', () => {
+	/** 含两处缺陷形态的合成样本（覆盖 FIX1 + FIX2 双修复路径）。 */
+	function twoDefectSample(): string {
+		return [
+			'line1',
+			ORIGINAL_LINE,
+			'line3',
+			ORIGINAL_NPD_BLOCK,
+			'\tconst candidate = join(searchPath, name);',
+			'line6',
+			'',
+		].join('\n');
+	}
+
 	it('applies, is idempotent, and reverts on a synthetic sample', () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-hotfix-test-'));
 		try {
-			const original = `line1\n${ORIGINAL_LINE}\nline3\n`;
+			const original = twoDefectSample();
 			const bootRoot = makeFakeDsh(tmp, original);
 			const indexFile = path.join(bootRoot, 'lib', 'index.js');
 
 			// 1) 应用（git 上下文对不上合成样本时自动回退内建替换）
 			let res = spawnSync(process.execPath, [coreFile, '--dsh-root', tmp], { encoding: 'utf8' });
 			expect(res.status).toBe(0);
-			expect(fs.readFileSync(indexFile, 'utf8')).toContain(HOTFIX_MARKER);
+			const after = fs.readFileSync(indexFile, 'utf8');
+			expect(isApplied(after)).toBe(true);
+			expect(isNpdApplied(after)).toBe(true);
 			expect(fs.existsSync(indexFile + BACKUP_SUFFIX)).toBe(true);
 			// 备份内容 = 原文
 			expect(fs.readFileSync(indexFile + BACKUP_SUFFIX, 'utf8')).toBe(original);
@@ -99,6 +177,27 @@ describe('apply-dsh-hotfix end-to-end (subprocess, temp DSH tree)', () => {
 			res = spawnSync(process.execPath, [coreFile, '--dsh-root', tmp, '--revert'], { encoding: 'utf8' });
 			expect(res.status).toBe(0);
 			expect(fs.readFileSync(indexFile, 'utf8')).toBe(original);
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
+	it('completes the second fix on a machine that already has the old routeScoped-only patch', () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-hotfix-partial-'));
+		try {
+			// 预置：旧版补丁已应用（仅 FIX1），FIX2 仍是原始缺陷块
+			const fix1Only = applyToContent(`before\n${ORIGINAL_LINE}\nafter\n`);
+			expect(fix1Only.ok).toBe(true);
+			const partial = `${fix1Only.content}\n${ORIGINAL_NPD_BLOCK}\n\tconst candidate = join(searchPath, name);\n`;
+			const bootRoot = makeFakeDsh(tmp, partial);
+			const indexFile = path.join(bootRoot, 'lib', 'index.js');
+
+			const res = spawnSync(process.execPath, [coreFile, '--dsh-root', tmp], { encoding: 'utf8' });
+			expect(res.status).toBe(0);
+			const after = fs.readFileSync(indexFile, 'utf8');
+			expect(isApplied(after)).toBe(true);
+			expect(isNpdApplied(after)).toBe(true);
+			expect(after.split(HOTFIX_MARKER).length - 1).toBe(1);
 		} finally {
 			fs.rmSync(tmp, { recursive: true, force: true });
 		}
@@ -182,6 +281,13 @@ describe('git apply path', () => {
 			});
 			const patched = fs.readFileSync(path.join(work, 'index.js'), 'utf8');
 			expect(isApplied(patched)).toBe(true);
+			// 两个 hunk 都必须生效
+			expect(isNpdApplied(patched)).toBe(true);
+			expect(patched).not.toContain(ORIGINAL_LINE);
+			expect(patched).not.toContain(ORIGINAL_NPD_BLOCK);
+			// git apply 与内建替换两条路径产出必须逐字节一致
+			const pristine = fs.readFileSync(path.join(tmp, 'package', 'lib', 'index.js'), 'utf8');
+			expect(patched).toBe(applyToContent(pristine).content);
 		} finally {
 			fs.rmSync(tmp, { recursive: true, force: true });
 		}

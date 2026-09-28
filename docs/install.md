@@ -73,5 +73,6 @@ rm -rf ../gaussdb-pg && cp -r packages/pg ../gaussdb-pg
 ## 常见问题
 
 - **侧边栏没有「数据库」tab**：确认 dsh-better-sidebar >= 0.12 已随 DSH 加载；本地开发模式确认 `--patch ./cordis.patch.yml` 生效。
+- **插件导入失败（punycode / resolve.paths）**：宿主 `dsh-app-boot@0.1.7-rc.2` 已知缺陷，在插件目录运行 `npm run patch:dsh`（macOS/Linux 用 `patch:dsh:sh`）一键修复，详见 README「Troubleshooting」。
 - **API 全部报错**：host 端 webServer 须注册前缀 `/dsh-db-tool/api`（loopback only）；前端与 host 前缀不一致是最常见的接错方式。
 - **连接测试通过但查询报 UNAUTHORIZED_PROJECT**：当前项目路径未被授权，在「授权」面板为该项目路径授 ro 或 rw。

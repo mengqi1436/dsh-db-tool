@@ -6,8 +6,13 @@ export declare const HOTFIX_MARKER: string;
 export declare const BOOT_INDEX_REL: string;
 export declare const BACKUP_SUFFIX: string;
 export declare const ORIGINAL_LINE: string;
+export declare const ORIGINAL_NPD_BLOCK: string;
+export declare const NPD_FIXED_LINE: string;
+export declare const FIXED_NPD_BLOCK: string;
+export declare const HOTFIX_BLOCK: string;
 
 export declare function isApplied(content: string): boolean;
+export declare function isNpdApplied(content: string): boolean;
 export declare function applyToContent(content: string): {
 	ok: boolean;
 	reason?: string;
