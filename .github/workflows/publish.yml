@@ -33,7 +33,7 @@ jobs:
             echo "version unchanged ($PKG), skip publish"
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "version changed: registry=$PKG local=$REG"
+            echo "version changed: registry=$REG local=$PKG"
             echo "version=$PKG" >> "$GITHUB_OUTPUT"
           fi
 
@@ -58,7 +58,12 @@ jobs:
       - name: Tag release
         if: steps.ver.outputs.publish == 'true'
         run: |
+          V="${{ steps.ver.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.ver.outputs.version }}" -m "dsh-db-tool v${{ steps.ver.outputs.version }}"
-          git push origin "v${{ steps.ver.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null 2>&1; then
+            echo "tag v$V already exists on remote, skip tagging"
+            exit 0
+          fi
+          git tag -a "v$V" -m "dsh-db-tool v$V"
+          git push origin "v$V"
