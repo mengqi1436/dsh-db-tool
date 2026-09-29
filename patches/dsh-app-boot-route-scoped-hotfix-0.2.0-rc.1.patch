@@ -1,0 +1,40 @@
+# DSH dsh-app-boot resolve.paths hotfix (upstream bug: createRequire(parent).resolve.paths(name)
+# returns null for core-module names like "punycode", breaking hoisted profile installs).
+# Covers BOTH unguarded for..of sites in 0.2.0-rc.1: routeScoped() (@@ -1423,14) and
+# nativePackageDir() (@@ -1245,10). Anchor lines are byte-identical to 0.1.7-rc.2 (overall +1 shift).
+# Target-Version: 0.2.0-rc.1
+# Apply manually:  git apply -p1 -d <dsh-app-boot package root> <this file>
+# Or one command:  npm run patch:dsh    (scripts/apply-dsh-hotfix.ps1)
+# Generated from @deepseek-ai/dsh-app-boot@0.2.0-rc.1 npm tarball vs patched local copy.
+diff --git a/lib/index.js b/lib/index.js
+index e60aac4..fcd1a38 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1245,7 +1245,10 @@ function profileChild(path, treePrefix) {
+ 	return treePrefix + (end < 0 ? rest : rest.slice(0, end));
+ }
+ function nativePackageDir(parent, name) {
+-	for (const searchPath of createRequire(parent).resolve.paths(name)) {
++	/* local hotfix: nativePackageDir: resolve.paths returns null for core-module names
++	   (fs, node:fs, ...); an empty list means no local candidate, matching the
++	   guard in profile.ts:596. */
++	for (const searchPath of createRequire(parent).resolve.paths(name) ?? []) {
+ 		const candidate = join(searchPath, name);
+ 		if (existsSync(join(candidate, "package.json"))) return candidate;
+ 	}
+@@ -1420,7 +1423,14 @@ var ResolutionRouter = class {
+ 		const target = resolution.entries.get(name);
+ 		const candidates = [];
+ 		const localSearchPaths = [];
+-		for (const searchPath of createRequire(parent).resolve.paths(name)) {
++		/* local hotfix: resolve.paths returns null for core-module names (e.g. "punycode"),
++		   which made the for..of throw TypeError and broke every hoisted profile install
++		   whose dependency tree requires such an npm package. Fall back to the standard
++		   node_modules search chain so the local candidate can still be found. */
++		const _hotReq = createRequire(parent);
++		const _hotPaths = _hotReq.resolve.paths(name)
++			?? _hotReq("node:module")._nodeModulePaths(_hotReq("node:path").dirname(parent));
++		for (const searchPath of _hotPaths) {
+ 			if (!searchPath.startsWith(layer.localPrefix)) break;
+ 			localSearchPaths.push(searchPath);
+ 			const candidate = localPackageCandidate(searchPath, name, flavor);

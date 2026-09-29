@@ -4,8 +4,10 @@
  *  - 注册 DatabaseManager 模型工具（单工具多 action），projectPath 取自
  *    session header.cwd（不信任模型自报），业务操作经 GrantStore 授权。
  *  - HTTP API 挂载在 DSH webServer（prefix /dsh-db-tool/api）：前端同源
- *    相对路径 fetch('/dsh-db-tool/api/...') 即可达；trust 校验移植
- *    http-trust 逻辑（Host loopback / trustedHosts + Origin 同源校验）。
+ *    相对路径 fetch('/dsh-db-tool/api/...') 即可达；0.2.0-rc.1 起插件前缀路由
+ *    不经宿主 Connection 栅栏，故在 handler 顶层先应用 ctx.connection.requestRejection
+ *    （Host/Origin + 浏览器 token 鉴权，401/403）；宿主无 connection 服务时退回
+ *    http-trust 本地校验（Host loopback / trustedHosts + Origin 同源校验）。
  *  - ctx.effect 收尾：注销 HTTP 路由、关适配器、停 challenge 清理。
  */
 import { DbToolStore, normalizeProjectKey } from './store/index.js';
@@ -43,12 +45,17 @@ interface DshContext {
     }): () => void;
   };
   webRuntime?: { trustedHosts?: string[] };
+  /** Connection 服务（0.2.0-rc.1 web-app bundle 常驻行）：宿主级请求鉴权栅栏。 */
+  connection?: {
+    /** 返回 401/403 表示拒绝（宿主已写出响应语义由调用方兜底），undefined 表示放行。 */
+    requestRejection?: (req: unknown) => 401 | 403 | undefined;
+  };
   effect?: (fn: () => () => void, name?: string) => void;
   logger?: { info?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void };
 }
 
-/** cordis 注入清单（服务名以 dsh-ssh-tunnel 为准） */
-export const inject = ['webServer', 'sessions', 'tools', 'webRuntime'];
+/** cordis 注入清单（服务名以 dsh-ssh-tunnel 为准；connection 用于宿主鉴权栅栏） */
+export const inject = ['webServer', 'sessions', 'tools', 'webRuntime', 'connection'];
 
 const TOOL_DESCRIPTION = `数据库管理工具（dsh-db-tool）：在已配置的数据库连接上执行查询/写操作/脚本。
 
@@ -90,6 +97,23 @@ export function apply(ctx: DshContext): void {
         kind: 'prefix',
         path: '/dsh-db-tool/api',
         handler: async (req, res) => {
+          // 宿主 Connection 栅栏优先：0.2.0-rc.1 起插件前缀路由不经宿主鉴权，
+          // 必须显式应用 requestRejection（Host/Origin + 浏览器 token）；
+          // 401/403 时由本处兜底写出 JSON 响应（宿主只返回状态码）。
+          const rejection = ctx.connection?.requestRejection?.(req);
+          if (rejection !== undefined) {
+            const httpRes = res as import('node:http').ServerResponse;
+            httpRes.statusCode = rejection;
+            httpRes.setHeader('Content-Type', 'application/json; charset=utf-8');
+            httpRes.end(
+              JSON.stringify({
+                ok: false,
+                error: rejection === 401 ? 'unauthorized: browser authentication required' : 'forbidden: untrusted request',
+                code: rejection === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+              }),
+            );
+            return;
+          }
           await handleDbToolRequest(
             req as import('node:http').IncomingMessage,
             res as import('node:http').ServerResponse,

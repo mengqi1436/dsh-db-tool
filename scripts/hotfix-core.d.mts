@@ -2,6 +2,8 @@
  * 类型声明：scripts/hotfix-core.mjs（无 allowJs，为 tests/scripts/hotfix.spec.ts 提供 import 类型）。
  */
 export declare const TARGET_VERSION: string;
+export declare const TARGET_VERSIONS: string[];
+export declare const PATCH_BY_VERSION: Record<string, string>;
 export declare const HOTFIX_MARKER: string;
 export declare const BOOT_INDEX_REL: string;
 export declare const BACKUP_SUFFIX: string;

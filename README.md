@@ -40,7 +40,7 @@ GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb
 
 ## 安全模型
 
-- HTTP API 仅同源（`ctx.webServer` prefix `/dsh-db-tool/api`）+ loopback/Origin trust 校验（等价 ssh-tunnel `http-trust`），body 限 2MB
+- HTTP API 仅同源（`ctx.webServer` prefix `/dsh-db-tool/api`）+ 宿主 Connection 栅栏（`ctx.connection.requestRejection`：Host/Origin + 浏览器 token 鉴权。0.2.0-rc.1 起插件前缀路由不经宿主栅栏，故在 handler 顶层显式应用；宿主无 connection 服务时回退 loopback/Origin trust 校验，等价 ssh-tunnel `http-trust`），body 限 2MB
 - ro 双保险：服务层拦截 + 驱动会话级 `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`（pg/gaussdb）、readonly 打开（SQLite）
 - SQL 参数绑定 + 标识符白名单（`[A-Za-z0-9_$]+` + 引用包裹）；MySQL `multipleStatements:false`；Redis 元数据走 `SCAN`（禁 `KEYS`）；Mongo 递归拒 `$where`
 - `run_script`：node:vm 独立 context、60s 超时、无 require/process/网络/文件系统，仅注入受限 `db.{query,execute}` 句柄
@@ -52,7 +52,7 @@ GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb
 
 症状：DSH 启动后插件加载报 `failed to import`，伴随 `TypeError: Cannot read properties of null (reading 'Symbol(Symbol.iterator)')`，栈指向 `dsh-app-boot` 的 `routeScoped`。
 
-根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。`0.1.7-rc.2` 中共两处同型缺陷：`routeScoped()` 与 `nativePackageDir()`，本补丁一并修复（两处分别独立判定，已打过旧版单处补丁的机器只会补上缺的那处）。
+根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。`0.1.7-rc.2` 与 `0.2.0-rc.1` 中同型缺陷两处（锚点行逐字节一致，仅整体行号偏移 1 行）：`routeScoped()` 与 `nativePackageDir()`，本补丁一并修复（两处分别独立判定，已打过旧版单处补丁的机器只会补上缺的那处）。
 
 一键修复（幂等，应用前自动备份为 `index.js.bak-hotfix`；`--revert` 可还原）：
 
@@ -61,7 +61,7 @@ npm run patch:dsh        # Windows（PowerShell）
 npm run patch:dsh:sh     # macOS / Linux
 ```
 
-脚本自动探测 DSH 安装根（`--dsh-root` 可显式指定）；补丁文件见 `patches/dsh-app-boot-route-scoped-hotfix.patch`，仅对 `0.1.7-rc.2` 声明兼容，其他版本会警告（`--force` 覆盖）。上游 issue：<https://github.com/mengqi1436/dsh-db-tool/issues>（占位，待上游仓库开放后替换）。
+脚本自动探测 DSH 安装根（`--dsh-root` 可显式指定）；补丁文件按安装版本自动选择：`patches/dsh-app-boot-route-scoped-hotfix.patch`（`0.1.7-rc.2`）、`patches/dsh-app-boot-route-scoped-hotfix-0.2.0-rc.1.patch`（`0.2.0-rc.1`，与内建替换路径逐字节等价已验证）；不支持的版本会警告（`--force` 覆盖）。上游 issue：<https://github.com/mengqi1436/dsh-db-tool/issues>（占位，待上游仓库开放后替换）。
 
 **本插件的免补丁路径（0.1.9+）**：该 bug 的触发条件是依赖树中出现 core-module 同名包，mongodb 链（`mongodb-connection-string-url → whatwg-url → tr46 → punycode`）正是元凶。0.1.9 起 mongodb 驱动经 esbuild bundle 为 `vendor/mongodb-driver.cjs` 随包发布，生产依赖树不再含 mongodb 与 punycode——在**未修复宿主**（含桌面版 app.asar，无法打补丁）上也能正常安装加载。守卫测试 `tests/guard/deps-core-collision.spec.ts` 断言依赖树永不回退（dependencies 白名单 + lockfile 生产树 core 同名包零交集）。`patch:dsh` 仍保留，用于修复**其他**含同类依赖的插件或宿主自身报错。
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-db-tool",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
   "license": "MIT",
@@ -14,7 +14,7 @@
   "homepage": "https://github.com/mengqi1436/dsh-db-tool#readme",
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.1.0-rc.6"
+    "dsh": ">=0.1.0-rc.6 <0.2.0-0 || 0.1.7-rc.2 || >=0.2.0-rc.1 <0.3.0-0"
   },
   "main": "dist/index.js",
   "exports": {
@@ -55,10 +55,12 @@
     "redis": "^6.2.1"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/better-sqlite3": "latest",
     "@types/node": "latest",
+    "dsh-better-sidebar": "^0.24.1",
     "esbuild": "^0.28.0",
     "mongodb": "^7.6.0",
     "stryker-cli": "^1.1.0",

@@ -2,12 +2,15 @@
 /**
  * DSH dsh-app-boot resolve.paths hotfix —— 核心逻辑（纯 Node、零依赖、可被测试 import）。
  *
- * 修复的 bug：@deepseek-ai/dsh-app-boot@0.1.7-rc.2 对
+ * 修复的 bug：@deepseek-ai/dsh-app-boot 对
  * `createRequire(parent).resolve.paths(name)` 的 for..of 无保护，而 Node 对
  * core-module 同名包（punycode 等）返回 null，for..of null 直接抛 TypeError，
- * 导致 hoisted profile 下 npm 安装插件导入失败。rc.2 中共两处同型缺陷：
- * 1. routeScoped()（L1419 区域）—— 症状直接暴露；
- * 2. nativePackageDir()（L1246 区域）—— 第二处，症状相同，一并修复。
+ * 导致 hoisted profile 下 npm 安装插件导入失败。rc.2 起共两处同型缺陷：
+ * 1. routeScoped()（rc.2 L1419 区域 / 0.2.0-rc.1 L1423 区域）—— 症状直接暴露；
+ * 2. nativePackageDir()（rc.2 L1244 区域 / 0.2.0-rc.1 L1248 区域）—— 症状相同，一并修复。
+ *
+ * 版本支持：锚点行在 TARGET_VERSIONS 列出的版本中逐字节一致（仅整体行号偏移），
+ * 内建替换路径与版本无关；git-apply 路径按安装版本选择 patches/ 下行号匹配的补丁。
  *
  * 用法：node scripts/hotfix-core.mjs [--dsh-root <dir>] [--patch-file <file>]
  *           [--force] [--revert] [--dry-run]
@@ -20,6 +23,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** 补丁文件里的目标版本声明行（patches/*.patch 注释头）。 */
 export const TARGET_VERSION = '0.1.7-rc.2';
+/** 锚点行逐字节一致的受支持版本列表（仅整体行号偏移；0.2.0-rc.1 = rc.2 行号 +1）。 */
+export const TARGET_VERSIONS = ['0.1.7-rc.2', '0.2.0-rc.1'];
+/** 各受支持版本对应的默认补丁文件名（patches/ 下；git-apply 路径按版本选择）。 */
+export const PATCH_BY_VERSION = {
+	'0.1.7-rc.2': 'dsh-app-boot-route-scoped-hotfix.patch',
+	'0.2.0-rc.1': 'dsh-app-boot-route-scoped-hotfix-0.2.0-rc.1.patch',
+};
 /** 判断目标文件是否已打补丁的标识串（hotfix 注释首行片段）。 */
 export const HOTFIX_MARKER = 'local hotfix: resolve.paths returns null';
 /** dsh-app-boot 内 lib/index.js 相对包根的路径。 */
@@ -287,15 +297,18 @@ function isGitApplyable(indexFile, patchFile) {
 /** 命令行主入口。@returns {number} 退出码 */
 export function run(argv = process.argv.slice(2)) {
 	let dshRoot;
-	let patchFile = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'patches', 'dsh-app-boot-route-scoped-hotfix.patch');
+	let patchFile = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'patches', PATCH_BY_VERSION[TARGET_VERSION]);
+	let patchFileExplicit = false;
 	let force = false;
 	let revert = false;
 	let dryRun = false;
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === '--dsh-root') dshRoot = argv[++i];
-		else if (arg === '--patch-file') patchFile = argv[++i];
-		else if (arg === '--force') force = true;
+		else if (arg === '--patch-file') {
+			patchFile = argv[++i];
+			patchFileExplicit = true;
+		} else if (arg === '--force') force = true;
 		else if (arg === '--revert') revert = true;
 		else if (arg === '--dry-run') dryRun = true;
 		else if (arg === '--help' || arg === '-h') {
@@ -324,11 +337,25 @@ export function run(argv = process.argv.slice(2)) {
 	} catch {
 		/* 读不到版本号时跳过比对 */
 	}
+	// 按安装版本选择行号匹配的补丁（未显式指定 --patch-file 时）；
+	// 锚点内容各版本一致，选错补丁只会让 git-apply 路径失配回退内建替换，但优先选对。
+	if (!patchFileExplicit && actualVersion && PATCH_BY_VERSION[actualVersion]) {
+		patchFile = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'patches', PATCH_BY_VERSION[actualVersion]);
+	}
 	const patchText = fs.existsSync(patchFile) ? fs.readFileSync(patchFile, 'utf8') : '';
-	const declared = parsePatchTargetVersion(patchText) ?? TARGET_VERSION;
-	if (actualVersion && actualVersion !== declared && !force) {
-		console.warn(`[dsh-hotfix] version mismatch: installed ${actualVersion} != patch target ${declared}. Use --force to apply anyway.`);
-		return 2;
+	const declared = parsePatchTargetVersion(patchText);
+	if (actualVersion && !force) {
+		if (declared) {
+			if (declared !== actualVersion) {
+				console.warn(`[dsh-hotfix] version mismatch: installed ${actualVersion} != patch target ${declared}. Use --force to apply anyway.`);
+				return 2;
+			}
+		} else if (!TARGET_VERSIONS.includes(actualVersion)) {
+			console.warn(
+				`[dsh-hotfix] version mismatch: installed ${actualVersion} is not supported (supported: ${TARGET_VERSIONS.join(', ')}) and patch declares no Target-Version. Use --force to apply anyway.`,
+			);
+			return 2;
+		}
 	}
 
 	let content;

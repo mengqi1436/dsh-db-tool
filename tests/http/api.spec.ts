@@ -90,6 +90,40 @@ describe('fenced 校验', () => {
     const { json } = await get('/api/state');
     expect(json.ok).toBe(true);
   });
+
+  it('跨站 Origin 同默认端口（Host 无端口）→ 403', async () => {
+    // Host 不带端口时 reqPort 回退 '80'，与 http:// 跨站 Origin 的默认端口相同：
+    // 同端口判定只对 loopback 生效，跨站主机必须走 trustedHosts
+    const { base } = await ensureStarted();
+    const res = await rawRequest(base + '/api/connections', { Host: '127.0.0.1', Origin: 'http://evil.example' });
+    expect(res.status).toBe(403);
+    expect(res.body).toContain('FORBIDDEN');
+  });
+
+  it('loopback Origin 隐式默认端口（http → :80）与服务端口不同 → 403', async () => {
+    // originHostPort 对 http/https 回填默认端口：无显式端口的 Origin 仍是 :80，与服务端口不同即拒
+    const { status } = await get('/api/connections', { origin: 'http://127.0.0.1' });
+    expect(status).toBe(403);
+  });
+
+  it('loopback Origin 端口无法比较（非 http/https 协议，port 为空）→ 放行', async () => {
+    // port='' 时不做端口比较（对齐 dsh-ssh-tunnel http-trust 既有语义）
+    const { status } = await get('/api/connections', { origin: 'ftp://127.0.0.1' });
+    expect(status).toBe(200);
+  });
+
+  it('IPv6 loopback [::1] Origin 同端口 → 放行', async () => {
+    const { base } = await ensureStarted();
+    const { status } = await get('/api/connections', { origin: base.replace('127.0.0.1', '[::1]') });
+    expect(status).toBe(200);
+  });
+
+  it('OPTIONS 预检 → 204 + Access-Control-Max-Age', async () => {
+    const { base } = await ensureStarted();
+    const res = await fetch(base + '/api/connections', { method: 'OPTIONS', headers: { origin: base } });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-max-age')).toBe('600');
+  });
 });
 
 /* ---------- mock req/res 直打 handleDbToolRequest（webServer handler 同一路径） ---------- */
@@ -99,6 +133,8 @@ function mockReq(method: string, url: string, headers: Record<string, string>, b
   (req as unknown as { headers: Record<string, string> }).headers = headers;
   (req as unknown as { method: string }).method = method;
   (req as unknown as { url: string }).url = url;
+  // readBody 超限时会 req.destroy()；EventEmitter 形态需补空实现
+  (req as unknown as { destroy: () => void }).destroy = () => {};
   queueMicrotask(() => {
     if (body !== undefined) (req as unknown as EventEmitter).emit('data', Buffer.from(JSON.stringify(body)));
     (req as unknown as EventEmitter).emit('end');
@@ -176,6 +212,15 @@ describe('handleDbToolRequest 直调（prefix 挂载形态 + trust）', () => {
       host: 'dsh.internal:3080', origin: 'http://dsh.internal:3080',
     });
     expect(denied.status).toBe(403);
+  });
+
+  it('请求体超过 2MB 上限 → INVALID_ARGUMENT', async () => {
+    const r = await callHandler('POST', '/api/project-context', { host: '127.0.0.1' }, {
+      x: 'a'.repeat(2 * 1024 * 1024),
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+    expect(String(r.body.error)).toContain('2MB');
   });
 
   it('isTrustedRequest 纯函数：0.0.0.0 非 loopback；空 Host 拒绝', () => {

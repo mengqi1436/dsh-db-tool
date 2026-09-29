@@ -2,13 +2,13 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/api/schema/stryker-schema.json",
   "packageManager": "npm",
   "testRunner": "vitest",
-  "reporters": ["clear-text", "progress", "html", "json"],
+  "reporters": ["clear-text", "json", "html"],
   "coverageAnalysis": "perTest",
   "mutate": [
-    "lib/guard/**/*.ts",
-    "lib/manager.ts",
-    "lib/store/**/*.ts"
+    "lib/index.ts",
+    "lib/http/index.ts"
   ],
-  "timeoutMS": 10000,
+  "timeoutMS": 300000,
+  "timeoutFactor": 1.5,
   "concurrency": 4
 }
