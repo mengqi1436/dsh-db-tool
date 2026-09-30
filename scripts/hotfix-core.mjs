@@ -5,9 +5,9 @@
  * 修复的 bug：@deepseek-ai/dsh-app-boot 对
  * `createRequire(parent).resolve.paths(name)` 的 for..of 无保护，而 Node 对
  * core-module 同名包（punycode 等）返回 null，for..of null 直接抛 TypeError，
- * 导致 hoisted profile 下 npm 安装插件导入失败。rc.2 起共两处同型缺陷：
- * 1. routeScoped()（rc.2 L1419 区域 / 0.2.0-rc.1 L1423 区域）—— 症状直接暴露；
- * 2. nativePackageDir()（rc.2 L1244 区域 / 0.2.0-rc.1 L1248 区域）—— 症状相同，一并修复。
+ * 导致 hoisted profile 下 npm 安装插件导入失败。0.1.7-rc.2 起共两处同型缺陷：
+ * 1. routeScoped()（0.1.7-rc.2 L1419 区域 / 0.2.0-rc.1 与 0.2.0-rc.2 L1423 区域）—— 症状直接暴露；
+ * 2. nativePackageDir()（0.1.7-rc.2 L1244 区域 / 0.2.0-rc.1 与 0.2.0-rc.2 L1248 区域）—— 症状相同，一并修复。
  *
  * 版本支持：锚点行在 TARGET_VERSIONS 列出的版本中逐字节一致（仅整体行号偏移），
  * 内建替换路径与版本无关；git-apply 路径按安装版本选择 patches/ 下行号匹配的补丁。
@@ -23,12 +23,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** 补丁文件里的目标版本声明行（patches/*.patch 注释头）。 */
 export const TARGET_VERSION = '0.1.7-rc.2';
-/** 锚点行逐字节一致的受支持版本列表（仅整体行号偏移；0.2.0-rc.1 = rc.2 行号 +1）。 */
-export const TARGET_VERSIONS = ['0.1.7-rc.2', '0.2.0-rc.1'];
+/** 锚点行逐字节一致的受支持版本列表（仅整体行号偏移；0.2.0-rc.1/0.2.0-rc.2 的 lib/index.js 逐字节相同）。 */
+export const TARGET_VERSIONS = ['0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2'];
 /** 各受支持版本对应的默认补丁文件名（patches/ 下；git-apply 路径按版本选择）。 */
 export const PATCH_BY_VERSION = {
 	'0.1.7-rc.2': 'dsh-app-boot-route-scoped-hotfix.patch',
 	'0.2.0-rc.1': 'dsh-app-boot-route-scoped-hotfix-0.2.0-rc.1.patch',
+	'0.2.0-rc.2': 'dsh-app-boot-route-scoped-hotfix-0.2.0-rc.2.patch',
 };
 /** 判断目标文件是否已打补丁的标识串（hotfix 注释首行片段）。 */
 export const HOTFIX_MARKER = 'local hotfix: resolve.paths returns null';

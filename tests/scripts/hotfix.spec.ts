@@ -104,6 +104,30 @@ describe('0.2.0-rc.1 patch file contract', () => {
 	});
 });
 
+describe('0.2.0-rc.2 patch file contract', () => {
+	const rc2 = '0.2.0-rc.2';
+	const rc2PatchFile = path.join(repoRoot, 'patches', PATCH_BY_VERSION[rc2]!);
+
+	it('is registered for the rc.2 version and exists with the declared target version', () => {
+		expect(PATCH_BY_VERSION[rc2]).toBe('dsh-app-boot-route-scoped-hotfix-0.2.0-rc.2.patch');
+		expect(TARGET_VERSIONS).toContain(rc2);
+		expect(fs.existsSync(rc2PatchFile)).toBe(true);
+		expect(parsePatchTargetVersion(fs.readFileSync(rc2PatchFile, 'utf8'))).toBe(rc2);
+	});
+
+	it('has rc.1-identical hunk headers and the same hotfix blocks byte-for-byte', () => {
+		const text = fs.readFileSync(rc2PatchFile, 'utf8');
+		expect(text).toContain('@@ -1420,7 +1423,14 @@');
+		expect(text).toContain('@@ -1245,7 +1245,10 @@');
+		expect(text).toContain(HOTFIX_MARKER);
+		// 0.2.0-rc.2 的 lib/index.js 与 0.2.0-rc.1 逐字节一致 → hunk 与内建块也必须逐字节一致
+		const fix1Added = extractAddedLines(text, '@@ -1420,7 +1423,14 @@');
+		expect(HOTFIX_BLOCK.split('\n')).toEqual(fix1Added);
+		const fix2Added = extractAddedLines(text, '@@ -1245,7 +1245,10 @@');
+		expect(FIXED_NPD_BLOCK.split('\n').slice(1)).toEqual(fix2Added);
+	});
+});
+
 describe('applyToContent / revertContent (pure)', () => {
 	it('applies the hotfix to the original line and is idempotent-guarded', () => {
 		const applied = applyToContent(`before\n${ORIGINAL_LINE}\nafter\n`);
@@ -369,6 +393,13 @@ describe('git apply path', () => {
 		gitApplyContract(
 			path.join(repoRoot, 'patches', PATCH_BY_VERSION['0.2.0-rc.1']!),
 			'0.2.0-rc.1',
+		);
+	});
+
+	it('patch applies cleanly to the pristine upstream 0.2.0-rc.2 file via git apply', () => {
+		gitApplyContract(
+			path.join(repoRoot, 'patches', PATCH_BY_VERSION['0.2.0-rc.2']!),
+			'0.2.0-rc.2',
 		);
 	});
 });

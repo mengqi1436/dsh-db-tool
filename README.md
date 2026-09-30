@@ -38,6 +38,26 @@ dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 
 GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；运行要求 Node ≥ 22.12（产物依赖 p-limit@7 纯 ESM）。oracledb 安装脚本需 `npm approve-scripts oracledb`。mongodb 驱动已 bundle 进发布包（`vendor/mongodb-driver.cjs`，esbuild 构建，`npm run build:mongodb` 可重建），依赖树中不含 mongodb/punycode，详见 [docs/install.md](docs/install.md)。
 
+### 桌面端安装
+
+DSH 桌面端 0.2.0-rc.2+ 捆绑了 `dsh` 命令，全程无需另装 Node 或 pnpm：
+
+1. **首次使用**：打开桌面端菜单栏，点 **"Manage dsh command"（管理 dsh 命令）**，安装捆绑的 CLI——该操作把 `dsh` 命令注册到系统 PATH。
+2. **安装插件**（必须钉精确版本：`@latest` 会因 release-age 校验回落到旧版）：
+
+   ```bash
+   dsh plugin --profile desktop add dsh-db-tool@1.3.1 --registry=https://registry.npmjs.org/
+   ```
+
+   已有 npm 镜像源偏好的用户，可把 `--registry` 替换为自己的镜像地址。
+3. **重启桌面端**生效。
+
+桌面端补充说明：
+
+- **免补丁路径**：桌面端宿主代码打包在 `app.asar` 内，无法应用 `patch:dsh` 热补丁；但本插件 0.1.9+ 走免补丁路径（mongodb 驱动已 bundle 为 `vendor/mongodb-driver.cjs` 随包发布，依赖树不含 punycode），桌面端可直接安装加载，无需任何补丁。
+- **GaussDB**：npm 发布包不含 GaussDB vendor 驱动。需要 GaussDB 的用户请改从源码安装（`dsh plugin --profile desktop add "dsh-db-tool@github:mengqi1436/dsh-db-tool"`），并在插件目录自行 `npm run build:gaussdb`（要求 Node ≥ 22.12）。
+- **Oracle**：安装后需 `npm approve-scripts oracledb` 放行 oracledb 安装脚本（或按 DSH 插件安装界面的脚本审批提示放行）。
+
 ## 安全模型
 
 - HTTP API 仅同源（`ctx.webServer` prefix `/dsh-db-tool/api`）+ 宿主 Connection 栅栏（`ctx.connection.requestRejection`：Host/Origin + 浏览器 token 鉴权。0.2.0-rc.1 起插件前缀路由不经宿主栅栏，故在 handler 顶层显式应用；宿主无 connection 服务时回退 loopback/Origin trust 校验，等价 ssh-tunnel `http-trust`），body 限 2MB
@@ -52,7 +72,7 @@ GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb
 
 症状：DSH 启动后插件加载报 `failed to import`，伴随 `TypeError: Cannot read properties of null (reading 'Symbol(Symbol.iterator)')`，栈指向 `dsh-app-boot` 的 `routeScoped`。
 
-根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。`0.1.7-rc.2` 与 `0.2.0-rc.1` 中同型缺陷两处（锚点行逐字节一致，仅整体行号偏移 1 行）：`routeScoped()` 与 `nativePackageDir()`，本补丁一并修复（两处分别独立判定，已打过旧版单处补丁的机器只会补上缺的那处）。
+根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。`0.1.7-rc.2`、`0.2.0-rc.1` 与 `0.2.0-rc.2` 中同型缺陷两处（`0.2.0-rc.2` 的 `lib/index.js` 与 `0.2.0-rc.1` 逐字节相同，尚未修复；锚点行均与 `0.1.7-rc.2` 一致，仅整体行号偏移 1 行）：`routeScoped()` 与 `nativePackageDir()`，本补丁一并修复（两处分别独立判定，已打过旧版单处补丁的机器只会补上缺的那处）。
 
 一键修复（幂等，应用前自动备份为 `index.js.bak-hotfix`；`--revert` 可还原）：
 
@@ -61,7 +81,7 @@ npm run patch:dsh        # Windows（PowerShell）
 npm run patch:dsh:sh     # macOS / Linux
 ```
 
-脚本自动探测 DSH 安装根（`--dsh-root` 可显式指定）；补丁文件按安装版本自动选择：`patches/dsh-app-boot-route-scoped-hotfix.patch`（`0.1.7-rc.2`）、`patches/dsh-app-boot-route-scoped-hotfix-0.2.0-rc.1.patch`（`0.2.0-rc.1`，与内建替换路径逐字节等价已验证）；不支持的版本会警告（`--force` 覆盖）。上游 issue：<https://github.com/mengqi1436/dsh-db-tool/issues>（占位，待上游仓库开放后替换）。
+脚本自动探测 DSH 安装根（`--dsh-root` 可显式指定）；补丁文件按安装版本自动选择：`patches/dsh-app-boot-route-scoped-hotfix.patch`（`0.1.7-rc.2`）、`patches/dsh-app-boot-route-scoped-hotfix-0.2.0-rc.1.patch`（`0.2.0-rc.1`）、`patches/dsh-app-boot-route-scoped-hotfix-0.2.0-rc.2.patch`（`0.2.0-rc.2`，其 `lib/index.js` 与 `0.2.0-rc.1` 逐字节相同，故 hunk 完全一致；均与内建替换路径逐字节等价已验证）；不支持的版本会警告（`--force` 覆盖）。上游 issue：<https://github.com/mengqi1436/dsh-db-tool/issues>（占位，待上游仓库开放后替换）。
 
 **本插件的免补丁路径（0.1.9+）**：该 bug 的触发条件是依赖树中出现 core-module 同名包，mongodb 链（`mongodb-connection-string-url → whatwg-url → tr46 → punycode`）正是元凶。0.1.9 起 mongodb 驱动经 esbuild bundle 为 `vendor/mongodb-driver.cjs` 随包发布，生产依赖树不再含 mongodb 与 punycode——在**未修复宿主**（含桌面版 app.asar，无法打补丁）上也能正常安装加载。守卫测试 `tests/guard/deps-core-collision.spec.ts` 断言依赖树永不回退（dependencies 白名单 + lockfile 生产树 core 同名包零交集）。`patch:dsh` 仍保留，用于修复**其他**含同类依赖的插件或宿主自身报错。
 
