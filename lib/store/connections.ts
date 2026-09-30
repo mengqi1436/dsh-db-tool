@@ -21,6 +21,9 @@ export interface ConnectionCreateInput {
   name?: string;
   /** 完整连接 URL（可含密码）；传入后密码段自动脱敏 */
   url?: string;
+  /** URL 模式独立凭据（可选）：注入 URL userinfo 后按 url 路径存储 */
+  urlUser?: string;
+  urlPassword?: string;
   /** 分字段配置；若含 password 自动拆出到 secrets */
   fields?: Record<string, unknown>;
   ssl?: boolean;
@@ -29,6 +32,9 @@ export interface ConnectionCreateInput {
 export interface ConnectionUpdateInput {
   name?: string;
   url?: string;
+  /** URL 模式独立凭据（可选）：注入 URL userinfo 后按 url 路径存储 */
+  urlUser?: string;
+  urlPassword?: string;
   fields?: Record<string, unknown>;
   ssl?: boolean;
   /** 清除已存 URL（用户从 url 方式切到分字段方式保存时），连同 secrets.url 一并删除 */
@@ -66,6 +72,45 @@ export function redactUrl(url: string): string {
   const redacted =
     m[1] + userinfo.slice(0, colon + 1) + '***@' + authority.slice(at + 1);
   return redacted + url.slice(m[0].length);
+}
+
+/** URL 模式独立凭据注入：把 urlUser/urlPassword 合并进 URL userinfo（8 库 scheme 均为标准 URL 形态）。
+ *  - 两者均空 → 原样返回（url 可为 undefined，现状语义不变）；
+ *  - url 为 undefined → 有 secretsUrl（编辑场景已存真实 URL）以其为基底注入，否则凭据忽略返回 undefined；
+ *  - url 含脱敏标记 ':***@'（编辑回填值）→ 有 secretsUrl 以其为基底整体替换，否则报错；
+ *  - 注入用 WHATWG URL 的 username/password setter（自动 percent-encode '@:/?# ' 等特殊字符），
+ *    与适配器侧 decodeURIComponent / 驱动 RFC 3986 解码严格互逆；只填一项只覆盖一项
+ *    （redis 'redis://:pass@host' 无用户名形态、oracle 必填用户名校验均兼容）。 */
+export function mergeUrlCredentials(opts: {
+  url?: string;
+  urlUser?: string;
+  urlPassword?: string;
+  /** 编辑场景：该连接已存的真实 URL（url 未发/脱敏时的基底回退） */
+  secretsUrl?: string;
+}): string | undefined {
+  const { url, urlUser, urlPassword, secretsUrl } = opts;
+  if (urlUser === undefined && urlPassword === undefined) return url;
+  let base: string;
+  if (url === undefined) {
+    if (secretsUrl === undefined) return undefined; // 无 URL 可注入，凭据忽略
+    base = secretsUrl;
+  } else if (url.includes(':***@')) {
+    if (secretsUrl === undefined) {
+      throw new Error('URL 中含脱敏占位（***）且无已存真实 URL 可回退，请重新输入完整 URL 或清空用户名/密码框');
+    }
+    base = secretsUrl;
+  } else {
+    base = url;
+  }
+  let u: URL;
+  try {
+    u = new URL(base);
+  } catch {
+    throw new Error('连接 URL 无效，无法注入用户名/密码');
+  }
+  if (urlUser !== undefined && urlUser !== '') u.username = urlUser;
+  if (urlPassword !== undefined && urlPassword !== '') u.password = urlPassword;
+  return u.toString();
 }
 
 function splitPassword(fields: Record<string, unknown> | undefined): {
@@ -152,9 +197,15 @@ export class ConnectionStore {
     if (clean !== undefined) rec.fields = clean;
 
     const secretPatch: Record<string, string> = {};
-    if (input.url !== undefined) {
-      rec.urlSafe = redactUrl(input.url);
-      secretPatch.url = input.url;
+    // URL 模式独立凭据注入（无凭据字段时 mergeUrlCredentials 原样返回，现状语义不变）
+    const finalUrl = mergeUrlCredentials({
+      url: input.url,
+      urlUser: input.urlUser,
+      urlPassword: input.urlPassword,
+    });
+    if (finalUrl !== undefined) {
+      rec.urlSafe = redactUrl(finalUrl);
+      secretPatch.url = finalUrl;
     }
     if (password !== undefined) secretPatch.password = password;
     if (Object.keys(secretPatch).length > 0) this.secrets.set(input.id, secretPatch);
@@ -177,9 +228,17 @@ export class ConnectionStore {
       rec.fields = clean;
       if (password !== undefined) this.secrets.set(id, { password });
     }
-    if (patch.url !== undefined) {
-      rec.urlSafe = redactUrl(patch.url);
-      this.secrets.set(id, { url: patch.url });
+    // URL 模式独立凭据注入：url 未发/发脱敏回填值时以已存 secrets.url 为基底（update 场景）；
+    // 无 url 且无凭据字段时 mergeUrlCredentials 返回 undefined，自然跳过（无需外层守卫）
+    const finalUrl = mergeUrlCredentials({
+      url: patch.url,
+      urlUser: patch.urlUser,
+      urlPassword: patch.urlPassword,
+      secretsUrl: this.secrets.get(id)?.url,
+    });
+    if (finalUrl !== undefined) {
+      rec.urlSafe = redactUrl(finalUrl);
+      this.secrets.set(id, { url: finalUrl });
     }
     if (patch.clearUrl && rec.urlSafe !== undefined) {
       delete rec.urlSafe;

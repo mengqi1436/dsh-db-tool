@@ -28,6 +28,7 @@ import {
 } from './guard/index.js';
 import {
   DbToolStore,
+  mergeUrlCredentials,
   normalizeProjectKey,
   type AuditEntry,
   type DangerLevel,
@@ -142,6 +143,9 @@ export class DbToolService {
   async testDraft(input: {
     kind: DbKind;
     url?: string;
+    /** URL 模式独立凭据（可选）：注入 URL userinfo（url 未发/脱敏时以已存 secrets.url 为基底） */
+    urlUser?: string;
+    urlPassword?: string;
     fields?: Record<string, unknown>;
     ssl?: boolean;
     connId?: string;
@@ -151,14 +155,23 @@ export class DbToolService {
     };
     let url = input.url;
     let fields = input.fields !== undefined ? { ...input.fields } : undefined;
+    let secretsUrl: string | undefined;
     if (input.connId) {
       // 已存连接：编辑时客户端不发旧机密（留空语义），这里从 secrets 拼回
       const sec = this.store.secrets.get(input.connId);
-      if (url === undefined && sec?.url !== undefined) url = sec.url;
+      secretsUrl = sec?.url;
+      if (url === undefined && secretsUrl !== undefined) url = secretsUrl;
       if (fields !== undefined && sec?.password !== undefined && fields.password === undefined) {
         fields.password = sec.password;
       }
     }
+    // URL 模式独立凭据注入（拼回已存 URL 之后；无凭据字段时 helper 原样返回，?? 保持不变）
+    url = mergeUrlCredentials({
+      url,
+      urlUser: input.urlUser,
+      urlPassword: input.urlPassword,
+      secretsUrl,
+    }) ?? url;
     if (url !== undefined) rc.url = url;
     if (fields !== undefined) rc.fields = fields;
     if (input.ssl !== undefined) rc.ssl = input.ssl;

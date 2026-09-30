@@ -204,9 +204,12 @@ export async function createMongoAdapter(
       );
     }
   }
-  const dbName = typeof conn.meta.database === 'string' && conn.meta.database !== ''
-    ? conn.meta.database
-    : defaultDbName(conn.fields);
+  const dbName =
+    typeof conn.meta.database === 'string' && conn.meta.database !== ''
+      ? conn.meta.database
+      : conn.url
+        ? urlDbName(conn.url)
+        : defaultDbName(conn.fields);
   const db = client.db(dbName);
 
   function wrap(e: unknown): Error {
@@ -559,15 +562,29 @@ function inferBsonType(v: unknown): string {
   return typeof v;
 }
 
-function buildUri(fields: Record<string, unknown> | undefined, ssl?: boolean): string {
+export function buildUri(fields: Record<string, unknown> | undefined, ssl?: boolean): string {
   const host = typeof fields?.host === 'string' && fields.host !== '' ? fields.host : '127.0.0.1';
   const port = typeof fields?.port === 'number' ? fields.port : 27017;
   const user = typeof fields?.user === 'string' ? encodeURIComponent(fields.user) : '';
   const pass = typeof fields?.password === 'string' ? `:${encodeURIComponent(fields.password)}` : '';
   const auth = user !== '' ? `${user}${pass}@` : '';
-  const scheme = ssl || fields?.ssl === true || fields?.tls === true ? 'mongodb+srv' : 'mongodb';
-  const authDb = typeof fields?.authDatabase === 'string' ? `?authSource=${fields.authDatabase}` : '';
-  return `${scheme}://${auth}${host}:${port}${authDb}`;
+  // tls 用查询参数表达：mongodb+srv 是 DNS seedlist 形态（禁止显式端口），与 TLS 无关，不可混用
+  const params: string[] = [];
+  if (typeof fields?.authDatabase === 'string' && fields.authDatabase !== '') {
+    params.push(`authSource=${fields.authDatabase}`);
+  }
+  if (ssl || fields?.ssl === true || fields?.tls === true) params.push('tls=true');
+  const qs = params.length > 0 ? `?${params.join('&')}` : '';
+  return `mongodb://${auth}${host}:${port}${qs}`;
+}
+
+/** URL 模式库名：取 URL path 首段（percent 解码），无则 'test' 兜底（与 pg-like mainDb 同口径） */
+function urlDbName(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.replace(/^\//, '')) || 'test';
+  } catch {
+    return 'test';
+  }
 }
 
 function defaultDbName(fields: Record<string, unknown> | undefined): string {

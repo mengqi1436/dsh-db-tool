@@ -169,6 +169,8 @@ async function route(
         id, kind: kind as never,
         ...(b['name'] !== undefined ? { name: str(b['name']) } : {}),
         ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
+        ...(b['urlUser'] !== undefined ? { urlUser: str(b['urlUser']) } : {}),
+        ...(b['urlPassword'] !== undefined ? { urlPassword: str(b['urlPassword']) } : {}),
         ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
         ...(ssl !== undefined ? { ssl } : {}),
       }));
@@ -185,6 +187,8 @@ async function route(
     return sendMaybeConfirm(res, service.testDraft({
       kind: kind as never,
       ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
+      ...(b['urlUser'] !== undefined ? { urlUser: str(b['urlUser']) } : {}),
+      ...(b['urlPassword'] !== undefined ? { urlPassword: str(b['urlPassword']) } : {}),
       ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
       ...(ssl !== undefined ? { ssl } : {}),
       // 编辑已有连接时透传：服务端拼回已存机密（留空密码/url 未改动的测试语义）
@@ -205,6 +209,8 @@ async function route(
       return sendOk(res, service.updateConnection(id, {
         ...(b['name'] !== undefined ? { name: str(b['name']) } : {}),
         ...(b['url'] !== undefined ? { url: str(b['url']) } : {}),
+        ...(b['urlUser'] !== undefined ? { urlUser: str(b['urlUser']) } : {}),
+        ...(b['urlPassword'] !== undefined ? { urlPassword: str(b['urlPassword']) } : {}),
         ...(b['fields'] !== undefined ? { fields: b['fields'] as Record<string, unknown> } : {}),
         ...(b['clearUrl'] === true ? { clearUrl: true } : {}),
         ...(ssl !== undefined ? { ssl } : {}),

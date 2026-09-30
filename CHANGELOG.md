@@ -1,5 +1,21 @@
 # Changelog — dsh-db-tool
 
+## 1.4.1
+
+修复 URL 方式连接的凭据输入与两处 MongoDB URL 正确性问题。
+
+### 修复
+
+- **URL 方式支持独立输入用户名/密码**：侧边栏 URL 模式此前只有单个 URL 输入框，凭据必须手工拼入 URL（含特殊字符时需自行 percent-encode，极易出错）。现新增可选的用户名/密码框，服务端 `mergeUrlCredentials`（`lib/store/connections.ts`）用 WHATWG URL 的 username/password setter 注入 userinfo——自动 percent-encode `@:/?# ` 等，与适配器侧 `decodeURIComponent` / 驱动 RFC 3986 解码严格互逆，8 库 URL 形态全兼容（含 redis 无用户名、oracle 必填用户名、`mongodb+srv://` 不动 host）。create / update / test-draft 三入口同口径；编辑时"url 未改 + 新密码"以已存 `secrets.url` 为基底仅覆盖密码；脱敏回填值（`:***@`）经基底替换绝不落库。
+- **MongoDB URL 库名失效**：URL 模式下 `client.db()` 此前恒取 `'test'`，URL path 里的 `/dbname` 被忽略——现按 pg-like 同口径从 URL path 解析（percent 解码，无则 `'test'` 兜底，`mongodb+srv://` 同样支持），`meta.database`（分字段模式）仍优先。
+- **MongoDB 分字段模式勾选 SSL 生成非法 URI**：`buildUri` 此前误用 `mongodb+srv://`（DNS seedlist 形态，禁止显式端口，与 TLS 无关），勾选即连接必失败——改为 `mongodb://` + `?tls=true` 查询参数（与 `authSource` 正确合并）。
+
+### 测试
+
+- 新增 `tests/store/url-credentials.spec.ts`（43 用例：`mergeUrlCredentials` 纯函数编码往返/单项覆盖/脱敏基底替换/错误路径 + 公开官方样例组（libpq percent-encoding/IPv6/query 保留、MongoDB Atlas `+srv`、Redis 6 ACL、Oracle easy connect、非 ASCII 凭据、大写 scheme 规范化）+ ConnectionStore 存储集成 + `DbToolService.testDraft` 拼回/注入/ssl 透传语义）。
+- `tests/adapters-nosql-ent/mongodb.spec.ts` 补 URL 库名解析（4 用例）与 `buildUri` TLS/authSource 合并（4 用例）。
+- 变异测试（stryker）达标：`lib/store/connections.ts` 83.09% → 87.31%、`lib/manager.ts` testDraft 区 58.54% → 87.18%——本次新增代码（`mergeUrlCredentials`、create/update 注入块、testDraft 注入与 secretsUrl 拼回）存活变异体全部清零（含 1 个等价变异经重构消除）；剩余存活均为存量代码或可证明等价变异（`rc.x = undefined` 与不设置对适配器 falsy 判断等价、`secrets.get(undefined)` 无副作用）。
+
 ## 1.4.0
 
 GaussDB 驱动 npm 化，安装即用体验补全。

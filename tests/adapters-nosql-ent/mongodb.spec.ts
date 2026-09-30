@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Binary, Decimal128, Long, ObjectId, Timestamp } from 'mongodb';
 import {
   assertExplicitFilter,
+  buildUri,
   createMongoAdapter,
   DANGEROUS_OPS,
   normalizeMongoCell,
@@ -91,6 +92,62 @@ describe('assertExplicitFilter（空 filter 防线）', () => {
   it('显式 filter 通过', () => {
     expect(() => assertExplicitFilter('updateMany', { status: 'old' })).not.toThrow();
     expect(() => assertExplicitFilter('deleteMany', { _id: { $exists: true } })).not.toThrow();
+  });
+});
+
+describe('URL 模式库名解析', () => {
+  it('URL path 指定库 → client.db 用该库名（不再恒为 test）', async () => {
+    const { client } = makeClient();
+    await createMongoAdapter(
+      { meta: { id: 'm2', kind: 'mongodb' }, url: 'mongodb://user:pw@localhost:27017/mydb' },
+      { client },
+    );
+    expect(client.db).toHaveBeenCalledWith('mydb');
+  });
+
+  it('URL 无 path → 兜底 test', async () => {
+    const { client } = makeClient();
+    await createMongoAdapter(
+      { meta: { id: 'm3', kind: 'mongodb' }, url: 'mongodb://localhost:27017' },
+      { client },
+    );
+    expect(client.db).toHaveBeenCalledWith('test');
+  });
+
+  it('mongodb+srv 形态同样从 path 取库名', async () => {
+    const { client } = makeClient();
+    await createMongoAdapter(
+      { meta: { id: 'm4', kind: 'mongodb' }, url: 'mongodb+srv://u:p@cluster.example.com/prod' },
+      { client },
+    );
+    expect(client.db).toHaveBeenCalledWith('prod');
+  });
+
+  it('meta.database（fields 模式）优先于 URL path', async () => {
+    const { client } = makeClient();
+    await createMongoAdapter(
+      { meta: { id: 'm5', kind: 'mongodb', database: 'frommeta' }, url: 'mongodb://localhost/fromurl' },
+      { client },
+    );
+    expect(client.db).toHaveBeenCalledWith('frommeta');
+  });
+});
+
+describe('buildUri（fields 模式）', () => {
+  it('基础形态：mongodb://user:pass@host:port', () => {
+    expect(buildUri({ host: 'h', port: 27017, user: 'u', password: 'p' })).toBe('mongodb://u:p@h:27017');
+  });
+  it('SSL → tls=true 查询参数（不再误用 mongodb+srv）', () => {
+    expect(buildUri({ host: 'h', port: 27017 }, true)).toBe('mongodb://h:27017?tls=true');
+    expect(buildUri({ host: 'h', port: 27017, ssl: true })).toBe('mongodb://h:27017?tls=true');
+  });
+  it('SSL + authSource → 参数合并', () => {
+    expect(buildUri({ host: 'h', port: 27017, authDatabase: 'admin' }, true)).toBe(
+      'mongodb://h:27017?authSource=admin&tls=true',
+    );
+  });
+  it('仅 authSource → 单参数', () => {
+    expect(buildUri({ host: 'h', port: 27017, authDatabase: 'admin' })).toBe('mongodb://h:27017?authSource=admin');
   });
 });
 

@@ -19,7 +19,7 @@ import { chmodBestEffort } from './io.js';
 import { SecretsBox } from './secrets.js';
 
 export { normalizeProjectKey } from './normalize.js';
-export { redactUrl } from './connections.js';
+export { mergeUrlCredentials, redactUrl } from './connections.js';
 export type { DangerLevel, AuditEntry, AuditEntryInput } from './audit.js';
 export type {
   ConnectionCreateInput,

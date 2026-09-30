@@ -34,6 +34,8 @@ window.__ModuleLoader__.load({
 			urlMode: "URL 方式",
 			fieldsMode: "分字段方式",
 			url: "连接 URL（密码将自动拆入密钥存储）",
+			urlUser: "用户名（可选，自动注入 URL）",
+			urlPassword: "密码（可选，自动注入 URL；留空保持已存）",
 			fieldsHost: "主机地址",
 			fieldsPort: "端口",
 			fieldsUser: "用户名",
@@ -123,6 +125,8 @@ window.__ModuleLoader__.load({
 			urlMode: "URL",
 			fieldsMode: "Fields",
 			url: "Connection URL (password moved to secrets automatically)",
+			urlUser: "Username (optional, injected into URL)",
+			urlPassword: "Password (optional, injected into URL; blank keeps saved)",
 			fieldsHost: "Host",
 			fieldsPort: "Port",
 			fieldsUser: "User",
@@ -375,7 +379,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ---------------- 连接管理 ---------------- */
-		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", host: "", port: "", user: "", password: "", database: "", ssl: false };
+		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", ssl: false };
 
 		// 通用表格渲染：columns + rows（审计列表与查询结果共用）
 		function resultTable(columns, rows, cellTitles) {
@@ -457,6 +461,7 @@ window.__ModuleLoader__.load({
 				...EMPTY_FORM,
 				id: c.id, kind: c.kind, name: c.name || "", mode,
 				url: c.safeUrl || "",
+				urlUser: "", urlPassword: "",
 				host: c.host || "", port: c.port != null ? String(c.port) : "",
 				user: c.user || "", database: c.database || "",
 				ssl: !!c.ssl,
@@ -496,6 +501,11 @@ window.__ModuleLoader__.load({
 					if (form.url && form.url !== origUrl) body.url = form.url;
 					// 新建 url 连接必须发
 					if (!props.initial && form.url) body.url = form.url;
+					// URL 模式独立凭据：trim 后非空才发（服务端注入 userinfo；url 未发时以已存 URL 为基底）
+					const uu = (form.urlUser || "").trim();
+					const up = (form.urlPassword || "").trim();
+					if (uu) body.urlUser = uu;
+					if (up) body.urlPassword = up;
 				} else {
 					body.fields = { host: form.host, user: form.user, database: form.database || undefined };
 					if (form.port) body.fields.port = Number(form.port);
@@ -541,7 +551,14 @@ window.__ModuleLoader__.load({
 					React.createElement("button", { className: form.mode === "fields" ? "active" : "", onClick: reenterFields }, t("fieldsMode")),
 				),
 				form.mode === "url"
-					? React.createElement("input", { placeholder: t("url"), value: form.url, onChange: (e) => patch({ url: e.target.value }) })
+					? React.createElement(
+						"div",
+						{ style: { display: "flex", flexDirection: "column", gap: 6 } },
+						React.createElement("input", { placeholder: t("url"), value: form.url, onChange: (e) => patch({ url: e.target.value }) }),
+						React.createElement("div", { className: "dbt-row" },
+							React.createElement("input", { placeholder: t("urlUser"), value: form.urlUser, onChange: (e) => patch({ urlUser: e.target.value }) }),
+							React.createElement("input", { type: "password", placeholder: t("urlPassword"), value: form.urlPassword, onChange: (e) => patch({ urlPassword: e.target.value }) })),
+					)
 					: React.createElement(
 						"div",
 						{ style: { display: "flex", flexDirection: "column", gap: 6 } },
