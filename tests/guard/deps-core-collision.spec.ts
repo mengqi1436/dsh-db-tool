@@ -20,8 +20,19 @@ import { describe, expect, it } from 'vitest';
 const pkgUrl = fileURLToPath(new URL('../../package.json', import.meta.url));
 const lockUrl = fileURLToPath(new URL('../../package-lock.json', import.meta.url));
 
-/** 允许出现在 dependencies/optionalDependencies 中的包白名单（bson 是 mongodb bundle 的 external，必须保留） */
-const DEPS_ALLOWLIST = new Set(['better-sqlite3', 'bson', 'dmdb', 'mysql2', 'oracledb', 'pg', 'redis']);
+/** 允许出现在 dependencies/optionalDependencies 中的包白名单（bson 是 mongodb bundle 的 external，必须保留；
+ * gaussdb-node 是 GaussDB 适配器驱动，依赖树 gaussdb-{connection-string,pool,protocol,cloudflare}/
+ * pg-types/pgpass 无 core-module 同名包，见下方 lockfile 实树断言） */
+const DEPS_ALLOWLIST = new Set([
+  'better-sqlite3',
+  'bson',
+  'dmdb',
+  'gaussdb-node',
+  'mysql2',
+  'oracledb',
+  'pg',
+  'redis',
+]);
 
 /** core-module 黑名单：builtinModules 加上 punycode（Node 21+ builtinModules 可能不含它，
  * 但 require.resolve.paths('punycode') 仍返回 null，宿主 bug 照样触发） */

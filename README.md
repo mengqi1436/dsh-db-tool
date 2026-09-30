@@ -1,11 +1,13 @@
 # dsh-db-tool
 
+[English](README_EN.md) | 简体中文
+
 DSH 社区插件：在聊天中安全操作数据库，配套侧边栏管理台与 `db-admin` skill。架构与交互模式对齐 [dsh-ssh-tunnel](https://github.com/thirsty5034/dsh-ssh-tunnel)。
 
 ## 功能
 
-- **8 种数据库**：MySQL、PostgreSQL、GaussDB（openGauss 官方驱动）、SQLite、Redis、MongoDB、Oracle、达梦（DM）
-- **DatabaseManager 单工具多 action**：`list_connections / query / execute / schema / preview / run_script`
+- **8 种数据库**：MySQL、PostgreSQL、GaussDB、SQLite、Redis、MongoDB、Oracle、达梦（DM）
+- **DatabaseManager 单工具多 action**：`list_connections / query / execute / schema / preview / run_script`（`run_script` 在 node:vm 沙箱中执行，60s 超时，仅注入受限 `db.{query,execute}` 句柄）
 - **分级权限**：连接级只读（ro）/读写（rw）+ 项目级授权（`grants.json`：projectPathKey → 连接 → 模式）；未授权项目一律拒绝
 - **危险操作确认**：DDL / FLUSHALL / dropDatabase 等先返回 `NEEDS_CONFIRMATION`，对话内（模型经 ask）或 SQL 控制台（弹窗）确认后携一次性 `challengeId`（绑定语句 SHA256、5 分钟过期）重试
 - **审计**：全部执行落 `audit.jsonl`（语句、危险级、是否确认、结果）
@@ -25,6 +27,10 @@ DSH 社区插件：在聊天中安全操作数据库，配套侧边栏管理台�
 
 ## 安装
 
+8 种数据库驱动全部随 npm 包分发（SQLite 优先用 Node 内置 `node:sqlite`，可选 `better-sqlite3`；GaussDB 驱动为华为云官方 npm 包 `gaussdb-node`），无需任何构建步骤。GaussDB 认证支持 sha256 与 md5，md5-sha256 混合与 SM3 暂不支持。
+
+唯一的一次性交互来自 oracledb：其 install 脚本会被 pnpm 默认拦截并使首次安装报告失败——在 DSH 插件安装界面点 **"Allow these scripts and retry"** 即可完成安装（该脚本仅做 Node 版本检查与横幅打印，批准无风险；批准持久化到 profile，后续升级不再提示）。
+
 ```bash
 # npm（推荐）
 dsh plugin --profile web add dsh-db-tool
@@ -36,8 +42,6 @@ dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
 dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 ```
 
-GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；运行要求 Node ≥ 22.12（产物依赖 p-limit@7 纯 ESM）。oracledb 安装脚本需 `npm approve-scripts oracledb`。mongodb 驱动已 bundle 进发布包（`vendor/mongodb-driver.cjs`，esbuild 构建，`npm run build:mongodb` 可重建），依赖树中不含 mongodb/punycode（守卫见「Troubleshooting」免补丁路径说明）。
-
 ### 桌面端安装
 
 DSH 桌面端 0.2.0-rc.2+ 捆绑了 `dsh` 命令，全程无需另装 Node 或 pnpm：
@@ -46,64 +50,13 @@ DSH 桌面端 0.2.0-rc.2+ 捆绑了 `dsh` 命令，全程无需另装 Node 或 p
 2. **安装插件**（必须钉精确版本：`@latest` 会因 release-age 校验回落到旧版）：
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.3.1 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.4.0 --registry=https://registry.npmjs.org/
    ```
 
    已有 npm 镜像源偏好的用户，可把 `--registry` 替换为自己的镜像地址。
 3. **重启桌面端**生效。
 
-桌面端补充说明：
-
-- **免补丁路径**：桌面端宿主代码打包在 `app.asar` 内，无法应用 `patch:dsh` 热补丁；但本插件 0.1.9+ 走免补丁路径（mongodb 驱动已 bundle 为 `vendor/mongodb-driver.cjs` 随包发布，依赖树不含 punycode），桌面端可直接安装加载，无需任何补丁。
-- **GaussDB**：npm 发布包不含 GaussDB vendor 驱动。需要 GaussDB 的用户请改从源码安装（`dsh plugin --profile desktop add "dsh-db-tool@github:mengqi1436/dsh-db-tool"`），并在插件目录自行 `npm run build:gaussdb`（要求 Node ≥ 22.12）。
-- **Oracle**：安装后需 `npm approve-scripts oracledb` 放行 oracledb 安装脚本（或按 DSH 插件安装界面的脚本审批提示放行）。
-
-### 离线环境安装
-
-**症状（≤ 1.3.1）**：受限代理/无公网 + 无编译工具链的机器上，安装卡死在 `better-sqlite3`（原生 C++ 模块）后整体回滚（`ERR_PNPM_EXECOR_LIFECYCLE_SCRIPT_FAILED`）——官方未发布 Node 24（ABI v137）的 Windows 预构建（release 下载 404），本地编译又同时缺 Node 头文件（nodejs.org 经代理 TLS 异常）与 MSVC 工具链。
-
-**1.3.2 起的行为**：
-
-1. `better-sqlite3` 移入 `optionalDependencies`——构建失败时 pnpm 自动排除该包，**插件整体安装不再回滚**（pnpm 11.7 实测：`is an optional dependency and failed … Excluding it from installation`，exit 0）。
-2. SQLite 改走**双驱动**：优先 `node:sqlite`（Node ≥ 22.5 内置，零原生依赖、离线环境直接可用；DSH 桌面端 runtime Node 24.x 自带），降级 `better-sqlite3`（存在则自动使用）。两者皆无时给出明确指引，**其余 7 种数据库不受任何影响**（MySQL/PG/GaussDB/Redis/Mongo/Oracle/DM 均为纯 JS 驱动）。
-3. 可用环境变量 `DBT_SQLITE_DRIVER=node|better` 强制单一路径（默认自动选择）。
-
-SQLite 支持矩阵：
-
-| 环境 | SQLite 可用性 |
-|---|---|
-| Node ≥ 22.5（含 DSH 桌面端 runtime 24.x） | ✅ `node:sqlite` 内置，零依赖 |
-| Node < 22.5 且 better-sqlite3 可安装/编译 | ✅ 自动用 `better-sqlite3` |
-| Node < 22.5 且离线（better-sqlite3 构建失败被排除） | ❌ SQLite 不可用，其余 7 库正常 |
-
-老版本（≤ 1.3.1）离线机的应急路径：有外网窗口时重试、装 VS Build Tools 后 `pnpm rebuild better-sqlite3`、或直接升级到 ≥ 1.3.2（推荐）。
-
-## 安全模型
-
-- HTTP API 仅同源（`ctx.webServer` prefix `/dsh-db-tool/api`）+ 宿主 Connection 栅栏（`ctx.connection.requestRejection`：Host/Origin + 浏览器 token 鉴权。0.2.0-rc.1 起插件前缀路由不经宿主栅栏，故在 handler 顶层显式应用；宿主无 connection 服务时回退 loopback/Origin trust 校验，等价 ssh-tunnel `http-trust`），body 限 2MB
-- ro 双保险：服务层拦截 + 驱动会话级 `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`（pg/gaussdb）、readonly 打开（SQLite）
-- SQL 参数绑定 + 标识符白名单（`[A-Za-z0-9_$]+` + 引用包裹）；MySQL `multipleStatements:false`；Redis 元数据走 `SCAN`（禁 `KEYS`）；Mongo 递归拒 `$where`
-- `run_script`：node:vm 独立 context、60s 超时、无 require/process/网络/文件系统，仅注入受限 `db.{query,execute}` 句柄
-- 已知边界：对话内确认为提示级强制 + 审计兜底；DSH 无硬中断通道前，恶意对话仍可能诱导用户确认，请配合最小权限数据库账号使用
-
-## Troubleshooting
-
-### npm 安装插件导入失败（punycode / resolve.paths）
-
-症状：DSH 启动后插件加载报 `failed to import`，伴随 `TypeError: Cannot read properties of null (reading 'Symbol(Symbol.iterator)')`，栈指向 `dsh-app-boot` 的 `routeScoped`。
-
-根因：上游 `@deepseek-ai/dsh-app-boot` 对 `createRequire(parent).resolve.paths(name)` 直接做 `for..of`，而 Node 对 core-module 同名包（`punycode` 等）返回 `null`，hoisted profile 下凡依赖树含此类 npm 包的插件都会炸。`0.1.7-rc.2`、`0.2.0-rc.1` 与 `0.2.0-rc.2` 中同型缺陷两处（`0.2.0-rc.2` 的 `lib/index.js` 与 `0.2.0-rc.1` 逐字节相同，尚未修复；锚点行均与 `0.1.7-rc.2` 一致，仅整体行号偏移 1 行）：`routeScoped()` 与 `nativePackageDir()`，本补丁一并修复（两处分别独立判定，已打过旧版单处补丁的机器只会补上缺的那处）。
-
-一键修复（幂等，应用前自动备份为 `index.js.bak-hotfix`；`--revert` 可还原）：
-
-```bash
-npm run patch:dsh        # Windows（PowerShell）
-npm run patch:dsh:sh     # macOS / Linux
-```
-
-脚本自动探测 DSH 安装根（`--dsh-root` 可显式指定）；补丁文件按安装版本自动选择：`patches/dsh-app-boot-route-scoped-hotfix.patch`（`0.1.7-rc.2`）、`patches/dsh-app-boot-route-scoped-hotfix-0.2.0-rc.1.patch`（`0.2.0-rc.1`）、`patches/dsh-app-boot-route-scoped-hotfix-0.2.0-rc.2.patch`（`0.2.0-rc.2`，其 `lib/index.js` 与 `0.2.0-rc.1` 逐字节相同，故 hunk 完全一致；均与内建替换路径逐字节等价已验证）；不支持的版本会警告（`--force` 覆盖）。上游 issue：<https://github.com/mengqi1436/dsh-db-tool/issues>（占位，待上游仓库开放后替换）。
-
-**本插件的免补丁路径（0.1.9+）**：该 bug 的触发条件是依赖树中出现 core-module 同名包，mongodb 链（`mongodb-connection-string-url → whatwg-url → tr46 → punycode`）正是元凶。0.1.9 起 mongodb 驱动经 esbuild bundle 为 `vendor/mongodb-driver.cjs` 随包发布，生产依赖树不再含 mongodb 与 punycode——在**未修复宿主**（含桌面版 app.asar，无法打补丁）上也能正常安装加载。守卫测试 `tests/guard/deps-core-collision.spec.ts` 断言依赖树永不回退（dependencies 白名单 + lockfile 生产树 core 同名包零交集）。`patch:dsh` 仍保留，用于修复**其他**含同类依赖的插件或宿主自身报错。
+mongodb 驱动已 bundle 进发布包（`vendor/mongodb-driver.cjs`），依赖树不含 mongodb/punycode——桌面端宿主打包在 `app.asar` 内、无法应用宿主补丁，本插件免补丁可直接安装加载。
 
 ## 测试
 
@@ -115,14 +68,19 @@ npx stryker run # 变异测试（范围 lib/guard + lib/manager + lib/store，�
 
 真机冒烟（设了才跑）：`DBT_TEST_MYSQL_URL / DBT_TEST_PG_URL / DBT_TEST_REDIS_URL / DBT_TEST_DM_CONNECT / DBT_TEST_MONGO_URL / DBT_TEST_ORACLE_CONNECT`。GaussDB 与 Oracle/Mongo 官方要求均按官方文档实现，未真机验证处以代码内标注为准。
 
-## 目录
+## 目录结构
 
 ```
 lib/        host 插件（store / adapters×8 / guard / manager / http / index）
 client/     侧边栏单文件产物（client.js，即源码）
 skills/     db-admin skill
-scripts/    GaussDB vendor 构建、mongodb 驱动 bundle（build:mongodb）、DSH dsh-app-boot 热修复（patch:dsh）
-docs/       安装、HTTP 契约（api-contract.md）、skill 说明
+scripts/    构建与工具脚本（mongodb 驱动 bundle、DSH 宿主热修复 patch:dsh 等）
+patches/    DSH 宿主 dsh-app-boot 热修复补丁（patch:dsh 按宿主版本选用）
+docs/       预留（当前为空）
 tests/      vitest（离线 mock + DBT_TEST_* 门控真机）
-vendor/     gaussdb 构建源/产物与 mongodb-driver.cjs bundle（gitignore，发布经 files 白名单收录 bundle）
+vendor/     mongodb-driver.cjs bundle（gitignore，发布经 files 白名单收录）
 ```
+
+## 许可证
+
+MIT
