@@ -20,7 +20,7 @@ import { describe, expect, it } from 'vitest';
 const pkgUrl = fileURLToPath(new URL('../../package.json', import.meta.url));
 const lockUrl = fileURLToPath(new URL('../../package-lock.json', import.meta.url));
 
-/** 允许出现在 dependencies 中的包白名单（bson 是 mongodb bundle 的 external，必须保留） */
+/** 允许出现在 dependencies/optionalDependencies 中的包白名单（bson 是 mongodb bundle 的 external，必须保留） */
 const DEPS_ALLOWLIST = new Set(['better-sqlite3', 'bson', 'dmdb', 'mysql2', 'oracledb', 'pg', 'redis']);
 
 /** core-module 黑名单：builtinModules 加上 punycode（Node 21+ builtinModules 可能不含它，
@@ -46,6 +46,13 @@ describe('依赖树 core-module 同名包守卫（宿主 resolve.paths bug 规�
   it('package.json dependencies 键集 ⊆ 白名单（不得把 mongodb 等加回生产依赖）', () => {
     const pkg = JSON.parse(readFileSync(pkgUrl, 'utf8')) as { dependencies?: Record<string, string> };
     const deps = Object.keys(pkg.dependencies ?? {});
+    const offenders = deps.filter((name) => !DEPS_ALLOWLIST.has(name));
+    expect(offenders).toEqual([]);
+  });
+
+  it('package.json optionalDependencies 键集 ⊆ 白名单（better-sqlite3 为原生模块，仅可作可选依赖）', () => {
+    const pkg = JSON.parse(readFileSync(pkgUrl, 'utf8')) as { optionalDependencies?: Record<string, string> };
+    const deps = Object.keys(pkg.optionalDependencies ?? {});
     const offenders = deps.filter((name) => !DEPS_ALLOWLIST.has(name));
     expect(offenders).toEqual([]);
   });

@@ -34,7 +34,7 @@ const INSTALL_HINTS: Record<DbKind, string> = {
   mysql: 'npm install mysql2',
   postgresql: 'npm install pg',
   gaussdb: 'npm run build:gaussdb（构建 vendor/gaussdb-pg）',
-  sqlite: 'npm install better-sqlite3',
+  sqlite: '升级 Node ≥ 22.5（内置 node:sqlite），或 npm install better-sqlite3',
   redis: 'npm install redis',
   mongodb: 'npm run build:mongodb（构建 vendor/mongodb-driver.cjs；发布包已内置产物，仅在缺失时需要）',
   oracle: 'npm install oracledb',

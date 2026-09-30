@@ -36,7 +36,7 @@ dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
 dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 ```
 
-GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；运行要求 Node ≥ 22.12（产物依赖 p-limit@7 纯 ESM）。oracledb 安装脚本需 `npm approve-scripts oracledb`。mongodb 驱动已 bundle 进发布包（`vendor/mongodb-driver.cjs`，esbuild 构建，`npm run build:mongodb` 可重建），依赖树中不含 mongodb/punycode，详见 [docs/install.md](docs/install.md)。
+GaussDB 官方驱动未发布 npm，需先构建 vendor：`npm run build:gaussdb`（PowerShell）或 `bash scripts/build-gaussdb.sh`；运行要求 Node ≥ 22.12（产物依赖 p-limit@7 纯 ESM）。oracledb 安装脚本需 `npm approve-scripts oracledb`。mongodb 驱动已 bundle 进发布包（`vendor/mongodb-driver.cjs`，esbuild 构建，`npm run build:mongodb` 可重建），依赖树中不含 mongodb/punycode（守卫见「Troubleshooting」免补丁路径说明）。
 
 ### 桌面端安装
 
@@ -57,6 +57,26 @@ DSH 桌面端 0.2.0-rc.2+ 捆绑了 `dsh` 命令，全程无需另装 Node 或 p
 - **免补丁路径**：桌面端宿主代码打包在 `app.asar` 内，无法应用 `patch:dsh` 热补丁；但本插件 0.1.9+ 走免补丁路径（mongodb 驱动已 bundle 为 `vendor/mongodb-driver.cjs` 随包发布，依赖树不含 punycode），桌面端可直接安装加载，无需任何补丁。
 - **GaussDB**：npm 发布包不含 GaussDB vendor 驱动。需要 GaussDB 的用户请改从源码安装（`dsh plugin --profile desktop add "dsh-db-tool@github:mengqi1436/dsh-db-tool"`），并在插件目录自行 `npm run build:gaussdb`（要求 Node ≥ 22.12）。
 - **Oracle**：安装后需 `npm approve-scripts oracledb` 放行 oracledb 安装脚本（或按 DSH 插件安装界面的脚本审批提示放行）。
+
+### 离线环境安装
+
+**症状（≤ 1.3.1）**：受限代理/无公网 + 无编译工具链的机器上，安装卡死在 `better-sqlite3`（原生 C++ 模块）后整体回滚（`ERR_PNPM_EXECOR_LIFECYCLE_SCRIPT_FAILED`）——官方未发布 Node 24（ABI v137）的 Windows 预构建（release 下载 404），本地编译又同时缺 Node 头文件（nodejs.org 经代理 TLS 异常）与 MSVC 工具链。
+
+**1.3.2 起的行为**：
+
+1. `better-sqlite3` 移入 `optionalDependencies`——构建失败时 pnpm 自动排除该包，**插件整体安装不再回滚**（pnpm 11.7 实测：`is an optional dependency and failed … Excluding it from installation`，exit 0）。
+2. SQLite 改走**双驱动**：优先 `node:sqlite`（Node ≥ 22.5 内置，零原生依赖、离线环境直接可用；DSH 桌面端 runtime Node 24.x 自带），降级 `better-sqlite3`（存在则自动使用）。两者皆无时给出明确指引，**其余 7 种数据库不受任何影响**（MySQL/PG/GaussDB/Redis/Mongo/Oracle/DM 均为纯 JS 驱动）。
+3. 可用环境变量 `DBT_SQLITE_DRIVER=node|better` 强制单一路径（默认自动选择）。
+
+SQLite 支持矩阵：
+
+| 环境 | SQLite 可用性 |
+|---|---|
+| Node ≥ 22.5（含 DSH 桌面端 runtime 24.x） | ✅ `node:sqlite` 内置，零依赖 |
+| Node < 22.5 且 better-sqlite3 可安装/编译 | ✅ 自动用 `better-sqlite3` |
+| Node < 22.5 且离线（better-sqlite3 构建失败被排除） | ❌ SQLite 不可用，其余 7 库正常 |
+
+老版本（≤ 1.3.1）离线机的应急路径：有外网窗口时重试、装 VS Build Tools 后 `pnpm rebuild better-sqlite3`、或直接升级到 ≥ 1.3.2（推荐）。
 
 ## 安全模型
 
