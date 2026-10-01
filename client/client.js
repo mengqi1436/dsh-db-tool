@@ -90,6 +90,9 @@ window.__ModuleLoader__.load({
 			emptyStructure: "暂无字段信息",
 			emptyData: "暂无数据",
 			retry: "重试",
+			browsePanelHint: "数据浏览已在浮动窗口打开，可继续操作其他功能。",
+			reopenBrowse: "打开数据浏览",
+			selectTableHint: "在左侧选择表后查看数据",
 			// SQL 控制台
 			modeQuery: "只读查询",
 			modeExecute: "写入执行",
@@ -184,6 +187,9 @@ window.__ModuleLoader__.load({
 			emptyStructure: "No columns",
 			emptyData: "No rows",
 			retry: "Retry",
+			browsePanelHint: "Browse is open in a floating window; you can keep working here.",
+			reopenBrowse: "Open Data Browser",
+			selectTableHint: "Select a table on the left to view data",
 			modeQuery: "query (read-only)",
 			modeExecute: "execute (write)",
 			modeScript: "script",
@@ -789,9 +795,9 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ---------------- 数据浏览 ---------------- */
-		// Navicat 式对象树：连接 ▸ 库/[schema] ▸ 表，懒加载展开；面板与弹窗各持一个实例，展开状态互不影响
+		// Navicat 式对象树：连接 ▸ 库/[schema] ▸ 表，懒加载展开（弹窗唯一实例，展开状态随弹窗生命周期）
 		function BrowseTree(props) {
-			const { conns, projectPath, sel, onSelect } = props;
+			const { conns, projectPath, sel, onSelect, autoExpand } = props;
 			// sel 由父组件持有（弹窗内 active 高亮与初始选中都依赖）；onSelect(选中记录, 触发元素) 上报
 			const [open, setOpen] = React.useState({}); // "c:<id>" | "d:<id>/<db>" -> bool
 			const [loading, setLoading] = React.useState({});
@@ -828,6 +834,14 @@ window.__ModuleLoader__.load({
 						setDbs((m) => Object.assign({}, m, { [c.id]: list || [] }));
 					}));
 			}
+			// autoExpand：挂载后自动展开第一层级（连接节点），复用 toggleConn 的展开+懒加载；
+			// 加载失败仍走既有就地错误行机制。声明在清缓存 effect 之后：项目切换时先清 open 再重新展开
+			React.useEffect(() => {
+				if (!autoExpand) return;
+				for (const c of conns) {
+					if (!open["c:" + c.id]) toggleConn(c);
+				}
+			}, [conns, projectPath]); // eslint-disable-line
 			// PG/GaussDB 官方层级为 数据库 → 模式(schema) → 表：库节点下先列 schema 再列表
 			const HAS_SCHEMAS = { postgresql: true, gaussdb: true };
 			function toggleDb(c, d) {
@@ -936,40 +950,11 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		// 面板视图：精简树 + 弹窗编排（sel / triggerRef / 打开与关闭）
-		function BrowseView(props) {
-			const { conns, projectPath } = props;
-			const [sel, setSel] = React.useState(null); // {connId, db, schemaName?, table: TableInfo}
-			// 打开弹窗的树行元素：关闭弹窗后焦点返回触发元素（APG Dialog Modal）
-			const triggerRef = React.useRef(null);
-			// 项目切换时关闭弹窗并清选中（树缓存由 BrowseTree 自清）
-			React.useEffect(() => { setSel(null); }, [projectPath]);
-			return React.createElement(
-				"div",
-				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
-				React.createElement(BrowseTree, {
-					conns, projectPath, sel,
-					onSelect: (s, el) => {
-						if (el) triggerRef.current = el; // 面板树触发的打开才记录焦点返回目标
-						setSel(s);
-					},
-				}),
-				sel ? React.createElement(BrowseDialog, {
-					initialSel: sel, conns, projectPath,
-					onClose: () => {
-						setSel(null);
-						// APG：对话框关闭后焦点返回触发元素；面板树行常驻 DOM，防御性检查归属
-						const el = triggerRef.current;
-						if (el && document.contains(el)) el.focus();
-					},
-				}) : null,
-			);
-		}
-
-		// Navicat 式浏览弹窗：左树选库-表，右看字段+数据（近全屏模态）
+		// Navicat 式浏览弹窗：左树选库-表，右看字段+数据（非模态可拖动浮动窗，由 Panel 层持有跨 tab 常驻）
 		function BrowseDialog(props) {
-			const { initialSel, conns, projectPath, onClose } = props;
-			const [sel, setSel] = React.useState(initialSel); // 弹窗内当前选中（初始为面板点开的表）
+			const { conns, projectPath, grants, askConfirm, onClose } = props;
+			// grants / askConfirm：预留给后续单元格编辑的危险操作确认通道，本任务先接住不使用
+			const [sel, setSel] = React.useState(null); // 弹窗内当前选中（null=未选表，右栏显示引导空态）
 			const [view, setView] = React.useState("structure"); // structure | preview（纯视图切换，不影响数据加载）
 			const [schema, setSchema] = React.useState([]);
 			const [preview, setPreview] = React.useState(null); // QueryResult
@@ -977,7 +962,6 @@ window.__ModuleLoader__.load({
 			const [busy, setBusy] = React.useState("");
 			const [loadErr, setLoadErr] = React.useState(""); // 右栏加载失败（就地显示 + 重试）
 			const openSeq = React.useRef(0); // 请求序号守卫
-			const dialogRef = React.useRef(null);
 			const closeRef = React.useRef(null);
 
 			// 请求序号守卫（沿用面板）：快速切表/翻页时丢弃晚到旧响应，防止旧数据覆盖新选中项
@@ -1001,34 +985,40 @@ window.__ModuleLoader__.load({
 			}, [projectPath]);
 			React.useEffect(() => { if (sel) openTable(sel, 1); }, [sel]); // eslint-disable-line
 
-			// APG/react.dev：键盘处理统一挂 window 订阅（Esc 关闭 + Tab 焦点陷阱同层，
-			// 避免焦点落在 body 时 Tab 事件不经 dialog 冒泡而逃逸出模态）；cleanup 移除
+			// 非模态浮窗：无焦点陷阱（焦点可自由离开，主页交互不受阻）；Esc 仅在焦点位于弹窗内时
+			// 经容器 onKeyDown 触发（stopPropagation 防止宿主级快捷键同时响应）。初始焦点=关闭按钮
 			React.useEffect(() => {
-				const onKey = (e) => {
-					if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
-					if (e.key === "Tab") trapTab(e);
-				};
-				window.addEventListener("keydown", onKey);
-				// 初始焦点=关闭按钮（APG：对话框内首个交互元素；禁止聚焦 role="dialog" 容器本身）
 				if (closeRef.current) closeRef.current.focus();
-				return () => { window.removeEventListener("keydown", onKey); };
-			}, []); // 依赖 []：onClose 语义恒定（setSel(null)+焦点返回），无陈旧闭包危害
+			}, []);
 
-			// 轻量焦点陷阱：Tab 到末元素回首元素，Shift+Tab 反向（APG）；焦点在弹窗外时拉回弹窗内
-			function trapTab(e) {
-				const root = dialogRef.current;
-				if (!root) return;
-				const found = root.querySelectorAll('button,input,select,textarea,a[href],[tabindex]:not([tabindex="-1"])');
-				const list = Array.prototype.filter.call(found, (el) => !el.disabled && el.offsetParent !== null);
-				if (list.length === 0) return;
-				const first = list[0], last = list[list.length - 1];
-				const active = document.activeElement;
-				if (e.shiftKey && (active === first || !root.contains(active))) { e.preventDefault(); last.focus(); }
-				else if (!e.shiftKey && (active === last || !root.contains(active))) { e.preventDefault(); first.focus(); }
+			// 拖动定位：初始停靠视口右上（宽度按 1100 常量估算，.dbt-browse-dialog 为 max-width:1400 的自适应宽）
+			const [pos, setPos] = React.useState(() => ({ top: 72, left: Math.max(12, (window.innerWidth || 1200) - 1100 - 24) }));
+			const draggingRef = React.useRef(null); // {dx, dy}
+			const [dragging, setDragging] = React.useState(false);
+			function stopDrag() { draggingRef.current = null; setDragging(false); }
+			function onHeaderPointerDown(e) {
+				// header 内可点元素（关闭按钮）不启动拖动，否则 setPointerCapture 会把 click 重定向到 header 使按钮失效
+				if (e.target.closest && e.target.closest("button")) return;
+				draggingRef.current = { dx: e.clientX - pos.left, dy: e.clientY - pos.top };
+				e.currentTarget.setPointerCapture(e.pointerId);
+				setDragging(true);
+			}
+			function onHeaderPointerMove(e) {
+				if (!draggingRef.current) return;
+				const h = window.innerHeight || 800, w = window.innerWidth || 1200;
+				// clamp：top∈[0, 视口高-80] 防拖出上/下缘；left∈[-(宽-120), 视口宽-120] 至少留 120px 可抓回（宽按 1100 常量估算）
+				setPos({
+					top: Math.min(Math.max(e.clientY - draggingRef.current.dy, 0), h - 80),
+					left: Math.min(Math.max(e.clientX - draggingRef.current.dx, -(1100 - 120)), w - 120),
+				});
 			}
 
-			// 右栏互斥状态：加载骨架 / 错误重试 / 空态 / 表格
+			// 右栏互斥状态：未选中引导 / 加载骨架 / 错误重试 / 空态 / 表格
 			function rightPane() {
+				if (!sel && busy !== "open" && !loadErr) {
+					// 未选表：显示引导空态（浏览窗口可直接打开，不强制先选表）
+					return React.createElement("div", { className: "dbt-browse-empty" }, t("selectTableHint"));
+				}
 				if (busy === "open") {
 					// 表形状骨架：6 行 6 列静态色块（不引入新动画，reduced-motion 天然安全）
 					return React.createElement("div", { className: "dbt-browse-skel", role: "status", "aria-busy": "true" },
@@ -1054,34 +1044,34 @@ window.__ModuleLoader__.load({
 				return resultTable(preview.columns, preview.rows, undefined, "dbt-browse-tablewrap");
 			}
 
-			// 遮罩点击关闭需 mousedown 归属：表格内拖选文本滑出弹窗释放时 click 落在遮罩（公共祖先），
-			// 仅当按下与释放都在遮罩自身才视为「点击遮罩关闭」（双审查报告一致命中）
-			const downOnOverlay = React.useRef(false);
+			// 非模态浮窗：无遮罩、fixed 定位、可拖动；portal 到 body 不受侧栏视图切换影响
 			return mountDialog(React.createElement(
 				"div",
 				{
-					className: "dbt-overlay dbt-browse-root",
-					onMouseDown: (e) => { downOnOverlay.current = e.target === e.currentTarget; },
-					onClick: (e) => { if (downOnOverlay.current && e.target === e.currentTarget) onClose(); },
+					className: "dbt-browse-root dbt-browse-dialog" + (dragging ? " dragging" : ""),
+					style: { position: "fixed", top: pos.top, left: pos.left },
+					role: "dialog", "aria-labelledby": "dbt-browse-title",
+					onKeyDown: (e) => {
+						if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+					},
 				},
+				// ---- header：面包屑 + 关闭（整条 header 可拖动）----
 				React.createElement(
 					"div",
 					{
-						className: "dbt-browse-dialog",
-						ref: dialogRef,
-						role: "dialog", "aria-modal": "true", "aria-labelledby": "dbt-browse-title",
-						onClick: (e) => e.stopPropagation(),
+						className: "dbt-browse-header",
+						style: { cursor: dragging ? "grabbing" : "grab" },
+						onPointerDown: onHeaderPointerDown,
+						onPointerMove: onHeaderPointerMove,
+						onPointerUp: stopDrag,
+						onPointerCancel: stopDrag,
 					},
-					// ---- header：面包屑 + 关闭 ----
-					React.createElement(
-						"div",
-						{ className: "dbt-browse-header" },
-						React.createElement("div", { className: "dbt-browse-title", id: "dbt-browse-title" },
-							t("browseDialogTitle", {
-								conn: (conns.find((c) => c.id === sel.connId) || {}).name || sel.connId,
-								db: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db,
-								table: sel.table.name,
-							})),
+					React.createElement("div", { className: "dbt-browse-title", id: "dbt-browse-title" },
+						!sel ? t("viewBrowse") : t("browseDialogTitle", {
+							conn: (conns.find((c) => c.id === sel.connId) || {}).name || sel.connId,
+							db: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db,
+							table: sel.table.name,
+						})),
 						React.createElement(
 							"button",
 							{ className: "dbt-browse-close", ref: closeRef, "aria-label": t("close"), onClick: onClose },
@@ -1097,8 +1087,8 @@ window.__ModuleLoader__.load({
 							"div",
 							{ className: "dbt-browse-tree" },
 							React.createElement(BrowseTree, {
-								conns, projectPath, sel,
-								onSelect: (s) => setSel(s), // 弹窗内树切表；触发元素仅面板打开时记录，这里不传 el
+								conns, projectPath, sel, autoExpand: true, // 本任务后弹窗树是唯一树实例，挂载即展开第一层级
+								onSelect: (s) => setSel(s), // 弹窗内树切表
 							}),
 						),
 						React.createElement(
@@ -1119,8 +1109,8 @@ window.__ModuleLoader__.load({
 							React.createElement("div", { className: "dbt-browse-content" }, rightPane()),
 						),
 					),
-					// ---- footer：分页条（仅数据预览视图） ----
-					view === "preview" && !loadErr ? React.createElement(
+					// ---- footer：分页条（仅已选表的数据预览视图；空选中态不显示） ----
+					sel && view === "preview" && !loadErr ? React.createElement(
 						"div",
 						{ className: "dbt-browse-footer" },
 						React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1) }, "‹ " + t("prevPage")),
@@ -1130,7 +1120,7 @@ window.__ModuleLoader__.load({
 						React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(sel, page + 1) }, t("nextPage") + " ›"),
 					) : null,
 				),
-			));
+			);
 		}
 
 		/* ---------------- SQL 控制台 ---------------- */
@@ -1259,6 +1249,8 @@ window.__ModuleLoader__.load({
 			const [error, setError] = React.useState("");
 			const [message, setMessage] = React.useState("");
 			const [confirmReq, setConfirmReq] = React.useState(null); // {statement,danger,reason,resolve}
+			// 数据浏览浮窗开关：由 Panel 层持有（不随 view 切换卸载），跨 tab 常驻
+			const [browseOpen, setBrowseOpen] = React.useState(false);
 
 			const askConfirm = React.useCallback((info) => new Promise((resolve) => {
 				setConfirmReq(Object.assign({}, info, { resolve }));
@@ -1313,7 +1305,11 @@ window.__ModuleLoader__.load({
 					"div",
 					{ className: "dbt-tabs" },
 					[["manage", t("viewManage")], ["grants", t("viewGrants")], ["browse", t("viewBrowse")], ["console", t("viewConsole")]].map(([v, label]) =>
-						React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) }, label)),
+						// browse tab：切视图的同时直接打开浮窗（单击即用，不必再进树点表）
+						React.createElement("button", {
+							key: v, className: view === v ? "active" : "",
+							onClick: () => { setView(v); if (v === "browse") setBrowseOpen(true); },
+						}, label)),
 				),
 				(projectEdited || !projectPath)
 					? React.createElement(
@@ -1348,11 +1344,23 @@ window.__ModuleLoader__.load({
 				React.createElement("div", { className: "dbt-view", key: view },
 					view === "manage" ? React.createElement(ManageView, shared) : null,
 					view === "grants" ? React.createElement(GrantsView, shared) : null,
-					view === "browse" ? React.createElement(BrowseView, shared) : null,
+					// browse：提示卡（浮窗由 Panel 层在下方常驻渲染，不随视图切换卸载）
+					view === "browse" ? React.createElement(
+						"div",
+						{ className: "dbt-card" },
+						React.createElement("div", { className: "dbt-muted" }, t("browsePanelHint")),
+						React.createElement("div", { className: "dbt-row" },
+							React.createElement("button", { className: "dbt-btn primary", onClick: () => setBrowseOpen(true) }, t("reopenBrowse"))),
+					) : null,
 					view === "console" ? React.createElement(ConsoleView, Object.assign({}, shared, { askConfirm })) : null,
 				),
 				React.createElement("div", { className: "dbt-muted" }, t("footerHint")),
 				confirmReq ? React.createElement(DangerDialog, { challenge: confirmReq, onClose: () => setConfirmReq(null) }) : null,
+				// 浮窗常驻：portal 到 body 且在 dbt-view 外，切 tab 时不消失
+				browseOpen ? React.createElement(BrowseDialog, {
+					conns, projectPath, grants, askConfirm,
+					onClose: () => setBrowseOpen(false),
+				}) : null,
 			);
 		}
 
