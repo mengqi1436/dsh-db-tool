@@ -269,6 +269,41 @@ describe('execute 白名单与防线', () => {
   });
 });
 
+describe('execute 文档级 DML 的 Extended JSON 复活', () => {
+  it('updateOne filter 的 $oid 复活为 ObjectId（toHexString 还原 hex）', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.execute('{"updateOne":"u","filter":{"_id":{"$oid":"507f1f77bcf86cd799439011"}},"update":{"$set":{"x":1}}}');
+    const filter = coll.updateOne.mock.calls[0]![0] as { _id: { toHexString(): string } };
+    expect(filter._id.toHexString()).toBe('507f1f77bcf86cd799439011');
+  });
+  it('$date 复活为 Date 实例', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.execute('{"updateOne":"u","filter":{"_id":"k1"},"update":{"$set":{"born":{"$date":"2024-01-02T03:04:05.000Z"}}}}');
+    const update = coll.updateOne.mock.calls[0]![1] as { $set: { born: Date } };
+    expect(update.$set.born).toBeInstanceOf(Date);
+    expect(update.$set.born.toISOString()).toBe('2024-01-02T03:04:05.000Z');
+  });
+  it('非法 $oid 抛中文可读错误', async () => {
+    const { client } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await expect(
+      a.execute('{"updateOne":"u","filter":{"_id":{"$oid":"zz"}},"update":{"$set":{"x":1}}}'),
+    ).rejects.toThrow('$oid');
+  });
+  it('createIndex 的 index 规格不复活（集合级操作原样透传）', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.execute(
+      '{"createIndex":"u","index":{"key":{"a":1},"name":"a_1","partialFilterExpression":{"score":{"$oid":"507f1f77bcf86cd799439011"}}}}',
+    );
+    const specs = coll.createIndexes.mock.calls[0]![0] as { partialFilterExpression: { score: unknown } }[];
+    // $oid 未被复活：仍是普通 EJSON 对象（非 ObjectId 实例），规格逐字原样
+    expect(specs[0]!.partialFilterExpression.score).toEqual({ $oid: '507f1f77bcf86cd799439011' });
+  });
+});
+
 describe('previewRows（offset 翻页）', () => {
   /** 取 find 链上的 skip mock（find→sort→chain，skip 为 chain 上的 vi.fn） */
   function findSkip(coll: ReturnType<typeof makeClient>['coll']): ReturnType<typeof vi.fn> {

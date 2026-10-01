@@ -398,7 +398,7 @@ export async function createMongoAdapter(
         switch (op) {
           case 'insertOne': {
             // 不设 cmd.insert 别名：该键语义是集合名（insertMany 命令形态），混用会误导报错方向
-            const doc = requireObject(cmd.document, 'insertOne.document');
+            const doc = reviveEjson(requireObject(cmd.document, 'insertOne.document'));
             const r = await c.insertOne(doc as object);
             return { affectedRows: 1, message: `已插入 1 条文档到 ${name}（_id=${String(r.insertedId)}）` };
           }
@@ -406,15 +406,15 @@ export async function createMongoAdapter(
             if (!Array.isArray(cmd.documents ?? cmd.docs) || ((cmd.documents ?? cmd.docs) as unknown[]).length === 0) {
               throw new Error('MongoDB insertMany 需要非空 documents 数组：{"insertMany":"coll","documents":[{...}]}');
             }
-            const docs = ((cmd.documents ?? cmd.docs) as unknown[]).map((d) => requireObject(d, 'insertMany.documents[]') as object);
+            const docs = ((cmd.documents ?? cmd.docs) as unknown[]).map((d) => reviveEjson(requireObject(d, 'insertMany.documents[]')) as object);
             const r = await c.insertMany(docs);
             return { affectedRows: r.insertedCount, message: `已插入 ${r.insertedCount} 条文档到 ${name}` };
           }
           case 'updateOne':
           case 'updateMany': {
             if (op === 'updateMany') assertExplicitFilter(op, cmd.filter);
-            const filter = requireObject(cmd.filter, `${op}.filter`);
-            const update = requireObject(cmd.update, `${op}.update`);
+            const filter = reviveEjson(requireObject(cmd.filter, `${op}.filter`));
+            const update = reviveEjson(requireObject(cmd.update, `${op}.update`));
             const r = op === 'updateOne'
               ? await c.updateOne(filter as object, update as object)
               : await c.updateMany(filter as object, update as object);
@@ -424,8 +424,8 @@ export async function createMongoAdapter(
             };
           }
           case 'replaceOne': {
-            const filter = requireObject(cmd.filter, 'replaceOne.filter');
-            const replacement = requireObject(cmd.replacement ?? cmd.update, 'replaceOne.replacement');
+            const filter = reviveEjson(requireObject(cmd.filter, 'replaceOne.filter'));
+            const replacement = reviveEjson(requireObject(cmd.replacement ?? cmd.update, 'replaceOne.replacement'));
             const r = await c.replaceOne(filter as object, replacement as object);
             return {
               affectedRows: r.modifiedCount,
@@ -435,7 +435,7 @@ export async function createMongoAdapter(
           case 'deleteOne':
           case 'deleteMany': {
             if (op === 'deleteMany') assertExplicitFilter(op, cmd.filter);
-            const filter = requireObject(cmd.filter, `${op}.filter`);
+            const filter = reviveEjson(requireObject(cmd.filter, `${op}.filter`));
             const r = op === 'deleteOne'
               ? await c.deleteOne(filter as object)
               : await c.deleteMany(filter as object);
@@ -560,6 +560,32 @@ function inferBsonType(v: unknown): string {
   if (Array.isArray(v)) return 'array';
   if (typeof v === 'object') return 'object';
   return typeof v;
+}
+
+/** Mongo Extended JSON（$oid/$date）→ BSON 原生类型：前端单元格写回以 JSON 表达 ObjectId/Date，
+ * driver 不识别 EJSON 形态，须经此复活。最小集：仅 $oid/$date；其余键原样递归保留。
+ * $oid 需 24 位十六进制，非法抛中文可读错误；vendor 缺失时 $oid 原样返回不抛（降级可用）。 */
+const OID_HEX_RE = /^[0-9a-f]{24}$/i;
+export function reviveEjson(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(reviveEjson);
+  if (!isPlainObject(v)) return v;
+  const keys = Object.keys(v);
+  if (keys.length === 1 && keys[0] === '$oid') {
+    const s = v.$oid;
+    if (typeof s !== 'string' || !OID_HEX_RE.test(s)) {
+      throw new Error(`MongoDB $oid 值非法（${String(s)}）：需 24 位十六进制字符串，如 {"$oid":"507f1f77bcf86cd799439011"}`);
+    }
+    const M = vendorOrNull();
+    return M ? new M.ObjectId(s) : v;
+  }
+  if (keys.length === 1 && keys[0] === '$date') {
+    const d = v.$date;
+    if (typeof d !== 'string' && typeof d !== 'number') return v;
+    return new Date(d);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(v)) out[k] = reviveEjson(val);
+  return out;
 }
 
 export function buildUri(fields: Record<string, unknown> | undefined, ssl?: boolean): string {
