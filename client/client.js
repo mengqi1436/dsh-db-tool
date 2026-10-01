@@ -85,6 +85,11 @@ window.__ModuleLoader__.load({
 			prevPage: "上一页",
 			pageInfo: "第 {page} 页（每页 50 行）",
 			previewTruncated: "结果已截断",
+			browseDialogTitle: "{conn} / {db} / {table}",
+			close: "关闭",
+			emptyStructure: "暂无字段信息",
+			emptyData: "暂无数据",
+			retry: "重试",
 			// SQL 控制台
 			modeQuery: "只读查询",
 			modeExecute: "写入执行",
@@ -174,6 +179,11 @@ window.__ModuleLoader__.load({
 			prevPage: "Prev",
 			pageInfo: "Page {page} (50 rows/page)",
 			previewTruncated: "Result truncated",
+			browseDialogTitle: "{conn} / {db} / {table}",
+			close: "Close",
+			emptyStructure: "No columns",
+			emptyData: "No rows",
+			retry: "Retry",
 			modeQuery: "query (read-only)",
 			modeExecute: "execute (write)",
 			modeScript: "script",
@@ -280,9 +290,11 @@ window.__ModuleLoader__.load({
 			if (styleEl) return;
 			styleEl = document.createElement("style");
 			styleEl.textContent = [
-				"/* ===== Apple-style Design Tokens（dark 基线，light 经 media query 反转） ===== */",
-				".dbt-panel{--dbt-accent:var(--dsh-accent,#0a84ff);--dbt-bg:transparent;--dbt-surface:rgba(120,120,128,.12);--dbt-surface-strong:rgba(120,120,128,.18);--dbt-separator:rgba(120,120,128,.24);--dbt-text-secondary:rgba(235,235,245,.6);--dbt-danger:#ff453a;--dbt-success:#30d158;--dbt-warning:#ffd60a;--dbt-dialog-bg:rgba(40,40,44,.85);--dbt-th-bg:rgba(30,30,32,.72);--dbt-seg-active:rgba(255,255,255,.14);--dbt-shadow:0 8px 32px rgba(0,0,0,.28);--dbt-radius-card:12px;--dbt-radius-ctrl:8px;--dbt-radius-pill:6px;--dbt-ease:cubic-bezier(.25,.1,.25,1);--dbt-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;}",
-				"@media (prefers-color-scheme: light){.dbt-panel{--dbt-accent:var(--dsh-accent,#007aff);--dbt-surface:rgba(120,120,128,.08);--dbt-surface-strong:rgba(120,120,128,.14);--dbt-separator:rgba(60,60,67,.18);--dbt-text-secondary:rgba(60,60,67,.6);--dbt-danger:#ff3b30;--dbt-success:#34c759;--dbt-warning:#ff9f0a;--dbt-dialog-bg:rgba(252,252,252,.9);--dbt-th-bg:rgba(255,255,255,.72);--dbt-seg-active:rgba(255,255,255,.9);--dbt-shadow:0 8px 32px rgba(0,0,0,.12);}}",
+				"/* ===== Apple-style Design Tokens（dark 基线，light 经 media query 反转；.dbt-browse-root 并入以承载 portal 弹窗） ===== */",
+				".dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#0a84ff);--dbt-bg:transparent;--dbt-surface:rgba(120,120,128,.12);--dbt-surface-strong:rgba(120,120,128,.18);--dbt-separator:rgba(120,120,128,.24);--dbt-text:rgba(235,235,245,.92);--dbt-text-secondary:rgba(235,235,245,.6);--dbt-danger:#ff453a;--dbt-success:#30d158;--dbt-warning:#ffd60a;--dbt-dialog-bg:rgba(40,40,44,.85);--dbt-th-bg:rgba(30,30,32,.72);--dbt-seg-active:rgba(255,255,255,.14);--dbt-shadow:0 8px 32px rgba(0,0,0,.28);--dbt-radius-card:12px;--dbt-radius-ctrl:8px;--dbt-radius-pill:6px;--dbt-ease:cubic-bezier(.25,.1,.25,1);--dbt-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;}",
+				"@media (prefers-color-scheme: light){.dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#007aff);--dbt-surface:rgba(120,120,128,.08);--dbt-surface-strong:rgba(120,120,128,.14);--dbt-separator:rgba(60,60,67,.18);--dbt-text:rgba(30,30,32,.92);--dbt-text-secondary:rgba(60,60,67,.6);--dbt-danger:#ff3b30;--dbt-success:#34c759;--dbt-warning:#ff9f0a;--dbt-dialog-bg:rgba(252,252,252,.9);--dbt-th-bg:rgba(255,255,255,.72);--dbt-seg-active:rgba(255,255,255,.9);--dbt-shadow:0 8px 32px rgba(0,0,0,.12);}}",
+				// 弹窗根自持文字色：portal 挂 document.body 后不再依赖侧栏祖先的 color 继承（ocr medium）
+				".dbt-browse-root{color:var(--dbt-text);}",
 				"/* ===== 根容器 ===== */",
 				".dbt-panel{font-size:13px;line-height:1.45;display:flex;flex-direction:column;gap:12px;padding:16px;height:100%;box-sizing:border-box;overflow-y:auto;}",
 				"/* ===== iOS segmented control（顶部 tab） ===== */",
@@ -335,6 +347,25 @@ window.__ModuleLoader__.load({
 				".dbt-chev.open{transform:rotate(90deg);}",
 				".dbt-chev.leaf{visibility:hidden;}",
 				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				/* ===== Navicat 式浏览弹窗 ===== */
+				".dbt-browse-dialog{width:92vw;height:88vh;max-width:1400px;max-height:940px;min-width:min(680px,calc(100vw - 16px));min-height:min(420px,calc(100vh - 16px));background:var(--dbt-dialog-bg);color:inherit;border:1px solid var(--dbt-separator);border-radius:14px;box-shadow:var(--dbt-shadow);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;font-size:13px;animation:dbt-in .22s var(--dbt-ease);}",
+				".dbt-browse-header{flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--dbt-separator);}",
+				".dbt-browse-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:13px;}",
+				".dbt-browse-close{flex:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--dbt-text-secondary);border-radius:var(--dbt-radius-pill);cursor:pointer;transition:all .18s var(--dbt-ease);}",
+				".dbt-browse-close:hover{background:var(--dbt-surface-strong);color:inherit;}",
+				".dbt-browse-close:active{transform:scale(.92);}",
+				".dbt-browse-body{flex:1;min-height:0;display:flex;}",
+				".dbt-browse-tree{flex:none;width:260px;overflow-y:auto;border-right:1px solid var(--dbt-separator);}",
+				".dbt-browse-main{flex:1;min-width:0;display:flex;flex-direction:column;}",
+				".dbt-browse-tabs{flex:none;padding:10px 14px 0;}",
+				".dbt-browse-content{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:12px 14px;overflow:hidden;}",
+				".dbt-browse-tablewrap{flex:1;min-height:0;overflow:auto;border:none;border-radius:var(--dbt-radius-card);background:var(--dbt-surface);}",
+				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--dbt-separator);}",
+				".dbt-browse-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dbt-text-secondary);font-size:12px;}",
+				".dbt-browse-errorbox{flex:1;display:flex;flex-direction:column;gap:10px;align-items:flex-start;justify-content:center;}",
+				".dbt-browse-skel{display:flex;flex-direction:column;gap:8px;}",
+				".dbt-browse-skelrow{display:flex;gap:8px;}",
+				".dbt-browse-skelcell{flex:1;height:24px;background:var(--dbt-surface-strong);border-radius:var(--dbt-radius-pill);}",
 				"/* ===== 视图切换入场（仅 transform/opacity；reduced-motion 全局已禁） ===== */",
 				"@keyframes dbt-in{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}",
 				".dbt-view{display:flex;flex-direction:column;gap:10px;animation:dbt-in .22s var(--dbt-ease);}",
@@ -343,9 +374,9 @@ window.__ModuleLoader__.load({
 				".dbt-seg button{flex:none;border:none;background:transparent;color:inherit;font-size:11px;padding:3px 10px;border-radius:var(--dbt-radius-pill);cursor:pointer;transition:all .18s var(--dbt-ease);}",
 				".dbt-seg button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
 				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
-				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog{backdrop-filter:none;-webkit-backdrop-filter:none;background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}}",
-				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog{background:#f5f5f7;}.dbt-table th{background:#f2f2f7;}}",
-				"@media (prefers-reduced-motion: reduce){.dbt-panel *{transition:none!important;animation:none!important;}.dbt-btn:active{transform:none;}}",
+				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog,.dbt-browse-dialog{backdrop-filter:none;-webkit-backdrop-filter:none;background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}}",
+				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog,.dbt-browse-dialog{background:#f5f5f7;}.dbt-table th{background:#f2f2f7;}}",
+				"@media (prefers-reduced-motion: reduce){.dbt-panel *,.dbt-browse-root *{transition:none!important;animation:none!important;}.dbt-btn:active{transform:none;}}",
 			].join("\n");
 			document.head.appendChild(styleEl);
 		}
@@ -378,14 +409,21 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		// --- 弹窗挂载：优先 createPortal 挂 document.body（避免侧栏容器裁剪）；宿主未提供 react-dom 时回退 Panel 内 fixed overlay（DangerDialog 同模式） ---
+		let createPortal = null;
+		try { createPortal = require("react-dom").createPortal; } catch (e) { /* 留 null，走回退 */ }
+		function mountDialog(children) {
+			return createPortal ? createPortal(children, document.body) : children;
+		}
+
 		/* ---------------- 连接管理 ---------------- */
 		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", ssl: false };
 
-		// 通用表格渲染：columns + rows（审计列表与查询结果共用）
-		function resultTable(columns, rows, cellTitles) {
+		// 通用表格渲染：columns + rows（审计列表与查询结果共用）；wrapClass 可选（浏览弹窗用自适应高度容器）
+		function resultTable(columns, rows, cellTitles, wrapClass) {
 			return React.createElement(
 				"div",
-				{ className: "dbt-tablewrap" },
+				{ className: wrapClass || "dbt-tablewrap" },
 				React.createElement(
 					"table",
 					{ className: "dbt-table" },
@@ -751,25 +789,20 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ---------------- 数据浏览 ---------------- */
-		function BrowseView(props) {
-			const { conns, projectPath } = props;
-			// Navicat 式对象树：连接 ▸ 库/schema ▸ 表，懒加载展开
+		// Navicat 式对象树：连接 ▸ 库/[schema] ▸ 表，懒加载展开；面板与弹窗各持一个实例，展开状态互不影响
+		function BrowseTree(props) {
+			const { conns, projectPath, sel, onSelect } = props;
+			// sel 由父组件持有（弹窗内 active 高亮与初始选中都依赖）；onSelect(选中记录, 触发元素) 上报
 			const [open, setOpen] = React.useState({}); // "c:<id>" | "d:<id>/<db>" -> bool
 			const [loading, setLoading] = React.useState({});
 			const [error, setError] = React.useState({}); // 树节点加载失败信息（就地显示，可点重试）
 			const [dbs, setDbs] = React.useState({}); // connId -> string[]
 			const [schemasMap, setSchemasMap] = React.useState({}); // "<connId>/<db>" -> string[]（PG/GaussDB 库内 schema 层）
 			const [tablesMap, setTablesMap] = React.useState({}); // "<connId>/<db|schema>" -> TableInfo[]
-			const [sel, setSel] = React.useState(null); // {connId, db, table: TableInfo}
-			const [schema, setSchema] = React.useState([]);
-			const [preview, setPreview] = React.useState(null); // QueryResult
-			const [page, setPage] = React.useState(1);
-			const [busy, setBusy] = React.useState("");
-			const [view, setView] = React.useState("structure"); // structure | preview（纯视图切换，不影响数据加载）
 
-			// 会话项目切换 / 连接列表变化时清空树缓存，避免陈旧授权下的旧数据
+			// 会话项目切换时清空树缓存，避免陈旧授权下的旧数据
 			React.useEffect(() => {
-				setOpen({}); setLoading({}); setError({}); setDbs({}); setSchemasMap({}); setTablesMap({}); setSel(null); setSchema([]); setPreview(null);
+				setOpen({}); setLoading({}); setError({}); setDbs({}); setSchemasMap({}); setTablesMap({});
 			}, [projectPath]);
 
 			function toggle(key, load) {
@@ -815,39 +848,28 @@ window.__ModuleLoader__.load({
 						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + d + "/" + s]: list || [] }));
 					}));
 			}
-			// 请求序号守卫：快速切换选中表/翻页时，丢弃晚到的旧响应，防止旧数据覆盖新选中项
-			const openSeq = React.useRef(0);
-			const openTable = React.useCallback((s, pg) => {
-				if (!s || !projectPath) return;
-				// PG 系跨库：database 传 "库名.schema"；其它库传库名
-				const dbRef = s.schemaName ? s.db + "." + s.schemaName : s.db;
-				const seq = ++openSeq.current;
-				setBusy("open");
-				Promise.all([
-					api("schema" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name })),
-					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
-				])
-					.then(([sch, prev]) => {
-						if (seq !== openSeq.current) return; // 旧请求晚到，丢弃
-						setSchema(sch || []); setPreview(prev); setPage(pg || 1);
-					})
-					.catch((e) => props.onError(e))
-					.finally(() => { if (seq === openSeq.current) setBusy(""); });
-			}, [projectPath]);
-			React.useEffect(() => { if (sel) openTable(sel, 1); }, [sel]); // eslint-disable-line
-
 			// 树行：chevron（▸ 展开旋转 90°）+ 名称 + 可选右侧标注
+			// ponytail: 交互行全量 tabIndex=0 使 Tab 循环较长，升级路径为 APG roving tabindex + 方向键导航
 			function treerow(key, level, isOpen, leaf, label, onClick, active, extra) {
 				return React.createElement(
 					"div",
-					{ className: "dbt-treerow" + (active ? " active" : ""), key, onClick: onClick || undefined, style: { paddingLeft: 12 + level * 16 } },
+					{
+						className: "dbt-treerow" + (active ? " active" : ""), key,
+						role: onClick ? "treeitem" : undefined,
+						tabIndex: onClick ? 0 : undefined,
+						onClick: onClick || undefined,
+						onKeyDown: onClick ? (e) => {
+							if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick({ currentTarget: e.currentTarget }); }
+						} : undefined,
+						style: { paddingLeft: 12 + level * 16 },
+					},
 					React.createElement("span", { className: "dbt-chev" + (isOpen ? " open" : "") + (leaf ? " leaf" : "") }, "▶"),
 					React.createElement("span", { className: "dbt-treename" }, label),
 					extra || null,
 				);
 			}
 
-			// 组装树：连接 → 库/schema → 表（懒加载缓存，未加载完成显示 …）
+			// 组装树：连接 → 库/schema → 表（懒加载缓存，未加载完成显示 …）；表节点点击上报选中记录与触发元素
 			const treeRows = [];
 			for (const c of conns) {
 				const ck = "c:" + c.id;
@@ -887,7 +909,7 @@ window.__ModuleLoader__.load({
 								const active = !!sel && sel.connId === c.id && sel.db === d && sel.schemaName === s && sel.table.name === tb.name;
 								treeRows.push(treerow("t:" + sk + "/" + tb.name, 3, false, true,
 									tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
-									() => setSel({ connId: c.id, db: d, schemaName: s, table: tb }), active));
+									(e) => onSelect({ connId: c.id, db: d, schemaName: s, table: tb }, e.currentTarget), active));
 							}
 						}
 						continue;
@@ -899,7 +921,7 @@ window.__ModuleLoader__.load({
 						const active = !!sel && sel.connId === c.id && sel.db === d && sel.table.name === tb.name;
 						treeRows.push(treerow("t:" + c.id + "/" + d + "/" + tb.name, 2, false, true,
 							tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
-							() => setSel({ connId: c.id, db: d, table: tb }), active));
+							(e) => onSelect({ connId: c.id, db: d, table: tb }, e.currentTarget), active));
 					}
 				}
 			}
@@ -907,43 +929,208 @@ window.__ModuleLoader__.load({
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
-				// Navicat 式对象树：点击展开连接/库，点击表查看结构/预览
+				// Navicat 式对象树：点击展开连接/库，点击表上报选中（由父组件决定打开弹窗）
 				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
 					React.createElement("div", { className: "dbt-group" },
 						React.createElement("div", { className: "dbt-tree" }, treeRows)),
-				sel
-					? React.createElement(
+			);
+		}
+
+		// 面板视图：精简树 + 弹窗编排（sel / triggerRef / 打开与关闭）
+		function BrowseView(props) {
+			const { conns, projectPath } = props;
+			const [sel, setSel] = React.useState(null); // {connId, db, schemaName?, table: TableInfo}
+			// 打开弹窗的树行元素：关闭弹窗后焦点返回触发元素（APG Dialog Modal）
+			const triggerRef = React.useRef(null);
+			// 项目切换时关闭弹窗并清选中（树缓存由 BrowseTree 自清）
+			React.useEffect(() => { setSel(null); }, [projectPath]);
+			return React.createElement(
+				"div",
+				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
+				React.createElement(BrowseTree, {
+					conns, projectPath, sel,
+					onSelect: (s, el) => {
+						if (el) triggerRef.current = el; // 面板树触发的打开才记录焦点返回目标
+						setSel(s);
+					},
+				}),
+				sel ? React.createElement(BrowseDialog, {
+					initialSel: sel, conns, projectPath,
+					onClose: () => {
+						setSel(null);
+						// APG：对话框关闭后焦点返回触发元素；面板树行常驻 DOM，防御性检查归属
+						const el = triggerRef.current;
+						if (el && document.contains(el)) el.focus();
+					},
+				}) : null,
+			);
+		}
+
+		// Navicat 式浏览弹窗：左树选库-表，右看字段+数据（近全屏模态）
+		function BrowseDialog(props) {
+			const { initialSel, conns, projectPath, onClose } = props;
+			const [sel, setSel] = React.useState(initialSel); // 弹窗内当前选中（初始为面板点开的表）
+			const [view, setView] = React.useState("structure"); // structure | preview（纯视图切换，不影响数据加载）
+			const [schema, setSchema] = React.useState([]);
+			const [preview, setPreview] = React.useState(null); // QueryResult
+			const [page, setPage] = React.useState(1);
+			const [busy, setBusy] = React.useState("");
+			const [loadErr, setLoadErr] = React.useState(""); // 右栏加载失败（就地显示 + 重试）
+			const openSeq = React.useRef(0); // 请求序号守卫
+			const dialogRef = React.useRef(null);
+			const closeRef = React.useRef(null);
+
+			// 请求序号守卫（沿用面板）：快速切表/翻页时丢弃晚到旧响应，防止旧数据覆盖新选中项
+			const openTable = React.useCallback((s, pg) => {
+				if (!s || !projectPath) return;
+				// PG 系跨库：database 传 "库名.schema"；其它库传库名
+				const dbRef = s.schemaName ? s.db + "." + s.schemaName : s.db;
+				const seq = ++openSeq.current;
+				setBusy("open"); setLoadErr("");
+				Promise.all([
+					api("schema" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name })),
+					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
+				])
+					.then(([sch, prev]) => {
+						if (seq !== openSeq.current) return; // 旧请求晚到，丢弃
+						setSchema(sch || []); setPreview(prev); setPage(pg || 1);
+					})
+					// 弹窗内错误就地显示（不走面板顶部错误区）
+					.catch((e) => { if (seq === openSeq.current) setLoadErr(String(e && e.message ? e.message : e)); })
+					.finally(() => { if (seq === openSeq.current) setBusy(""); });
+			}, [projectPath]);
+			React.useEffect(() => { if (sel) openTable(sel, 1); }, [sel]); // eslint-disable-line
+
+			// APG/react.dev：键盘处理统一挂 window 订阅（Esc 关闭 + Tab 焦点陷阱同层，
+			// 避免焦点落在 body 时 Tab 事件不经 dialog 冒泡而逃逸出模态）；cleanup 移除
+			React.useEffect(() => {
+				const onKey = (e) => {
+					if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+					if (e.key === "Tab") trapTab(e);
+				};
+				window.addEventListener("keydown", onKey);
+				// 初始焦点=关闭按钮（APG：对话框内首个交互元素；禁止聚焦 role="dialog" 容器本身）
+				if (closeRef.current) closeRef.current.focus();
+				return () => { window.removeEventListener("keydown", onKey); };
+			}, []); // 依赖 []：onClose 语义恒定（setSel(null)+焦点返回），无陈旧闭包危害
+
+			// 轻量焦点陷阱：Tab 到末元素回首元素，Shift+Tab 反向（APG）；焦点在弹窗外时拉回弹窗内
+			function trapTab(e) {
+				const root = dialogRef.current;
+				if (!root) return;
+				const found = root.querySelectorAll('button,input,select,textarea,a[href],[tabindex]:not([tabindex="-1"])');
+				const list = Array.prototype.filter.call(found, (el) => !el.disabled && el.offsetParent !== null);
+				if (list.length === 0) return;
+				const first = list[0], last = list[list.length - 1];
+				const active = document.activeElement;
+				if (e.shiftKey && (active === first || !root.contains(active))) { e.preventDefault(); last.focus(); }
+				else if (!e.shiftKey && (active === last || !root.contains(active))) { e.preventDefault(); first.focus(); }
+			}
+
+			// 右栏互斥状态：加载骨架 / 错误重试 / 空态 / 表格
+			function rightPane() {
+				if (busy === "open") {
+					// 表形状骨架：6 行 6 列静态色块（不引入新动画，reduced-motion 天然安全）
+					return React.createElement("div", { className: "dbt-browse-skel", role: "status", "aria-busy": "true" },
+						[0, 1, 2, 3, 4, 5].map((r) => React.createElement("div", { className: "dbt-browse-skelrow", key: r },
+							[0, 1, 2, 3, 4, 5].map((c) => React.createElement("div", { className: "dbt-browse-skelcell", key: c })))));
+				}
+				if (loadErr) {
+					// 错误就地显示 + 重试（弹窗遮罩下面板顶部错误区不可见，不走 props.onError）
+					return React.createElement("div", { className: "dbt-browse-errorbox" },
+						React.createElement("div", { className: "dbt-err" }, t("error") + ": " + loadErr),
+						React.createElement("button", { className: "dbt-btn", onClick: () => openTable(sel, 1) }, t("retry")));
+				}
+				if (view === "structure") {
+					if (!schema.length) return React.createElement("div", { className: "dbt-browse-empty" }, t("emptyStructure"));
+					return resultTable(
+						[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],
+						schema.map((col) => [col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || ""]),
+						undefined, "dbt-browse-tablewrap");
+				}
+				if (!preview || !preview.rows || preview.rows.length === 0) {
+					return React.createElement("div", { className: "dbt-browse-empty" }, t("emptyData"));
+				}
+				return resultTable(preview.columns, preview.rows, undefined, "dbt-browse-tablewrap");
+			}
+
+			// 遮罩点击关闭需 mousedown 归属：表格内拖选文本滑出弹窗释放时 click 落在遮罩（公共祖先），
+			// 仅当按下与释放都在遮罩自身才视为「点击遮罩关闭」（双审查报告一致命中）
+			const downOnOverlay = React.useRef(false);
+			return mountDialog(React.createElement(
+				"div",
+				{
+					className: "dbt-overlay dbt-browse-root",
+					onMouseDown: (e) => { downOnOverlay.current = e.target === e.currentTarget; },
+					onClick: (e) => { if (downOnOverlay.current && e.target === e.currentTarget) onClose(); },
+				},
+				React.createElement(
+					"div",
+					{
+						className: "dbt-browse-dialog",
+						ref: dialogRef,
+						role: "dialog", "aria-modal": "true", "aria-labelledby": "dbt-browse-title",
+						onClick: (e) => e.stopPropagation(),
+					},
+					// ---- header：面包屑 + 关闭 ----
+					React.createElement(
 						"div",
-						{ style: { display: "flex", flexDirection: "column", gap: 8 } },
-						// 结构/预览：mini segmented 切换（复用现有 i18n key，不新增）
+						{ className: "dbt-browse-header" },
+						React.createElement("div", { className: "dbt-browse-title", id: "dbt-browse-title" },
+							t("browseDialogTitle", {
+								conn: (conns.find((c) => c.id === sel.connId) || {}).name || sel.connId,
+								db: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db,
+								table: sel.table.name,
+							})),
+						React.createElement(
+							"button",
+							{ className: "dbt-browse-close", ref: closeRef, "aria-label": t("close"), onClick: onClose },
+							React.createElement("svg", { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": "true" },
+								React.createElement("path", { d: "M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" })),
+						),
+					),
+					// ---- body：左树 + 右主区 ----
+					React.createElement(
+						"div",
+						{ className: "dbt-browse-body" },
 						React.createElement(
 							"div",
-							{ className: "dbt-seg", style: { alignSelf: "flex-start" } },
-							["structure", "preview"].map((v) =>
-								React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) }, v === "structure" ? t("structure") : t("preview"))),
+							{ className: "dbt-browse-tree" },
+							React.createElement(BrowseTree, {
+								conns, projectPath, sel,
+								onSelect: (s) => setSel(s), // 弹窗内树切表；触发元素仅面板打开时记录，这里不传 el
+							}),
 						),
-						React.createElement("strong", null, (view === "structure" ? t("structure") : t("preview")) + " · " + sel.db + (sel.schemaName ? "." + sel.schemaName : "") + " / " + sel.table.name),
-						view === "structure"
-							? resultTable(
-								[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],
-								schema.map((col) => [col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || ""]),
-							)
-							: React.createElement(
-								React.Fragment,
-								null,
-								preview ? resultTable(preview.columns, preview.rows) : null,
+						React.createElement(
+							"div",
+							{ className: "dbt-browse-main" },
+							// 结构/数据：mini segmented（复用面板同款与 i18n key）
+							React.createElement(
+								"div",
+								{ className: "dbt-browse-tabs" },
 								React.createElement(
 									"div",
-									{ className: "dbt-row", style: { justifyContent: "space-between" } },
-									React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1) }, "‹ " + t("prevPage")),
-									React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
-									React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(sel, page + 1) }, t("nextPage") + " ›"),
+									{ className: "dbt-seg" },
+									["structure", "preview"].map((v) =>
+										React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) },
+											v === "structure" ? t("structure") : t("preview"))),
 								),
-								preview && preview.truncated ? React.createElement("div", { className: "dbt-muted" }, t("previewTruncated")) : null,
 							),
-					)
-					: null,
-			);
+							React.createElement("div", { className: "dbt-browse-content" }, rightPane()),
+						),
+					),
+					// ---- footer：分页条（仅数据预览视图） ----
+					view === "preview" && !loadErr ? React.createElement(
+						"div",
+						{ className: "dbt-browse-footer" },
+						React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1) }, "‹ " + t("prevPage")),
+						React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
+						React.createElement("span", { style: { flex: 1 } }),
+						preview && preview.truncated ? React.createElement("span", { className: "dbt-muted" }, t("previewTruncated")) : null,
+						React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(sel, page + 1) }, t("nextPage") + " ›"),
+					) : null,
+				),
+			));
 		}
 
 		/* ---------------- SQL 控制台 ---------------- */

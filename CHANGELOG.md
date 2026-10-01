@@ -1,5 +1,24 @@
 # Changelog — dsh-db-tool
 
+## 1.5.0
+
+数据浏览面板升级为 Navicat 式近全屏弹窗（纯前端组件化重构，零新增依赖，后端与 HTTP API 零改动）。
+
+### 新增
+
+- **数据浏览 Navicat 式弹窗**：`client/client.js` 将数据浏览拆分为 `BrowseTree` / `BrowseView` / `BrowseDialog` 三组件（对象树逻辑单份，面板与弹窗各持实例、展开状态互不影响）；面板对象树点击表节点即打开近全屏弹窗（92vw×88vh，max 1400×940），左栏 260px 对象树独立滚动，右栏「结构 / 数据预览」Tabs + sticky 表头表格 + 底部分页条（边界沿用面板：第 1 页禁 ‹、`truncated === false` 禁 ›、busy 期间双禁）；请求序号守卫防快速切表旧响应闪现；右栏骨架 / 错误重试 / 空态 / 表格四态互斥（错误就地显示，不走被遮罩遮挡的面板顶部错误区）。
+- **portal 挂载（mountDialog 工厂）**：模块级探测一次，`react-dom` 的 `createPortal` 可用时将弹窗整棵 overlay 树 portal 到 `document.body`（脱离侧栏容器 `overflow` 裁剪，react.dev 官方模态方案）；宿主未提供 `react-dom` 时回退 Panel 内 fixed overlay（与既有 DangerDialog 同模式）。两种挂载 DOM 结构完全一致，CSS 与焦点逻辑无需分支。overlay 根追加 `dbt-browse-root` 辅助类并入既有 `.dbt-panel` token 选择器（dark/light 两处，声明逐字节不变），`--dbt-*` token 与字体对 portal 子树照常生效；`prefers-reduced-transparency` / `prefers-reduced-motion` 三处降级选择器同步覆盖新弹窗。
+- **APG Dialog Modal 可访问性**：对话框容器 `role="dialog"` + `aria-modal="true"` + `aria-labelledby`（指向面包屑标题）；Esc 关闭走 window keydown 的 useEffect 订阅（cleanup 随卸载移除）；挂载瞬间初始焦点落关闭按钮（`aria-label` 本地化，✕ 为 `aria-hidden` SVG）；Tab / Shift+Tab 轻量焦点陷阱在弹窗内循环；关闭后焦点返回打开弹窗的树行（`document.contains` 防御性归属检查）。Esc / 遮罩点击 / ✕ 按钮三路关闭等效。
+- i18n 新增 5 个 key（`browseDialogTitle` / `close` / `emptyStructure` / `emptyData` / `retry`），zh/en 两表同序追加，双语完整（t() 引用 90 = zh 90 = en 90）。
+
+### 修复（双轨审查轮：人工交叉 + ocr/glm-5.3-flash）
+
+- **遮罩误关**（双审查一致命中）：表格内拖选文本滑出弹窗释放时 click 派发在遮罩（mousedown/mouseup 公共祖先）导致误关——遮罩关闭增加 mousedown 归属判断（按下与释放均在遮罩自身才关闭）。
+- **焦点陷阱逃逸**：点击无焦点的左树行后 activeElement 落 body，Tab 事件不经 dialog 冒泡、焦点逃出模态——Tab/Shift+Tab 并入 window keydown 订阅（与 Esc 同层），焦点在弹窗外时拉回弹窗内。
+- **portal 路径文字色失去继承根**（ocr）：挂 `document.body` 后 `color:inherit` 继承 body 而非侧栏容器——新增 `--dbt-text` token（dark/light 两行，族系对齐 `--dbt-text-secondary`）并在 `.dbt-browse-root` 上 `color:var(--dbt-text)`，两条挂载路径渲染统一。
+- **树行键盘可达**：交互树行补 `tabIndex=0` + `role="treeitem"` + Enter/Space 触发（键盘可在模态内切表、关闭后焦点返回真正生效）；已知取舍：全量 tabIndex 使 Tab 循环较长（升级路径 roving tabindex + 方向键）。
+- 分页条常驻（去掉 busy 期间整体卸载，消除底边跳动，仅靠按钮禁用）；删除 CSS 冗余 `align-items:stretch` 与三处无效防御（`.focus` 存在性检查 ×2、`ownerDocument` 样板）。
+
 ## 1.4.1
 
 修复 URL 方式连接的凭据输入与两处 MongoDB URL 正确性问题。
