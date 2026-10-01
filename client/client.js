@@ -463,10 +463,37 @@ window.__ModuleLoader__.load({
 		}
 
 		// --- 弹窗挂载：优先 createPortal 挂 document.body（避免侧栏容器裁剪）；宿主未提供 react-dom 时回退 Panel 内 fixed overlay（DangerDialog 同模式） ---
-		let createPortal = null;
-		try { createPortal = require("react-dom").createPortal; } catch (e) { /* 留 null，走回退 */ }
+		// 三重降级解析（模块级缓存，全模块一次）：①模块加载时同步 require（dsh.client.inject 声明 react-dom 后应成功）
+		// ②宿主模块系统异步 import（ctx.modules，宿主 rc.8+ 提供）③均不可用则保持 Panel 内回退渲染。
+		let portalImpl = null;      // 解析成功的 createPortal（缓存，全模块一次）
+		let portalTried = false;    // 是否已尝试解析（异步 import 只发起一次）
+		let portalPending = null;   // 订阅解析成功的回调列表
+		try {
+			var rd = require("react-dom");
+			if (rd && typeof rd.createPortal === "function") { portalImpl = rd.createPortal.bind(rd); portalTried = true; }
+		} catch (e) { /* 留 null，等异步解析 */ }
+		function resolvePortalAsync(ctx) {
+			if (portalTried) return;
+			portalTried = true;
+			if (portalImpl) return;
+			var mods = ctx && ctx.modules;
+			var p = mods && typeof mods.import === "function" ? mods.import("react-dom") : null;
+			if (p && typeof p.then === "function") {
+				p.then(function (m) {
+					if (m && typeof m.createPortal === "function") {
+						portalImpl = m.createPortal.bind(m);
+						var waiters = portalPending || []; portalPending = null;
+						for (var i = 0; i < waiters.length; i++) waiters[i]();
+					}
+				}).catch(function () { /* 解析失败保持回退渲染 */ });
+			}
+		}
+		function onPortalReady(cb) {
+			if (portalImpl) { cb(); return; }
+			(portalPending = portalPending || []).push(cb);
+		}
 		function mountDialog(children) {
-			return createPortal ? createPortal(children, document.body) : children;
+			return portalImpl ? portalImpl(children, document.body) : children;
 		}
 
 		/* ---------------- 连接管理 ---------------- */
@@ -1306,8 +1333,20 @@ window.__ModuleLoader__.load({
 		}
 
 		function BrowseDialog(props) {
-			const { conns, projectPath, grants, askConfirm, onClose } = props;
+			const { conns, projectPath, grants, askConfirm, onClose, ctx } = props;
 			// grants / askConfirm：预留给后续单元格编辑的危险操作确认通道，本任务先接住不使用
+			// portal 异步解析接入：portalReady 仅用于触发重渲染（mountDialog 内部读 portalImpl）。
+			// createPortal 不换组件实例——portalReady 切换前后是同一 DOM 节点，pos state 保持，居中定位不受 portal 重挂影响。
+			const [portalReady, setPortalReady] = React.useState(!!portalImpl);
+			React.useEffect(() => {
+				resolvePortalAsync(ctx);
+				onPortalReady(function () { setPortalReady(true); });
+				// 诊断：一次性输出（帮助真机排查 iframe 隔离与 portal 解析结果）
+				if (!window.__dbtPortalDiag) {
+					window.__dbtPortalDiag = true;
+					console.info("[dbt] portal:", portalImpl ? "sync/async ok" : "unavailable", "sameDoc:", window.top === window.self);
+				}
+			}, []);
 			const [sel, setSel] = React.useState(null); // 弹窗内当前选中（null=未选表，右栏显示引导空态）
 			const [view, setView] = React.useState("structure"); // structure | preview（纯视图切换，不影响数据加载）
 			const [schema, setSchema] = React.useState([]);
@@ -1742,6 +1781,7 @@ window.__ModuleLoader__.load({
 				// 浮窗常驻：portal 到 body 且在 dbt-view 外，切 tab 时不消失
 				browseOpen ? React.createElement(BrowseDialog, {
 					conns, projectPath, grants, askConfirm,
+					ctx: props.ctx, // 宿主 ctx 透传给浮窗，供 portal 异步解析（ctx.modules.import）
 					onClose: () => setBrowseOpen(false),
 				}) : null,
 			);
@@ -1766,6 +1806,7 @@ window.__ModuleLoader__.load({
 				key: "db-tool-" + String(localeKey || "zh"),
 				visible: props.visible,
 				scope: props.scope,
+				ctx: ctx, // 宿主 ctx 下传，Panel 透传给 BrowseDialog 供 portal 解析
 			});
 		}
 
