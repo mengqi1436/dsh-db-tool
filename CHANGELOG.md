@@ -1,5 +1,24 @@
 # Changelog — dsh-db-tool
 
+## 1.5.1
+
+数据浏览升级为独立浮动窗口 + 全数据库 Navicat 式单元格查看编辑（后端仅 MongoDB 一处小改，其余纯前端；零新增依赖）。
+
+### 新增
+
+- **数据浏览独立浮窗**：单击「数据浏览」标签直接打开浮动窗口（无需先选表）；浮窗为非模态形态——无遮罩、`role="dialog"` 保留但移除 `aria-modal` 与焦点陷阱，主页面在浮窗打开时照常操作；标题栏 `setPointerCapture` 拖动（垂直钳制用浮窗实际高度保证不溢出视口，水平允许拖出一半留 120px 可抓回）；`browseOpen` 状态提升到 Panel 层，浮窗**跨标签常驻**——切到连接管理/SQL 控制台时浮窗保持原位，主页面操作不受影响；标签页内保留提示卡与「打开数据浏览」重开按钮。
+- **左树默认展开第一层级**：`BrowseTree` 新增 `autoExpand`，弹窗挂载即展开全部连接节点（复用既有懒加载，失败仍走就地错误行）；未选表时右栏显示引导空态。
+- **全数据库单元格查看/编辑（Navicat 式）**：`PreviewGrid` 组件——单击任意数据单元格弹出完整值浮层（可复制、NULL 徽标、截断/BLOB 提示），rw 授权下可就地编辑并保存（复用 `execute` API + 危险确认通道，成功后自动重拉当前页）。8 库写回路径：mysql/sqlite（`` `db`.`tbl` ``+`?`）、postgresql/gaussdb（`"schema"."tbl"`+`$n`+database 路由）、oracle/dmdb（`"OWNER"."TBL"`+`:n`）为主键 UPDATE、值全走绑定参数；redis 按键类型映射写白名单命令（hash→HSET、zset score→ZADD、member/set→ZREM+ZADD/SREM+SADD 两步）；mongodb → `updateOne` + `$set`，`_id` 按 ObjectId 走 `$oid` 过滤、date 列包 `$date`。安全防线：ro 授权整体禁编辑；截断值与 BLOB 拒就地编辑（防残缺文本覆盖真实数据）；无主键表、redis list/stream、mongo `_id` 与定位列只读并提示原因。
+- **Mongo Extended JSON 复活（唯一后端改动）**：`lib/adapters/mongodb` 新增 `reviveEjson`——execute 的文档级 DML（insert/update/replace/delete）入参递归复活 `{"$oid":24位hex}`→ObjectId、`{"$date"}`→Date（vendor 缺失时降级原样）；非法 `$oid` 抛中文可读错误；集合级操作不复活，`assertNoWhere` 注入防线保持。
+- **Apple 风格重排**：浮窗标题 17px/600、弹窗 14px、树行 14px、单元格 13px 等宽；表格列间 hairline 分隔 + 表头加深 + 行悬停；浮窗 16px 圆角 + 分层投影；`prefers-reduced-transparency`/light 降级同步。
+- i18n 追加 15 个 key（浮窗提示 3 + 单元格编辑 12），zh/en 双语完整。
+
+### 测试
+
+- 新增 `tests/client/preview-edit.spec.ts`（29 用例：方言映射、标识符转义、参数绑定不含值拼接、截断/BLOB 拒编辑、redis 五类键命令映射、mongo `$oid`/`$date` filter 构造、NULL 语义）。
+- `tests/adapters-nosql-ent/mongodb.spec.ts` 补 reviveEjson 边界 6 用例（数组递归、非字符串/超长 hex `$oid`、单键非 EJSON 对象、非法类型 `$date`）。
+- 变异测试达标：`client/client.js` 纯函数层 91.32%（covered 92.51%）；reviveEjson 区段报告 87%（经变异注入实验证明剩余存活体全部可杀，报告值为保守下限）。`stryker.config.json` 关闭 vitest `related`（spec 经 `readFileSync + new Function` 动态加载源文件时 related 发现不到测试）。
+
 ## 1.5.0
 
 数据浏览面板升级为 Navicat 式近全屏弹窗（纯前端组件化重构，零新增依赖，后端与 HTTP API 零改动）。
