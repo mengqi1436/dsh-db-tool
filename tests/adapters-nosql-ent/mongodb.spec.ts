@@ -292,6 +292,42 @@ describe('execute 文档级 DML 的 Extended JSON 复活', () => {
       a.execute('{"updateOne":"u","filter":{"_id":{"$oid":"zz"}},"update":{"$set":{"x":1}}}'),
     ).rejects.toThrow('$oid');
   });
+  it('非字符串 $oid 同样抛错（typeof 防线）', async () => {
+    const { client } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await expect(
+      a.execute('{"updateOne":"u","filter":{"_id":{"$oid":123}},"update":{"$set":{"x":1}}}'),
+    ).rejects.toThrow('$oid');
+  });
+  it('24 位合法前缀但超长的 $oid 抛错（正则全锚定）', async () => {
+    const { client } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await expect(
+      a.execute('{"updateOne":"u","filter":{"_id":{"$oid":"507f1f77bcf86cd799439011FF"}},"update":{"$set":{"x":1}}}'),
+    ).rejects.toThrow('$oid');
+  });
+  it('数组递归复活：insertMany documents 内的 $oid/$date 逐元素复活', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.execute('{"insertMany":"u","documents":[{"a":{"$oid":"507f1f77bcf86cd799439011"}},{"b":{"$date":"2024-01-02T03:04:05.000Z"}}]}');
+    const docs = coll.insertMany.mock.calls[0]![0] as { a?: unknown; b?: unknown }[];
+    expect((docs[0]!.a as { toHexString(): string }).toHexString()).toBe('507f1f77bcf86cd799439011');
+    expect(docs[1]!.b).toBeInstanceOf(Date);
+  });
+  it('单键非 EJSON 对象原样保留（不误入 $oid/$date 分支）', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.execute('{"updateOne":"u","filter":{"name":"x"},"update":{"$set":{"age":2}}}');
+    const filter = coll.updateOne.mock.calls[0]![0] as { name: string };
+    expect(filter).toEqual({ name: 'x' });
+  });
+  it('$date 非法类型（null）原样保留，不误包 Date', async () => {
+    const { client, coll } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await a.execute('{"updateOne":"u","filter":{"_id":"k1"},"update":{"$set":{"born":{"$date":null}}}}');
+    const update = coll.updateOne.mock.calls[0]![1] as { $set: { born: unknown } };
+    expect(update.$set.born).toEqual({ $date: null });
+  });
   it('createIndex 的 index 规格不复活（集合级操作原样透传）', async () => {
     const { client, coll } = makeClient();
     const a = await createMongoAdapter(conn, { client });

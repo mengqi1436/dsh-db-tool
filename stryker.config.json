@@ -8,6 +8,9 @@
     "lib/index.ts",
     "lib/http/index.ts"
   ],
+  "vitest": {
+    "related": false
+  },
   "timeoutMS": 300000,
   "timeoutFactor": 1.5,
   "concurrency": 4
