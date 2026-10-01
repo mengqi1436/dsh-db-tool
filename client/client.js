@@ -1274,8 +1274,9 @@ window.__ModuleLoader__.load({
 								React.createElement("textarea", { value: text, onChange: (e) => setText(e.target.value) }),
 								React.createElement(
 									"label",
-									{ className: "dbt-row" },
-									React.createElement("input", { type: "checkbox", checked: editNull, onChange: (e) => setEditNull(e.target.checked) }),
+									// 不用 .dbt-row：全局 input flex:1 会把 checkbox 拉伸占满、标签被推到远端（视觉审查命中）
+									{ style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", width: "fit-content" } },
+									React.createElement("input", { type: "checkbox", style: { flex: "none", minWidth: 0, width: "auto" }, checked: editNull, onChange: (e) => setEditNull(e.target.checked) }),
 									t("setNull"),
 								),
 								React.createElement(
@@ -1353,9 +1354,11 @@ window.__ModuleLoader__.load({
 			function onHeaderPointerMove(e) {
 				if (!draggingRef.current) return;
 				const h = window.innerHeight || 800, w = window.innerWidth || 1200;
-				// clamp：top∈[0, 视口高-80] 防拖出上/下缘；left∈[-(宽-120), 视口宽-120] 至少留 120px 可抓回（宽按 1100 常量估算）
+				// 垂直 clamp 用浮窗实际高度：整体保持在视口内（视觉审查：底部分页栏不得溢出被裁）；
+				// 水平放宽到至少留 120px 可抓回（允许左右拖出一半）
+				const dlgH = (e.currentTarget.parentElement && e.currentTarget.parentElement.offsetHeight) || 720;
 				setPos({
-					top: Math.min(Math.max(e.clientY - draggingRef.current.dy, 0), h - 80),
+					top: Math.min(Math.max(e.clientY - draggingRef.current.dy, 0), Math.max(0, h - dlgH)),
 					left: Math.min(Math.max(e.clientX - draggingRef.current.dx, -(1100 - 120)), w - 120),
 				});
 			}
@@ -1709,7 +1712,8 @@ window.__ModuleLoader__.load({
 					view === "browse" ? React.createElement(
 						"div",
 						{ className: "dbt-card" },
-						React.createElement("div", { className: "dbt-muted" }, t("browsePanelHint")),
+						// 主提示用正常文字色（dbt-muted 11px 次要色压深底对比不足，视觉审查命中）
+						React.createElement("div", { style: { fontSize: 13 } }, t("browsePanelHint")),
 						React.createElement("div", { className: "dbt-row" },
 							React.createElement("button", { className: "dbt-btn primary", onClick: () => setBrowseOpen(true) }, t("reopenBrowse"))),
 					) : null,
