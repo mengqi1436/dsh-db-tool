@@ -90,6 +90,19 @@ window.__ModuleLoader__.load({
 			emptyStructure: "暂无字段信息",
 			emptyData: "暂无数据",
 			retry: "重试",
+			// 单元格查看/编辑（Navicat 式就地写回）
+			editCell: "编辑",
+			cellValue: "完整值",
+			copyBtn: "复制",
+			copied: "已复制",
+			setNull: "设为 NULL",
+			cellSaving: "保存中…",
+			readOnlyRo: "只读授权，不可编辑",
+			noPkHint: "该表无主键，不支持就地编辑",
+			truncatedNoEdit: "值已截断显示，就地编辑可能覆盖数据，请改用 SQL 控制台",
+			blobNoEdit: "二进制值不支持就地编辑",
+			redisTypeRo: "Redis 该类型不支持就地编辑",
+			cellSaved: "已保存",
 			// SQL 控制台
 			modeQuery: "只读查询",
 			modeExecute: "写入执行",
@@ -184,6 +197,19 @@ window.__ModuleLoader__.load({
 			emptyStructure: "No columns",
 			emptyData: "No rows",
 			retry: "Retry",
+			// Cell view/edit (Navicat-style in-place write-back)
+			editCell: "Edit",
+			cellValue: "Full value",
+			copyBtn: "Copy",
+			copied: "Copied",
+			setNull: "Set NULL",
+			cellSaving: "Saving…",
+			readOnlyRo: "Read-only grant; editing disabled",
+			noPkHint: "No primary key; in-place editing unavailable",
+			truncatedNoEdit: "Value shown truncated; edit via SQL Console instead",
+			blobNoEdit: "Binary values cannot be edited here",
+			redisTypeRo: "This Redis type cannot be edited here",
+			cellSaved: "Saved",
 			modeQuery: "query (read-only)",
 			modeExecute: "execute (write)",
 			modeScript: "script",
@@ -445,6 +471,134 @@ window.__ModuleLoader__.load({
 					),
 				),
 			);
+		}
+
+		/* ---------------- 单元格写回：方言与命令构造（纯函数层，PreviewGrid 与测试共用） ---------------- */
+		// 统一返回形状：{ ok:true, ops:[{statement, params?, database?}] }（多条顺序执行，如 redis 两步）
+		// 或 { ok:false, error:"<i18n key>" }（error 为 key 名，组件侧 t() 本地化；null 表示通用错误）
+
+		// 方言判定：q=问号占位符（mysql/sqlite）、dollar=$n（postgresql/gaussdb）、colon=:n（oracle/dmdb）
+		function dialectOf(kind) {
+			if (kind === "mysql" || kind === "sqlite") return "q";
+			if (kind === "postgresql" || kind === "gaussdb") return "dollar";
+			if (kind === "oracle" || kind === "dmdb") return "colon";
+			if (kind === "redis") return "redis";
+			if (kind === "mongodb") return "mongo";
+			return null;
+		}
+
+		// 标识符引用：mysql 用反引号（内部双写转义），其余统一双引号（内部双写转义）
+		function quoteIdent(kind, name) {
+			const q = kind === "mysql" ? "`" : "\"";
+			return q + String(name).split(q).join(q + q) + q;
+		}
+
+		// 单元格文本 → 写回值：JSON 可解析且结果非字符串才用解析值（类型不漂移：显示 "123" 保持字符串，
+		// 数字列显示 123 → parse 得 number 123）
+		function parseCellText(text) {
+			try {
+				const v = JSON.parse(text);
+				if (typeof v !== "string") return v;
+			} catch (e) { /* 非 JSON 按原字符串 */ }
+			return text;
+		}
+
+		// 截断/BLOB 标记（后端 normalize 产物）：命中即禁止就地编辑，防旧值覆盖真实数据
+		function isTruncatedCell(text) {
+			const s = String(text);
+			// sql-shared 嵌套 JSON 以 "…[已截断]" 结尾；redis/mongo/oracle/dmdb 的 "…[截断,共N字符]"
+			// 结尾是"字符]"，endsWith 永不命中，故该形态用 includes 检测
+			return s.endsWith("…[已截断]") || s.includes("…[截断,共");
+		}
+		function isBlobCell(text) {
+			const s = String(text);
+			return s.startsWith("[BLOB ") && s.endsWith("bytes]");
+		}
+
+		// SQL 6 库 UPDATE 构造：全限定表名 + 方言占位符 + 主键 WHERE；params 顺序 = [新值(非 NULL 时), ...pkValues]
+		function buildUpdate(kind, tableName, dbRef, schemaName, colName, newRawText, isNull, pkCols, pkValues) {
+			if (!Array.isArray(pkCols) || pkCols.length === 0 || !colName || !tableName) {
+				return { ok: false, error: "noPkHint" };
+			}
+			// 表全限定：pg/gauss 用 schema 前缀（库由 execute 的 database 参数路由，语句内不写库名）；
+			// mysql 带库名（adapter 无 database 路由）；oracle/dmdb 的 dbRef 即 OWNER；sqlite 仅表名
+			let table;
+			if (kind === "postgresql" || kind === "gaussdb") {
+				table = schemaName
+					? quoteIdent(kind, schemaName) + "." + quoteIdent(kind, tableName)
+					: quoteIdent(kind, tableName);
+			} else if (kind === "mysql" || kind === "oracle" || kind === "dmdb") {
+				table = quoteIdent(kind, dbRef) + "." + quoteIdent(kind, tableName);
+			} else {
+				table = quoteIdent(kind, tableName);
+			}
+			const dialect = dialectOf(kind);
+			// 占位符编号按 params 顺序：新值（非 NULL 时占 1 号）→ 主键逐列
+			const params = [];
+			const ph = (i) => (dialect === "dollar" ? "$" + i : dialect === "colon" ? ":" + i : "?");
+			let setSql;
+			if (isNull) {
+				setSql = quoteIdent(kind, colName) + " = NULL";
+			} else {
+				params.push(parseCellText(newRawText));
+				setSql = quoteIdent(kind, colName) + " = " + ph(params.length);
+			}
+			const wheres = pkCols.map((c, i) => quoteIdent(kind, c) + " = " + ph((isNull ? 0 : 1) + i + 1));
+			for (const v of (pkValues || [])) params.push(v);
+			return {
+				ok: true,
+				ops: [{
+					statement: "UPDATE " + table + " SET " + setSql + " WHERE " + wheres.join(" AND "),
+					params,
+					database: kind === "sqlite" ? undefined : dbRef,
+				}],
+			};
+		}
+
+		// Redis 写命令构造（命令数组 JSON 化后经 execute 透传）：仅数据位（value/score/member）可改，
+		// 键名/字段名只读；list/stream 与 NULL 写入不支持
+		function buildRedisOp(tableName, tableType, columns, rowValues, colName, newRawText, isNull) {
+			if (tableType === "list" || tableType === "stream" || isNull) {
+				return { ok: false, error: "redisTypeRo" };
+			}
+			const valueOf = (col) => rowValues[columns.indexOf(col)];
+			const one = (args) => ({ ok: true, ops: [{ statement: JSON.stringify(args) }] });
+			const two = (a, b) => ({ ok: true, ops: [{ statement: JSON.stringify(a) }, { statement: JSON.stringify(b) }] });
+			if (tableType === "string") {
+				if (colName === "value") return one(["SET", tableName, newRawText]);
+				if (colName === "key") return { ok: false, error: "readOnlyRo" };
+			} else if (tableType === "hash") {
+				if (colName === "value") return one(["HSET", tableName, valueOf("field"), newRawText]);
+				if (colName === "field") return { ok: false, error: "readOnlyRo" };
+			} else if (tableType === "zset") {
+				if (colName === "score") {
+					const score = Number(newRawText);
+					if (!Number.isFinite(score)) return { ok: false, error: null };
+					return one(["ZADD", tableName, score, valueOf("member")]);
+				}
+				if (colName === "member") {
+					// member 是有序集身份值：两步「删旧加新」，score 保持原值
+					return two(["ZREM", tableName, valueOf("member")], ["ZADD", tableName, valueOf("score"), newRawText]);
+				}
+			} else if (tableType === "set") {
+				if (colName === "member") return two(["SREM", tableName, valueOf("member")], ["SADD", tableName, newRawText]);
+			}
+			return { ok: false, error: "redisTypeRo" };
+		}
+
+		// MongoDB updateOne 命令文档构造：$set 单字段；filter 的 _id 按主键类型用 $oid 表达，
+		// date 列字符串值包 $date（Extended JSON 由服务端 reviveEjson 复活为 BSON 类型）
+		function buildMongoOp(tableName, idValue, idIsObjectId, colName, newRawText, isNull, colDataType) {
+			if (colName === "_id") return { ok: false, error: "readOnlyRo" };
+			let value = isNull ? null : parseCellText(newRawText);
+			if (!isNull && typeof value === "string" && typeof colDataType === "string" && colDataType.startsWith("date")) {
+				value = { "$date": value };
+			}
+			const filter = idIsObjectId ? { _id: { "$oid": idValue } } : { _id: idValue };
+			return {
+				ok: true,
+				ops: [{ statement: JSON.stringify({ updateOne: tableName, filter, update: { "$set": { [colName]: value } } }) }],
+			};
 		}
 
 		function auditTable(audit) {
@@ -966,6 +1120,179 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		/* ---------------- PreviewGrid：数据预览网格（Navicat 式单元格查看/编辑） ---------------- */
+		// props 契约：{ preview:{columns,rows,rowCount,truncated?}, schema:ColumnInfo[]（SQL/mongo；redis 为
+		// type/encoding/ttl/length，无 PRI）, kind, editable:rw 授权布尔, tableType:sel.table.type（redis 键类型）,
+		// tableName, dbRef, schemaName, connId, projectPath, onSaved:保存成功回调, askConfirm:runGuarded 确认回调 }
+		// redis 各键类型可就地编辑的数据列（与 buildRedisOp 分支保持一致；键名/字段名等定位列只读）
+		const REDIS_EDITABLE_COLS = {
+			string: ["value"],
+			hash: ["value"],
+			zset: ["score", "member"],
+			set: ["member"],
+		};
+		function PreviewGrid(props) {
+			const { preview, schema, kind, editable, tableType, tableName, dbRef, schemaName, connId, projectPath, onSaved, askConfirm } = props;
+			const [pop, setPop] = React.useState(null); // {rowIdx, colName, cell} 单元格浮层
+			const [editing, setEditing] = React.useState(false);
+			const [text, setText] = React.useState(""); // 编辑态 textarea 值（进入浮层时就位）
+			const [editNull, setEditNull] = React.useState(false); // 「设为 NULL」勾选（null 单元格默认勾选）
+			const [cellErr, setCellErr] = React.useState("");
+			const [busy, setBusy] = React.useState(false);
+			const [copied, setCopied] = React.useState(false);
+			const isMongo = kind === "mongodb";
+			// SQL 系主键列名（schema 中 key==="PRI"）；mongo 由 _id 单列承担，redis 无主键概念
+			const pkCols = (!isMongo && kind !== "redis" && Array.isArray(schema))
+				? schema.filter((c) => c && c.key === "PRI").map((c) => c.name)
+				: [];
+
+			// 打开浮层（查看态）：编辑态初值一并就位——textarea 空 ↔ 勾选设为 NULL
+			function openCell(rowIdx, colName, cell) {
+				setPop({ rowIdx, colName, cell });
+				setEditing(false);
+				setCellErr("");
+				setEditNull(cell === null);
+				setText(cell === null ? "" : String(cell));
+			}
+			function copyCell() {
+				if (!pop) return;
+				navigator.clipboard.writeText(String(pop.cell)).then(() => {
+					setCopied(true);
+					window.setTimeout(() => setCopied(false), 1500);
+				}, () => { /* 剪贴板不可用（无权限等）：静默，按钮文案不变 */ });
+			}
+
+			// 单元格编辑资格：返回 null=可编辑，否则为原因 i18n key（浮层 .dbt-readhint 展示）
+			function cellReason(colName, shown) {
+				if (!editable || !dialectOf(kind)) return "readOnlyRo";
+				if (isMongo) return colName === "_id" ? "readOnlyRo" : null;
+				if (kind === "redis") {
+					if ((tableType === "string" && colName === "key") || (tableType === "hash" && colName === "field")) return "readOnlyRo";
+					return (REDIS_EDITABLE_COLS[tableType] || []).includes(colName) ? null : "redisTypeRo";
+				}
+				// SQL 系：整表无主键 → 只读；截断/BLOB 单元格 → 防旧值覆盖
+				if (pkCols.length === 0) return "noPkHint";
+				if (isTruncatedCell(shown)) return "truncatedNoEdit";
+				if (isBlobCell(shown)) return "blobNoEdit";
+				return null;
+			}
+
+			// 保存：构造写回命令（按 kind 分派）→ 顺序执行（redis 两步）→ 全部成功关浮层并回调 onSaved
+			async function saveCell() {
+				if (!pop) return;
+				setCellErr("");
+				const { rowIdx, colName } = pop;
+				const row = (preview.rows || [])[rowIdx] || [];
+				let r;
+				if (kind === "redis") {
+					r = buildRedisOp(tableName, tableType, preview.columns, row, colName, text, editNull);
+				} else if (isMongo) {
+					const idIdx = preview.columns.indexOf("_id");
+					const idCol = (schema || []).find((c) => c && c.name === "_id");
+					const colInfo = (schema || []).find((c) => c && c.name === colName);
+					r = buildMongoOp(tableName, idIdx >= 0 ? row[idIdx] : undefined,
+						!!(idCol && typeof idCol.dataType === "string" && idCol.dataType.startsWith("ObjectId")),
+						colName, text, editNull, colInfo ? colInfo.dataType : undefined);
+				} else {
+					r = buildUpdate(kind, tableName, dbRef, schemaName, colName, text, editNull, pkCols,
+						pkCols.map((c) => row[preview.columns.indexOf(c)]));
+				}
+				if (!r.ok) { setCellErr(r.error ? t(r.error) : t("error")); return; }
+				setBusy(true);
+				try {
+					for (const op of r.ops) {
+						await runGuarded(
+							(challengeId) => api("execute", { method: "POST", body: { projectPath, connId, statement: op.statement, params: op.params, database: op.database, challengeId } }),
+							askConfirm,
+						);
+					}
+					setPop(null);
+					if (onSaved) onSaved();
+				} catch (e) {
+					// 取消确认（e.cancelled）不算失败：浮层保持打开供重试
+					if (!e.cancelled) setCellErr(t("error") + ": " + String(e && e.message ? e.message : e));
+				} finally {
+					setBusy(false);
+				}
+			}
+
+			const popReason = pop ? cellReason(pop.colName, pop.cell === null ? "NULL" : String(pop.cell)) : null;
+			return React.createElement(
+				"div",
+				{ className: "dbt-browse-root", style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } },
+				// 顶层只读提示：授权为 ro 时整格只读，单元格仍可点击查看完整值
+				!editable ? React.createElement("div", { className: "dbt-readhint" }, t("readOnlyRo")) : null,
+				// relative 容器承载单元格浮层（简化定位：水平居中贴底）
+				React.createElement(
+					"div",
+					{ style: { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
+					React.createElement(
+						"div",
+						{ className: "dbt-browse-tablewrap" },
+						React.createElement(
+							"table",
+							{ className: "dbt-table" },
+							React.createElement(
+								"thead",
+								null,
+								React.createElement("tr", null, (preview.columns || []).map((c, i) => React.createElement("th", { key: i }, c))),
+							),
+							React.createElement(
+								"tbody",
+								null,
+								(preview.rows || []).map((row, i) =>
+									React.createElement("tr", { key: i },
+										(preview.columns || []).map((colName, j) =>
+											React.createElement("td", { key: j, title: row[j] === null ? "NULL" : String(row[j]) },
+												React.createElement("button", {
+													className: "dbt-cellbtn", type: "button",
+													onClick: () => openCell(i, colName, row[j]),
+												}, row[j] === null ? React.createElement("span", { className: "dbt-nullchip" }, "NULL") : String(row[j]))))),
+							),
+						),
+					),
+					pop ? React.createElement(
+						"div",
+						{ className: "dbt-cellpop", style: { position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 12 } },
+						React.createElement("strong", null, t("cellValue") + " · " + pop.colName),
+						React.createElement(
+							"div",
+							{ className: "dbt-cellpop-value" },
+							pop.cell === null ? React.createElement("span", { className: "dbt-nullchip" }, "NULL") : String(pop.cell),
+						),
+						popReason ? React.createElement("div", { className: "dbt-readhint" }, t(popReason)) : null,
+						cellErr ? React.createElement("div", { className: "dbt-err" }, cellErr) : null,
+						editing
+							? React.createElement(
+								"div",
+								{ className: "dbt-celledit" },
+								React.createElement("textarea", { value: text, onChange: (e) => setText(e.target.value) }),
+								React.createElement(
+									"label",
+									{ className: "dbt-row" },
+									React.createElement("input", { type: "checkbox", checked: editNull, onChange: (e) => setEditNull(e.target.checked) }),
+									t("setNull"),
+								),
+								React.createElement(
+									"div",
+									{ className: "dbt-row" },
+									React.createElement("button", { className: "dbt-btn primary", disabled: busy, onClick: saveCell }, busy ? t("cellSaving") : t("save")),
+									React.createElement("button", { className: "dbt-btn", disabled: busy, onClick: () => setEditing(false) }, t("cancel")),
+								),
+							)
+							: React.createElement(
+								"div",
+								{ className: "dbt-cellpop-actions" },
+								React.createElement("button", { className: "dbt-btn", onClick: copyCell }, copied ? t("copied") : t("copyBtn")),
+								popReason === null ? React.createElement("button", { className: "dbt-btn primary", onClick: () => setEditing(true) }, t("editCell")) : null,
+								React.createElement("button", { className: "dbt-btn", onClick: () => setPop(null) }, t("close")),
+							),
+						) : null,
+					),
+				),
+			);
+		}
+
 		// Navicat 式浏览弹窗：左树选库-表，右看字段+数据（近全屏模态）
 		function BrowseDialog(props) {
 			const { initialSel, conns, projectPath, onClose } = props;
@@ -1412,6 +1739,11 @@ window.__ModuleLoader__.load({
 		}
 		exports.apply = apply;
 		exports.inject = inject;
+		// 测试面：单元格写回纯函数（单测直接断言命令构造，无需起 React/HTTP）
+		exports.__testables = {
+			dialectOf, quoteIdent, parseCellText, isTruncatedCell, isBlobCell,
+			buildUpdate, buildRedisOp, buildMongoOp,
+		};
 		return module.exports;
 	},
 });
