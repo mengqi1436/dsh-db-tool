@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
 
 		// --- i18n（dsh-better-sidebar 同款模式）---
 		// i18n 字典/HTTP 封装/CSS/对话框均无单元断言，仅变异下方纯函数层（Stryker 区段指令需精确匹配，不得带后缀文本）
-	// Stryker disable start
+	// Stryker disable all
 	const LOCALE_NS = "dbTool";
 		const zh = {
 			tabTitle: "数据库",
@@ -500,9 +500,8 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		// Stryker disable end
-
 	/* ---------------- 单元格写回：方言与命令构造（纯函数层，PreviewGrid 与测试共用） ---------------- */
+		// Stryker restore all（以下至 buildMongoOp 为变异目标区）
 		// 统一返回形状：{ ok:true, ops:[{statement, params?, database?}] }（多条顺序执行，如 redis 两步）
 		// 或 { ok:false, error:"<i18n key>" }（error 为 key 名，组件侧 t() 本地化；null 表示通用错误）
 
@@ -630,6 +629,7 @@ window.__ModuleLoader__.load({
 			};
 		}
 
+		// Stryker disable all（buildMongoOp 之后：以下 auditTable/KIND_DEFAULTS/buildEditForm 为连接表单工具，无单元断言）
 		function auditTable(audit) {
 			return resultTable(
 				[t("auditTime"), t("auditAction"), t("auditConn"), t("auditDetail")],
@@ -690,7 +690,7 @@ window.__ModuleLoader__.load({
 		}
 
 	// UI 组件渲染层无单元断言（纯函数层止于此），禁用至文件尾
-	// Stryker disable start
+	// Stryker disable all
 	function ConnForm(props) {
 			// 新建（无 initial）默认分字段模式并预填官方默认值；编辑保持用户数据原样
 			const [form, setForm] = React.useState(() => props.initial || freshForm());
@@ -1799,4 +1799,4 @@ window.__ModuleLoader__.load({
 		return module.exports;
 	},
 });
-// Stryker disable end
+// Stryker restore all

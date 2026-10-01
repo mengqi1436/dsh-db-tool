@@ -76,11 +76,15 @@ describe('isTruncatedCell / isBlobCell', () => {
 		expect(T.isTruncatedCell('x…[已截断]')).toBe(true);
 		expect(T.isTruncatedCell('x…[截断,共1200字符]')).toBe(true);
 		expect(T.isTruncatedCell('普通值')).toBe(false);
+		// 标记出现在值中部（非结尾）不视为截断；右标记用 endsWith 判定
+		expect(T.isTruncatedCell('x…[已截断]y')).toBe(false);
 	});
 	it('识别 BLOB 占位', () => {
 		expect(T.isBlobCell('[BLOB 4096 bytes]')).toBe(true);
 		expect(T.isBlobCell('[BLOB')).toBe(false);
 		expect(T.isBlobCell('bytes]')).toBe(false);
+		// 缺右括号不视为 BLOB（endsWith 全串匹配）
+		expect(T.isBlobCell('[BLOB 40 bytes')).toBe(false);
 	});
 });
 
@@ -132,6 +136,20 @@ describe('buildUpdate（SQL 6 库）', () => {
 		expect(r.ops[0]!.params).toEqual([1, 1, 'x']);
 	});
 
+	it('dollar 方言复合主键：占位符序号新值占 $1、主键依次 $2/$3', () => {
+		const r = T.buildUpdate('postgresql', 't', 'db', 'public', 'v', '9', false, ['a', 'b'], [1, 'x']);
+		expect(r.ops[0]!.statement).toBe('UPDATE "public"."t" SET "v" = $1 WHERE "a" = $2 AND "b" = $3');
+		expect(r.ops[0]!.params).toEqual([9, 1, 'x']);
+	});
+
+	it('postgresql 无 schema：语句仅表名；dmdb 走 owner 全限定', () => {
+		const pg = T.buildUpdate('postgresql', 'users', 'shop', null, 'name', 'A', false, ['id'], [1]);
+		expect(pg.ops[0]!.statement).toBe('UPDATE "users" SET "name" = $1 WHERE "id" = $2');
+		const dm = T.buildUpdate('dmdb', 'T', 'SYSDBA', null, 'V', '2', false, ['ID'], [7]);
+		expect(dm.ops[0]!.statement).toBe('UPDATE "SYSDBA"."T" SET "V" = :1 WHERE "ID" = :2');
+		expect(dm.ops[0]!.database).toBe('SYSDBA');
+	});
+
 	it('值不经拼接：文本值只出现在 params，语句字符串不含值', () => {
 		const evil = "x'; DROP TABLE users; --";
 		const r = T.buildUpdate('mysql', 'users', 'shop', null, 'name', evil, false, pk, pkVals);
@@ -181,10 +199,17 @@ describe('buildRedisOp', () => {
 		expect(r.ops[0]!.statement).toBe(JSON.stringify(['SET', 'user:1', '李四']));
 		expect(T.buildRedisOp('user:1', 'string', ['key', 'value'], ['user:1', 'x'], 'key', 'y', false).ok).toBe(false);
 	});
-	it('list/stream 与 NULL 拒绝', () => {
-		expect(T.buildRedisOp('q', 'list', ['value'], ['x'], 'value', 'y', false).error).toBe('redisTypeRo');
+	it('list/stream 与 NULL 拒绝（且 ok 均为 false）', () => {
+		const list = T.buildRedisOp('q', 'list', ['value'], ['x'], 'value', 'y', false);
+		expect(list.ok).toBe(false);
+		expect(list.error).toBe('redisTypeRo');
 		expect(T.buildRedisOp('s', 'stream', ['id', 'field', 'value'], ['1', 'f', 'v'], 'value', 'y', false).error).toBe('redisTypeRo');
 		expect(T.buildRedisOp('cfg', 'hash', cols, row, 'value', '', true).error).toBe('redisTypeRo');
+	});
+	it('各类型不支持的列一律 redisTypeRo（hash.score / set.score / string.field）', () => {
+		expect(T.buildRedisOp('cfg', 'hash', cols, row, 'score', '1', false).error).toBe('redisTypeRo');
+		expect(T.buildRedisOp('tags', 'set', ['member'], ['a'], 'score', '1', false).error).toBe('redisTypeRo');
+		expect(T.buildRedisOp('k', 'string', ['key', 'value'], ['k', 'v'], 'field', 'x', false).error).toBe('redisTypeRo');
 	});
 	it('score 非数字拒绝（error 为 null，组件兜底通用错误）', () => {
 		const r = T.buildRedisOp('rank', 'zset', ['member', 'score'], ['alice', '96.5'], 'score', 'abc', false);
@@ -210,6 +235,18 @@ describe('buildMongoOp', () => {
 		expect(JSON.parse(d.ops[0]!.statement).update.$set.created).toEqual({ $date: '2026-05-01T00:00:00.000Z' });
 		const n = T.buildMongoOp('users', hex, true, 'age', '', true, 'number (inferred)');
 		expect(JSON.parse(n.ops[0]!.statement).update.$set.age).toBe(null);
+	});
+	it('$date 类型守卫：仅字符串值 + date 型列才包裹', () => {
+		const hex = '652a1b2c3d4e5f6a7b8c9d0e';
+		// 数字值 + date 列：不包 $date（数字时间戳语义交由用户自行表达）
+		const num = T.buildMongoOp('users', hex, true, 'created', '1735689600000', false, 'date (inferred)');
+		expect(JSON.parse(num.ops[0]!.statement).update.$set.created).toBe(1735689600000);
+		// 字符串值 + 非 date 列：不包（数字文本仍按类型规则解析为 number）
+		const str = T.buildMongoOp('users', hex, true, 'name', '2026', false, 'string (inferred)');
+		expect(JSON.parse(str.ops[0]!.statement).update.$set.name).toBe(2026);
+		// colDataType 缺失：不包
+		const noType = T.buildMongoOp('users', hex, true, 'created', '2026-05-01', false, undefined);
+		expect(JSON.parse(noType.ops[0]!.statement).update.$set.created).toBe('2026-05-01');
 	});
 	it('字符串 _id：filter 直值', () => {
 		const r = T.buildMongoOp('users', 'abc123', false, 'name', 'Bob', false, 'string');
