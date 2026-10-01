@@ -1,5 +1,16 @@
 # Changelog — dsh-db-tool
 
+## 1.5.3
+
+数据浏览浮窗升级为全局弹窗——浮窗此前渲染在侧边栏 Panel 子树内被容器裁剪，只能覆盖侧栏区域；现 portal 到 `document.body` 后覆盖整个应用窗口（含主对话区）。
+
+### 修复
+
+- **浮窗被侧栏容器裁剪（根因修复）**：浮窗此前渲染在侧边栏 Panel 子树内，被容器 `overflow` 裁剪只能覆盖侧栏区域——`require("react-dom")` 在宿主模块系统下失败后走了 Panel 内回退路径。现 `mountDialog` 三重降级解析 portal：①同步 `require("react-dom")`（`dsh.client.inject` 新增声明 react-dom）；②宿主模块系统 `ctx.modules.import("react-dom")` 异步解析后重挂到 `document.body`；③均不可用时保持现状并输出一次性诊断日志（含 `window.top === window.self` 判断与 portal 解析结果，供真机排查）。
+- **定位与拖动行为不变、范围升级**：浮窗 portal 到全局 body 后，现有居中定位与拖动钳制自动升级为全应用视口坐标（覆盖含主对话区的整个窗口），交互行为不变。
+
+仅前端改动（`client/client.js` + `package.json` manifest），`dist/lib` 零改动，零新增依赖。
+
 ## 1.5.2
 
 修复数据浏览浮窗在窄视口（桌面端侧栏 iframe，宽约 875px）下的定位与拖动问题。
