@@ -1345,8 +1345,18 @@ window.__ModuleLoader__.load({
 				if (closeRef.current) closeRef.current.focus();
 			}, []);
 
-			// 拖动定位：初始停靠视口右上（宽度按 1100 常量估算，.dbt-browse-dialog 为 max-width:1400 的自适应宽）
-			const [pos, setPos] = React.useState(() => ({ top: 72, left: Math.max(12, (window.innerWidth || 1200) - 1100 - 24) }));
+			// 拖动定位：首帧给个保守值，mount 后按浮窗实测尺寸居中（侧栏 iframe 视口窄，常量估宽会错位）
+			const dialogRef2 = React.useRef(null);
+			const [pos, setPos] = React.useState(() => ({ top: 72, left: 12 }));
+			React.useEffect(() => {
+				const el = dialogRef2.current;
+				if (!el) return;
+				const w = window.innerWidth || 1200, h = window.innerHeight || 800;
+				setPos({
+					top: Math.max(0, Math.round((h - el.offsetHeight) / 2)),
+					left: Math.max(0, Math.round((w - el.offsetWidth) / 2)),
+				});
+			}, []);
 			const draggingRef = React.useRef(null); // {dx, dy}
 			const [dragging, setDragging] = React.useState(false);
 			function stopDrag() { draggingRef.current = null; setDragging(false); }
@@ -1360,12 +1370,13 @@ window.__ModuleLoader__.load({
 			function onHeaderPointerMove(e) {
 				if (!draggingRef.current) return;
 				const h = window.innerHeight || 800, w = window.innerWidth || 1200;
-				// 垂直 clamp 用浮窗实际高度：整体保持在视口内（视觉审查：底部分页栏不得溢出被裁）；
-				// 水平放宽到至少留 120px 可抓回（允许左右拖出一半）
-				const dlgH = (e.currentTarget.parentElement && e.currentTarget.parentElement.offsetHeight) || 720;
+				// clamp 全部用浮窗实测尺寸：整体保持在视口内（窄视口下常量估宽会把窗拖丢）
+				const dlg = e.currentTarget.parentElement;
+				const dlgH = (dlg && dlg.offsetHeight) || 720;
+				const dlgW = (dlg && dlg.offsetWidth) || 1100;
 				setPos({
 					top: Math.min(Math.max(e.clientY - draggingRef.current.dy, 0), Math.max(0, h - dlgH)),
-					left: Math.min(Math.max(e.clientX - draggingRef.current.dx, -(1100 - 120)), w - 120),
+					left: Math.min(Math.max(e.clientX - draggingRef.current.dx, 0), Math.max(0, w - dlgW)),
 				});
 			}
 
@@ -1419,6 +1430,7 @@ window.__ModuleLoader__.load({
 				"div",
 				{
 					className: "dbt-browse-root dbt-browse-dialog" + (dragging ? " dragging" : ""),
+					ref: dialogRef2,
 					style: { position: "fixed", top: pos.top, left: pos.left },
 					role: "dialog", "aria-labelledby": "dbt-browse-title",
 					onKeyDown: (e) => {
