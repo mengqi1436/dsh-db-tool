@@ -1388,7 +1388,21 @@ window.__ModuleLoader__.load({
 				if (!preview || !preview.rows || preview.rows.length === 0) {
 					return React.createElement("div", { className: "dbt-browse-empty" }, t("emptyData"));
 				}
-				return resultTable(preview.columns, preview.rows, undefined, "dbt-browse-tablewrap");
+				// Navicat 式单元格网格：kind/可编辑性由当前连接与授权决定（rw=可编辑），保存后重拉当前页
+				const conn = conns.find((c) => c.id === sel.connId);
+				const grant = (grants || []).find((g) => g.connId === sel.connId);
+				return React.createElement(PreviewGrid, {
+					preview, schema,
+					kind: conn ? conn.kind : undefined,
+					editable: !!grant && grant.mode === "rw",
+					tableType: sel.table.type,
+					tableName: sel.table.name,
+					dbRef: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db,
+					schemaName: sel.schemaName || null,
+					connId: sel.connId, projectPath,
+					onSaved: () => openTable(sel, page),
+					askConfirm,
+				});
 			}
 
 			// 非模态浮窗：无遮罩、fixed 定位、可拖动；portal 到 body 不受侧栏视图切换影响
