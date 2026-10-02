@@ -1,5 +1,20 @@
 # Changelog — dsh-db-tool
 
+## 1.5.5
+
+修复 PiP 独立窗口在真机从未发起的问题——数据浏览在真机上始终静默降级为 DOM 浮窗，从未尝试 Document Picture-in-Picture。
+
+### 修复
+
+- **根因（inject 缺 react-dom/client）**：真机宿主注入的 `react-dom` 无 `createRoot`，回退 `require("react-dom/client")` 因 `dsh.client.inject` 未声明而失败——createRoot 探测恒为空，PiP 恒不尝试并静默降级。现 `dsh.client.inject` 追加 `react-dom/client`。
+- **createRoot 三重解析**：同步 `require` 两 specifier（`react-dom` / `react-dom/client`）+ 宿主模块系统 `ctx.modules.import` 异步解析兜底，任一命中即启用 PiP。
+- **手势内开窗 + 3 秒超时降级**：PiP 在用户手势内先发起开窗并显示加载占位，createRoot 就绪后渲染；3 秒未就绪自动降级 DOM 浮窗——行为不劣于现状，不再有"开窗后空白"的中间态。
+- **诊断日志扩展**：portal/createRoot 解析状态与 PiP 拒因均输出一次性诊断日志，供真机排查。
+
+### 测试
+
+- `.tmp-verify/verify.mjs` 新增第 4 态 `?noclient=1`（宿主 react-dom 仅 portal 可用、`react-dom/client` 不可得——真机怀疑形态）：断言 PiP 不可用、DOM 浮窗降级、PiP 窗口不与浮窗并存、无 JS 错误（四态 38 断言全过）。
+
 ## 1.5.4
 
 数据浏览弹窗升级为 **Document Picture-in-Picture 独立窗口**——OS 级单独窗口，可拖出 DSH 桌面端主窗口、系统级置顶，不再受限于应用窗口内。宿主主进程对 `window.open` 全部 `setWindowOpenHandler(() => deny)`，PiP 是插件能力内唯一的独立窗口通道。
