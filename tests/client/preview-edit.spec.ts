@@ -253,3 +253,31 @@ describe('buildMongoOp', () => {
 		expect(JSON.parse(r.ops[0]!.statement).filter).toEqual({ _id: 'abc123' });
 	});
 });
+
+describe('renderStatementWithParams（危险确认对话框代入展示）', () => {
+	it('undefined/null params：占位符原样保留', () => {
+		expect(T.renderStatementWithParams('SELECT * FROM t WHERE a = ? AND b = ?', undefined)).toBe('SELECT * FROM t WHERE a = ? AND b = ?');
+		expect(T.renderStatementWithParams('SELECT 1 WHERE a = ?', null)).toBe('SELECT 1 WHERE a = ?');
+	});
+	it('JSON 字符串与数组 params 均可代入', () => {
+		expect(T.renderStatementWithParams('WHERE a = ? AND b = ?', '["x", 2]')).toBe("WHERE a = 'x' AND b = 2");
+		expect(T.renderStatementWithParams('WHERE a = ?', [true])).toBe('WHERE a = true');
+	});
+	it('字符串参数单引号包裹且内部双写转义', () => {
+		expect(T.renderStatementWithParams("name = ?", ["o'brien"])).toBe("name = 'o''brien'");
+	});
+	it('null 渲染为 NULL；数字/布尔原样', () => {
+		expect(T.renderStatementWithParams('a = ? AND b = ? AND c = ?', [null, 0, false])).toBe('a = NULL AND b = 0 AND c = false');
+	});
+	it('占位符多于参数：剩余 ? 保留；参数多于占位符：多余忽略', () => {
+		expect(T.renderStatementWithParams('a = ? AND b = ? AND c = ?', ['x'])).toBe("a = 'x' AND b = ? AND c = ?");
+		expect(T.renderStatementWithParams('a = ?', ['x', 'y'])).toBe("a = 'x'");
+	});
+	it('超长字面量截断 120 字符加省略号', () => {
+		const out = T.renderStatementWithParams('v = ?', ['y'.repeat(200)]);
+		expect(out).toBe("v = '" + 'y'.repeat(119) + '…');
+	});
+	it('非法 JSON 字符串 params：视为无参数，占位符保留', () => {
+		expect(T.renderStatementWithParams('a = ?', '{not json')).toBe('a = ?');
+	});
+});

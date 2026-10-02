@@ -52,6 +52,10 @@ window.__ModuleLoader__.load({
 			edit: "编辑",
 			delete: "删除",
 			deleteConnConfirm: "确定删除连接「{name}」？将级联删除其密钥与所有项目的授权。",
+			deleteConnTitle: "删除连接",
+			auditShort: "审计日志",
+			confirmParams: "参数",
+			grantModeGroup: "{name} 授权模式",
 			save: "保存",
 			cancel: "取消",
 			saving: "保存中…",
@@ -111,6 +115,9 @@ window.__ModuleLoader__.load({
 			run: "执行",
 			running: "执行中…",
 			sqlPlaceholder: "输入 SQL / 命令…（Redis: [\"GET\",\"key\"]；Mongo: {\"find\":\"users\",\"filter\":{}}）",
+			// 视图状态与控制台（T2）
+			selectConn: "选择连接…",
+			copyFailed: "复制失败",
 			scriptPlaceholder: "输入 JS 脚本（vm 沙箱，含 db 助手对象）…",
 			paramsJson: "查询参数（JSON 数组，可选）",
 			rowsResult: "{n} 行",
@@ -160,6 +167,10 @@ window.__ModuleLoader__.load({
 			edit: "Edit",
 			delete: "Delete",
 			deleteConnConfirm: "Delete connection \"{name}\"? Its secrets and all project grants will be removed.",
+			deleteConnTitle: "Delete Connection",
+			auditShort: "Audit log",
+			confirmParams: "Params",
+			grantModeGroup: "Access mode for {name}",
 			save: "Save",
 			cancel: "Cancel",
 			saving: "Saving…",
@@ -216,6 +227,9 @@ window.__ModuleLoader__.load({
 			run: "Run",
 			running: "Running…",
 			sqlPlaceholder: "SQL / command… (Redis: [\"GET\",\"key\"]; Mongo: {\"find\":\"users\",\"filter\":{}})",
+			// View state & console (T2)
+			selectConn: "Select a connection…",
+			copyFailed: "Copy failed",
 			scriptPlaceholder: "JS script (vm sandbox, with db helper)…",
 			paramsJson: "params (JSON array, optional)",
 			rowsResult: "{n} rows",
@@ -274,6 +288,7 @@ window.__ModuleLoader__.load({
 				err.statement = data.statement;
 				err.danger = data.danger;
 				err.reason = data.reason;
+				err.params = data.params; // 服务端如回传参数则透传（对话框代入展示用；缺失时 undefined 无害）
 			}
 			throw err;
 		}
@@ -292,7 +307,7 @@ window.__ModuleLoader__.load({
 				return await send(undefined);
 			} catch (e) {
 				if (e && e.code === "NEEDS_CONFIRMATION" && e.challengeId) {
-					const yes = await askConfirm({ statement: e.statement, danger: e.danger, reason: e.reason });
+					const yes = await askConfirm({ statement: e.statement, danger: e.danger, reason: e.reason, params: e.params });
 					if (!yes) { const err = new Error(t("cancelled")); err.cancelled = true; throw err; }
 					return await send(e.challengeId);
 				}
@@ -317,7 +332,7 @@ window.__ModuleLoader__.load({
 			styleEl = document.createElement("style");
 			styleEl.textContent = [
 				"/* ===== Apple-style Design Tokens（dark 基线，light 经 media query 反转；.dbt-browse-root 并入以承载内嵌浏览面板与单元格浮层） ===== */",
-				".dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#0a84ff);--dbt-bg:transparent;--dbt-surface:rgba(120,120,128,.12);--dbt-surface-strong:rgba(120,120,128,.18);--dbt-separator:rgba(120,120,128,.24);--dbt-text:rgba(235,235,245,.92);--dbt-text-secondary:rgba(235,235,245,.6);--dbt-danger:#ff453a;--dbt-success:#30d158;--dbt-warning:#ffd60a;--dbt-dialog-bg:rgba(40,40,44,.85);--dbt-th-bg:rgba(30,30,32,.72);--dbt-seg-active:rgba(255,255,255,.14);--dbt-shadow:0 8px 32px rgba(0,0,0,.28);--dbt-radius-card:12px;--dbt-radius-ctrl:8px;--dbt-radius-pill:6px;--dbt-ease:cubic-bezier(.25,.1,.25,1);--dbt-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;}",
+				".dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#0a84ff);--dbt-bg:transparent;--dbt-surface:rgba(120,120,128,.12);--dbt-surface-strong:rgba(120,120,128,.18);--dbt-separator:rgba(120,120,128,.24);--dbt-text:rgba(235,235,245,.92);--dbt-text-secondary:rgba(235,235,245,.6);--dbt-danger:#ff453a;--dbt-success:#30d158;--dbt-warning:#ffd60a;--dbt-dialog-bg:rgba(40,40,44,.85);--dbt-th-bg:rgba(30,30,32,.72);--dbt-seg-active:rgba(255,255,255,.14);--dbt-shadow:0 8px 32px rgba(0,0,0,.28);--dbt-radius-card:12px;--dbt-radius-ctrl:8px;--dbt-radius-pill:6px;--dbt-caption:11px;--dbt-caption-xs:10px;--dbt-ease:cubic-bezier(.25,.1,.25,1);--dbt-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;}",
 				"@media (prefers-color-scheme: light){.dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#007aff);--dbt-surface:rgba(120,120,128,.08);--dbt-surface-strong:rgba(120,120,128,.14);--dbt-separator:rgba(60,60,67,.18);--dbt-text:rgba(30,30,32,.92);--dbt-text-secondary:rgba(60,60,67,.6);--dbt-danger:#ff3b30;--dbt-success:#34c759;--dbt-warning:#ff9f0a;--dbt-dialog-bg:rgba(252,252,252,.9);--dbt-th-bg:rgba(255,255,255,.72);--dbt-seg-active:rgba(255,255,255,.9);--dbt-shadow:0 8px 32px rgba(0,0,0,.12);}}",
 				// 浏览面板根自持文字色：PiP 独立文档挂 body 后无侧栏祖先 color 可继承（内嵌/浮窗两态共用）
 				".dbt-browse-root{color:var(--dbt-text);}",
@@ -325,7 +340,7 @@ window.__ModuleLoader__.load({
 				".dbt-panel{font-size:13px;line-height:1.45;display:flex;flex-direction:column;gap:10px;padding:16px;height:100%;box-sizing:border-box;overflow-y:auto;}",
 				"/* ===== iOS segmented control（顶部 tab） ===== */",
 				".dbt-tabs{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;}",
-				".dbt-tabs button{flex:1;border:none;background:transparent;color:inherit;border-radius:var(--dbt-radius-pill);padding:5px 8px;font-size:12px;font-weight:500;cursor:pointer;transition:all .18s var(--dbt-ease);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+				".dbt-tabs button{flex:1;border:none;background:transparent;color:inherit;border-radius:var(--dbt-radius-pill);padding:5px 8px;font-size:12px;font-weight:500;cursor:pointer;transition:background .18s var(--dbt-ease),box-shadow .18s var(--dbt-ease);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
 				".dbt-tabs button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
 				"/* ===== inset grouped 卡片 ===== */",
 				".dbt-card{background:var(--dbt-surface);border:none;border-radius:var(--dbt-radius-card);padding:12px;display:flex;flex-direction:column;gap:8px;}",
@@ -334,17 +349,14 @@ window.__ModuleLoader__.load({
 				".dbt-col{display:flex;flex-direction:column;gap:8px;}",
 				".dbt-col.dbt-col-tight{gap:2px;}",
 				"/* ===== 填充式无边框输入 ===== */",
-				".dbt-row input,.dbt-row select,.dbt-card input,.dbt-card select,.dbt-card textarea,.dbt-group input,.dbt-group select{flex:1;min-width:60px;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:5px 12px;font-size:13px;font-family:inherit;transition:all .18s var(--dbt-ease);}",
+				".dbt-row input,.dbt-row select,.dbt-card input,.dbt-card select,.dbt-card textarea,.dbt-group input,.dbt-group select{flex:1;min-width:60px;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:5px 12px;font-size:13px;font-family:inherit;transition:outline-color .18s var(--dbt-ease),outline-width .18s var(--dbt-ease);}",
 				".dbt-row input:focus,.dbt-row select:focus,.dbt-card input:focus,.dbt-card select:focus,.dbt-card textarea:focus,.dbt-group input:focus,.dbt-group select:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
 				".dbt-card textarea{font-family:var(--dbt-mono);min-height:96px;resize:vertical;}",
 				"/* ===== 按钮 ===== */",
-				".dbt-btn{border:none;background:var(--dbt-surface);color:inherit;border-radius:var(--dbt-radius-ctrl);padding:5px 12px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .18s var(--dbt-ease);}",
-				".dbt-btn:hover{background:var(--dbt-surface-strong);}",
+				".dbt-btn{border:none;background:var(--dbt-surface);color:inherit;border-radius:var(--dbt-radius-ctrl);padding:5px 12px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background .18s var(--dbt-ease),filter .18s var(--dbt-ease),transform .18s var(--dbt-ease),opacity .18s var(--dbt-ease);}",
 				".dbt-btn:active{transform:scale(.97);}",
 				".dbt-btn.primary{background:var(--dbt-accent);color:#fff;}",
-				".dbt-btn.primary:hover{filter:brightness(1.1);}",
 				".dbt-btn.danger{color:var(--dbt-danger);background:transparent;border:1px solid var(--dbt-danger);}",
-				".dbt-btn.danger:hover{background:rgba(255,69,58,.12);}",
 				".dbt-btn:disabled{opacity:.4;cursor:default;transform:none;}",
 				"/* ===== 文本反馈 ===== */",
 				".dbt-panel strong,.dbt-browse-root strong{font-size:13px;font-weight:600;}",
@@ -361,7 +373,6 @@ window.__ModuleLoader__.load({
 				".dbt-browse-root .dbt-table th + th,.dbt-browse-root .dbt-table td + td{border-left:1px solid var(--dbt-separator);}",
 				".dbt-browse-root .dbt-table th{background:rgba(30,30,32,.85);}",
 				".dbt-browse-root .dbt-table td{font-size:12px;}",
-				".dbt-browse-root .dbt-table tbody tr:hover td{background:var(--dbt-surface-strong);}",
 				"@media (prefers-color-scheme: light){.dbt-browse-root .dbt-table th{background:rgba(242,242,247,.9);}}",
 				"/* ===== 对话框（macOS alert 材质） ===== */",
 				".dbt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:9999;}",
@@ -372,14 +383,12 @@ window.__ModuleLoader__.load({
 				".dbt-group{background:var(--dbt-surface);border-radius:var(--dbt-radius-card);overflow:hidden;display:flex;flex-direction:column;}",
 				".dbt-listrow{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--dbt-separator);transition:background .18s var(--dbt-ease);}",
 				".dbt-listrow:last-child{border-bottom:none;}",
-				".dbt-listrow:hover{background:var(--dbt-surface-strong);}",
 				".dbt-tree{display:flex;flex-direction:column;}",
 				"/* ===== Navicat 式对象树（数据浏览） ===== */",
 				".dbt-treerow{display:flex;gap:6px;align-items:center;padding:10px 12px;font-size:13px;cursor:pointer;user-select:none;border-bottom:1px solid var(--dbt-separator);transition:background .15s var(--dbt-ease);}",
 				".dbt-treerow:last-child{border-bottom:none;}",
-				".dbt-treerow:hover{background:var(--dbt-surface-strong);}",
 				".dbt-treerow.active{color:var(--dbt-accent);font-weight:600;}",
-				".dbt-chev{flex:none;width:12px;text-align:center;color:var(--dbt-muted);font-size:10px;line-height:1;transition:transform .18s var(--dbt-ease);}",
+				".dbt-chev{flex:none;width:12px;text-align:center;color:var(--dbt-text-secondary);font-size:var(--dbt-caption-xs);line-height:1;transition:transform .18s var(--dbt-ease);}",
 				".dbt-chev.open{transform:rotate(90deg);}",
 				".dbt-chev.leaf{visibility:hidden;}",
 				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
@@ -412,40 +421,108 @@ window.__ModuleLoader__.load({
 				".dbt-view{display:flex;flex-direction:column;gap:10px;animation:dbt-in .22s var(--dbt-ease);}",
 				"/* ===== mini segmented（ro/rw 等切换） ===== */",
 				".dbt-seg{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;}",
-				".dbt-seg button{flex:none;border:none;background:transparent;color:inherit;font-size:12px;padding:5px 12px;border-radius:var(--dbt-radius-pill);cursor:pointer;transition:all .18s var(--dbt-ease);}",
+				".dbt-seg button{flex:none;border:none;background:transparent;color:inherit;font-size:12px;padding:5px 12px;border-radius:var(--dbt-radius-pill);cursor:pointer;transition:background .18s var(--dbt-ease),box-shadow .18s var(--dbt-ease);}",
 				".dbt-seg button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
+				"/* ===== hover 仅精确指针（触屏 tap 不残留 hover 底色） ===== */",
+				"@media (hover:hover) and (pointer:fine){.dbt-btn:hover{background:var(--dbt-surface-strong);}.dbt-btn.primary:hover{filter:brightness(1.1);}.dbt-btn.danger:hover{background:rgba(255,69,58,.12);}.dbt-listrow:hover{background:var(--dbt-surface-strong);}.dbt-treerow:hover{background:var(--dbt-surface-strong);}.dbt-browse-root .dbt-table tbody tr:hover td{background:var(--dbt-surface-strong);}}",
 				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
 				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog{backdrop-filter:none;-webkit-backdrop-filter:none;background:#2c2c2e;}.dbt-celldetail{background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}.dbt-browse-root .dbt-table th{background:#1e1e20;}}",
-				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog{background:#f5f5f7;}.dbt-celldetail{background:#f2f2f7;}.dbt-table th,.dbt-browse-root .dbt-table th{background:#f2f2f7;}}",
+				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog{background:#f2f2f7;}.dbt-celldetail{background:#f2f2f7;}.dbt-table th,.dbt-browse-root .dbt-table th{background:#f2f2f7;}}",
 				"@media (prefers-reduced-motion: reduce){.dbt-panel *,.dbt-browse-root *{transition:none!important;animation:none!important;}.dbt-btn:active{transform:none;}}",
 			].join("\n");
 			document.head.appendChild(styleEl);
 		}
 
 		function DangerDialog(props) {
-			const ch = props.challenge; // {statement, danger, reason, resolve}
+			const ch = props.challenge; // {statement, danger, reason, resolve, target?, params?, title?, confirmLabel?, hint?}
+			const dialogRef = React.useRef(null);
+			const cancelRef = React.useRef(null);
+			const titleId = "dbt-confirm-title";
 			function done(v) { props.onClose(); ch.resolve(v); }
+			// 键盘契约：Escape=取消；Tab/Shift+Tab 在「确认执行」「取消」两枚按钮间循环锁定，焦点不逃出对话框
+			function onKeyDown(e) {
+				if (e.key === "Escape") { e.preventDefault(); done(false); return; }
+				if (e.key !== "Tab") return;
+				const dialog = dialogRef.current;
+				if (!dialog) return;
+				const btns = dialog.querySelectorAll("button");
+				if (btns.length === 0) return;
+				const first = btns[0];
+				const last = btns[btns.length - 1];
+				const doc = dialog.ownerDocument || document;
+				if (!dialog.contains(doc.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); return; }
+				if (!e.shiftKey && doc.activeElement === last) { e.preventDefault(); first.focus(); }
+				else if (e.shiftKey && doc.activeElement === first) { e.preventDefault(); last.focus(); }
+			}
+			// 挂载后焦点落「取消」：次动作为键盘默认，防回车/空格误触危险确认
+			React.useEffect(() => {
+				if (cancelRef.current && typeof cancelRef.current.focus === "function") cancelRef.current.focus();
+			}, []);
+			// 有 params 时 pre 展示代入后的完整语句（? → 字面量）；params 为空/非法 JSON 视为无参数
+			let hasParams = false;
+			try {
+				const parsed = typeof ch.params === "string" ? JSON.parse(ch.params) : ch.params;
+				if (Array.isArray(parsed) && parsed.length > 0) hasParams = true;
+			} catch (e) { /* 非法 JSON：按无参数展示 */ }
+			const shownStatement = hasParams ? renderStatementWithParams(ch.statement, ch.params) : (ch.statement || "(?)");
+			// 目标条徽标：ro=muted、rw=danger，形状对齐 kind 徽标（纯内联样式，样式块不承载对话框专属规则）
+			const target = ch.target;
+			const modeBadge = target && target.mode
+				? React.createElement("span", {
+					style: {
+						background: "var(--dbt-surface-strong, rgba(120,120,128,.18))",
+						borderRadius: "6px",
+						padding: "2px 6px",
+						fontSize: "11px",
+						lineHeight: 1.45,
+						fontWeight: 600,
+						color: target.mode === "rw" ? "var(--dbt-danger, #ff453a)" : "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+					},
+				}, target.mode === "rw" ? t("modeRw") : t("modeRo"))
+				: null;
 			return React.createElement(
 				"div",
-				{ className: "dbt-overlay", onClick: () => done(false) },
+				{ className: "dbt-overlay", onClick: () => done(false), onKeyDown },
 				React.createElement(
 					"div",
-					{ className: "dbt-dialog", onClick: (e) => e.stopPropagation() },
-					// macOS alert 风格：纯文字标题 + danger 色，不用 emoji
-					React.createElement("strong", { style: { color: "var(--dbt-danger, #ff453a)" } }, t("needConfirmTitle")),
-					React.createElement("pre", null, ch.statement || "(?)"),
-					React.createElement(
+					{
+						className: "dbt-dialog",
+						onClick: (e) => e.stopPropagation(),
+						role: "dialog",
+						"aria-modal": "true",
+						"aria-labelledby": titleId,
+						ref: dialogRef,
+					},
+					// macOS alert 风格：纯文字标题 + danger 色，不用 emoji；title 可被 challenge 覆盖（如删除连接）
+					React.createElement("strong", { id: titleId, style: { color: "var(--dbt-danger, #ff453a)" } }, ch.title || t("needConfirmTitle")),
+					// 目标条：连接名（semibold 主行）+ kind/db（muted）+ ro/rw 徽标；target 缺失不渲染
+					target && target.conn ? React.createElement(
+						"div",
+						{ className: "dbt-row" },
+						React.createElement("strong", { style: { fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, target.conn),
+						target.kind ? React.createElement("span", { className: "dbt-muted" }, target.kind) : null,
+						target.db ? React.createElement("span", { className: "dbt-muted" }, target.db) : null,
+						modeBadge,
+					) : null,
+					React.createElement("pre", null, shownStatement),
+					hasParams ? React.createElement(
+						"div",
+						{ className: "dbt-muted", style: { fontFamily: MONO_FONT, wordBreak: "break-all" } },
+						t("confirmParams") + " " + (typeof ch.params === "string" ? ch.params : JSON.stringify(ch.params)),
+					) : null,
+					// 风险等级/原因行仅服务端危险判定场景渲染（删除连接等本地确认无此二字段）
+					(ch.danger || ch.reason) ? React.createElement(
 						"div",
 						{ className: "dbt-muted" },
 						t("dangerLevel") + ": " + (ch.danger || "danger") + " · " + t("reason") + ": " + (ch.reason || "-"),
-					),
-					React.createElement("div", { className: "dbt-muted" }, t("confirmHint")),
+					) : null,
+					React.createElement("div", { className: "dbt-muted" }, ch.hint || t("confirmHint")),
 					React.createElement(
 						"div",
 						// 末对齐由样式层 .dbt-dialog .dbt-row 规则承担，无需内联 style
 						{ className: "dbt-row" },
-						React.createElement("button", { className: "dbt-btn danger", onClick: () => done(true) }, t("confirmRun")),
-						React.createElement("button", { className: "dbt-btn", onClick: () => done(false) }, t("confirmCancel")),
+						React.createElement("button", { className: "dbt-btn danger", onClick: () => done(true) }, ch.confirmLabel || t("confirmRun")),
+						React.createElement("button", { className: "dbt-btn", onClick: () => done(false), ref: cancelRef }, t("confirmCancel")),
 					),
 				),
 			);
@@ -610,6 +687,26 @@ window.__ModuleLoader__.load({
 				ok: true,
 				ops: [{ statement: JSON.stringify({ updateOne: tableName, filter, update: { "$set": { [colName]: value } } }) }],
 			};
+		}
+
+		// 危险确认对话框展示用：把语句里的 ? 占位符逐个替换为参数的字面渲染（仅展示，不参与真实执行）
+		// params 支持 JSON 字符串/数组/undefined；字符串加单引号并内部双写转义，数字/布尔原样，
+		// null/undefined 渲染为 NULL；字面量超 120 字符截断加省略号；占位符多于参数时剩余 ? 原样保留
+		function renderStatementWithParams(statement, params) {
+			let arr = params;
+			if (typeof arr === "string") {
+				try { arr = JSON.parse(arr); } catch (e) { arr = null; }
+			}
+			if (!Array.isArray(arr)) arr = [];
+			const lit = (v) => {
+				let s;
+				if (v === null || v === undefined) s = "NULL";
+				else if (typeof v === "number" || typeof v === "boolean") s = String(v);
+				else s = "'" + String(v).split("'").join("''") + "'";
+				return s.length > 120 ? s.slice(0, 120) + "…" : s;
+			};
+			const parts = String(statement == null ? "" : statement).split("?");
+			return parts.map((seg, i) => (i === parts.length - 1 ? seg : seg + (i < arr.length ? lit(arr[i]) : "?"))).join("");
 		}
 
 		// Stryker disable all（buildMongoOp 之后：以下 auditTable/KIND_DEFAULTS/buildEditForm 为连接表单工具，无单元断言）
@@ -820,7 +917,17 @@ window.__ModuleLoader__.load({
 				}
 			}
 			async function delConn(c) {
-				if (!window.confirm(t("deleteConnConfirm", { name: c.name || c.id }))) return;
+				// 删除确认走全局 DangerDialog（askConfirm 通道），与危险 SQL 确认同一对话框与键盘契约；
+				// window.confirm 已移除（原生弹窗无 aria/焦点管理，且样式割裂）
+				const desc = c.safeUrl || [c.kind, c.host ? c.host + (c.port ? ":" + c.port : "") : ""].filter(Boolean).join(" · ") || c.id;
+				const yes = await props.askConfirm({
+					title: t("deleteConnTitle"),
+					statement: desc,
+					hint: t("deleteConnConfirm", { name: c.name || c.id }),
+					confirmLabel: t("delete"),
+					target: { conn: c.name || c.id, kind: c.kind || "", db: "", mode: "" },
+				});
+				if (!yes) return;
 				await props.run("del", async () => {
 					await api("connections/" + encodeURIComponent(c.id), { method: "DELETE" });
 					await reload();
@@ -850,7 +957,7 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-row", style: { justifyContent: "space-between" } },
-					React.createElement("button", { className: "dbt-btn", onClick: loadAudit }, t("auditTitle", { n: 50 }).split("（")[0].split(" (")[0]),
+					React.createElement("button", { className: "dbt-btn", onClick: loadAudit }, t("auditShort")),
 					React.createElement("button", { className: "dbt-btn primary", onClick: () => setEditing("new") }, t("newConn")),
 				),
 				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
@@ -869,7 +976,7 @@ window.__ModuleLoader__.load({
 									React.createElement(
 										"div",
 										{ className: "dbt-row" },
-										React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: MONO_FONT, fontSize: "11px", lineHeight: 1.45 } }, c.kind),
+										React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: MONO_FONT, fontSize: "var(--dbt-caption, 11px)", lineHeight: 1.45 } }, c.kind),
 										React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
 									),
 									(c.safeUrl || c.host) ? React.createElement(
@@ -940,11 +1047,13 @@ window.__ModuleLoader__.load({
 								),
 								React.createElement(
 									"div",
-									{ className: "dbt-seg", "aria-label": c.name || c.id },
+									{ className: "dbt-seg", role: "radiogroup", "aria-label": t("grantModeGroup", { name: c.name || c.id }) },
 									["", "ro", "rw"].map((mode) =>
 										React.createElement("button", {
 											key: mode || "none",
 											className: mode === m ? "active" : "",
+											role: "radio",
+											"aria-checked": mode === m,
 											disabled: props.busy === "grant",
 											onClick: () => setGrant(c.id, mode),
 										}, mode === "" ? t("modeNone") : mode === "ro" ? t("modeRo") : t("modeRw")),
@@ -997,13 +1106,14 @@ window.__ModuleLoader__.load({
 					}));
 			}
 			// autoExpand：挂载后自动展开第一层级（连接节点），复用 toggleConn 的展开+懒加载；
-			// 加载失败仍走既有就地错误行机制。声明在清缓存 effect 之后：项目切换时先清 open 再重新展开
+			// 加载失败仍走既有就地错误行机制。声明在清缓存 effect 之后：项目切换时先清 open 再重新展开。
+			// autoExpand 受控于父级（BrowsePane 首次激活才置 true）：常驻挂载下隐藏视图不自动发请求
 			React.useEffect(() => {
 				if (!autoExpand) return;
 				for (const c of conns) {
 					if (!open["c:" + c.id]) toggleConn(c);
 				}
-			}, [conns, projectPath]); // eslint-disable-line
+			}, [conns, projectPath, autoExpand]); // eslint-disable-line
 			// PG/GaussDB 官方层级为 数据库 → 模式(schema) → 表：库节点下先列 schema 再列表
 			const HAS_SCHEMAS = { postgresql: true, gaussdb: true };
 			function toggleDb(c, d) {
@@ -1032,6 +1142,7 @@ window.__ModuleLoader__.load({
 					{
 						className: "dbt-treerow" + (active ? " active" : ""), key,
 						role: onClick ? "treeitem" : undefined,
+						"aria-expanded": onClick && !leaf ? isOpen : undefined, // 可展开节点披露展开态（叶/占位行不适用）
 						tabIndex: onClick ? 0 : undefined,
 						onClick: onClick || undefined,
 						onKeyDown: onClick ? (e) => {
@@ -1108,7 +1219,7 @@ window.__ModuleLoader__.load({
 				// Navicat 式对象树：点击展开连接/库，点击表上报选中（由父组件就地预览）
 				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
 					React.createElement("div", { className: "dbt-group" },
-						React.createElement("div", { className: "dbt-tree" }, treeRows)),
+						React.createElement("div", { className: "dbt-tree", role: "tree" }, treeRows)),
 			);
 		}
 
@@ -1117,7 +1228,8 @@ window.__ModuleLoader__.load({
 		/* ---------------- PreviewGrid：数据预览网格（Navicat 式单元格查看/编辑） ---------------- */
 		// props 契约：{ preview:{columns,rows,rowCount,truncated?}, schema:ColumnInfo[]（SQL/mongo；redis 为
 		// type/encoding/ttl/length，无 PRI）, kind, editable:rw 授权布尔, tableType:sel.table.type（redis 键类型）,
-		// tableName, dbRef, schemaName, connId, projectPath, onSaved:保存成功回调, askConfirm:runGuarded 确认回调 }
+		// tableName, dbRef, schemaName, connId, connName, grantMode, projectPath, onSaved:保存成功回调,
+		// askConfirm:runGuarded 确认回调（确认信息附带 target:{conn,kind,db,mode} 与 params） }
 		// redis 各键类型可就地编辑的数据列（与 buildRedisOp 分支保持一致；键名/字段名等定位列只读）
 		const REDIS_EDITABLE_COLS = {
 			string: ["value"],
@@ -1126,13 +1238,13 @@ window.__ModuleLoader__.load({
 			set: ["member"],
 		};
 		function PreviewGrid(props) {
-			const { preview, schema, kind, editable, tableType, tableName, dbRef, schemaName, connId, projectPath, onSaved, askConfirm } = props;
+			const { preview, schema, kind, editable, tableType, tableName, dbRef, schemaName, connId, connName, grantMode, projectPath, onSaved, askConfirm } = props;
 			const [sel, setSel] = React.useState(null); // {rowIdx, colName, cell} 底部详情栏当前单元格（null=收起底栏）
 			const [text, setText] = React.useState(""); // 详情栏 textarea 值（选中即就位）
 			const [editNull, setEditNull] = React.useState(false); // 「设为 NULL」勾选（null 单元格默认勾选）
 			const [cellErr, setCellErr] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
-			const [copied, setCopied] = React.useState(false);
+			const [copied, setCopied] = React.useState(""); // "" | "ok" | "fail"（复制结果反馈，1.5s 后还原 ""）
 			const isMongo = kind === "mongodb";
 			// SQL 系主键列名（schema 中 key==="PRI"）；mongo 由 _id 单列承担，redis 无主键概念
 			const pkCols = (!isMongo && kind !== "redis" && Array.isArray(schema))
@@ -1150,9 +1262,13 @@ window.__ModuleLoader__.load({
 			function copyCell() {
 				if (!sel) return;
 				navigator.clipboard.writeText(String(sel.cell)).then(() => {
-					setCopied(true);
-					window.setTimeout(() => setCopied(false), 1500);
-				}, () => { /* 剪贴板不可用（无权限等）：静默，按钮文案不变 */ });
+					setCopied("ok");
+					window.setTimeout(() => setCopied(""), 1500);
+				}, () => {
+					// 剪贴板不可用（无权限等）：短暂显示失败文案后还原，不再静默
+					setCopied("fail");
+					window.setTimeout(() => setCopied(""), 1500);
+				});
 			}
 
 			// 单元格编辑资格：返回 null=可编辑，否则为原因 i18n key（底栏 .dbt-readhint 展示）
@@ -1194,9 +1310,13 @@ window.__ModuleLoader__.load({
 				setBusy(true);
 				try {
 					for (const op of r.ops) {
+						// 确认信息附带目标数据（连接名/kind/库/授权模式）与实际参数（statement 中 ? 占位符的值）
 						await runGuarded(
 							(challengeId) => api("execute", { method: "POST", body: { projectPath, connId, statement: op.statement, params: op.params, database: op.database, challengeId } }),
-							askConfirm,
+							(info) => askConfirm(Object.assign({}, info, {
+								target: { conn: connName || connId, kind: kind || "", db: dbRef || "", mode: grantMode || "" },
+								params: op.params,
+							})),
 						);
 					}
 					setSel(null);
@@ -1284,7 +1404,7 @@ window.__ModuleLoader__.load({
 					React.createElement(
 						"div",
 						{ className: "dbt-row" },
-						React.createElement("button", { className: "dbt-btn", onClick: copyCell }, copied ? t("copied") : t("copyBtn")),
+						React.createElement("button", { className: "dbt-btn", onClick: copyCell }, copied === "ok" ? t("copied") : copied === "fail" ? t("copyFailed") : t("copyBtn")),
 						selReason === null ? React.createElement("button", { className: "dbt-btn primary", disabled: busy, onClick: saveCell }, busy ? t("cellSaving") : t("save")) : null,
 						React.createElement("button", { className: "dbt-btn", onClick: () => setSel(null) }, t("close")),
 					),
@@ -1294,7 +1414,8 @@ window.__ModuleLoader__.load({
 
 		// Navicat 式浏览面板（内嵌侧边栏）：上半对象树选库-表，下半结构/数据预览，点表即看，不再弹窗
 		function BrowsePane(props) {
-			const { conns, projectPath, grants, askConfirm } = props;
+			const { conns, projectPath, grants, askConfirm, active } = props;
+			// active：所属 tab 是否激活（Panel 常驻挂载后传入）；首次激活才展开树并拉取，隐藏不发请求
 			// grants（editable 判定）与 askConfirm（单元格写回确认）下传 PreviewGrid
 			const [sel, setSel] = React.useState(null); // 面板内当前选中（null=未选表，内容区显示引导空态）
 			const [view, setView] = React.useState("structure"); // structure | preview（纯视图切换，不影响数据加载）
@@ -1376,6 +1497,8 @@ window.__ModuleLoader__.load({
 					dbRef: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db,
 					schemaName: sel.schemaName || null,
 					connId: sel.connId, projectPath,
+					connName: conn ? (conn.name || sel.connId) : sel.connId,
+					grantMode: grant ? grant.mode : "",
 					onSaved: () => openTable(sel, page),
 					askConfirm,
 				}, footer);
@@ -1390,7 +1513,8 @@ window.__ModuleLoader__.load({
 					"div",
 					{ style: { maxHeight: 280, overflowY: "auto" } },
 					React.createElement(BrowseTree, {
-						conns, projectPath, sel, autoExpand: true, // 内嵌后此树是唯一树实例，挂载即展开第一层级
+						conns, projectPath, sel,
+						autoExpand: !!active, // 首次激活才自动展开连接层级（常驻挂载下隐藏不发请求）
 						onSelect: (s) => setSel(s), // 树内切表
 					}),
 				),
@@ -1419,7 +1543,7 @@ window.__ModuleLoader__.load({
 		// Apple 等宽字体栈（规范 §1）：优先样式层 --dbt-mono token，fallback 内联栈
 		const MONO_FONT = "var(--dbt-mono, ui-monospace, \"SF Mono\", Menlo, Consolas, monospace)";
 		function ConsoleView(props) {
-			const { conns, projectPath, askConfirm } = props;
+			const { conns, grants, projectPath, askConfirm } = props;
 			const [connId, setConnId] = React.useState("");
 			const [mode, setMode] = React.useState("query"); // query | execute | script
 			const [sql, setSql] = React.useState("");
@@ -1435,6 +1559,13 @@ window.__ModuleLoader__.load({
 				api("databases" + qs({ project: projectPath, connId })).then((l) => setDbList(l || []), () => setDbList([]));
 			}, [connId, projectPath]);
 
+			// 确认对话框目标信息：连接名 / kind / 当前库（空=默认库）/ 该连接的授权模式（无授权留空）
+			function confirmTarget() {
+				const c = conns.find((x) => x.id === connId);
+				const g = (grants || []).find((x) => x.connId === connId);
+				return { conn: c ? (c.name || connId) : connId, kind: c ? c.kind : "", db: db || "", mode: g ? g.mode : "" };
+			}
+
 			async function run() {
 				setBusy(true);
 				setResult(null);
@@ -1442,7 +1573,7 @@ window.__ModuleLoader__.load({
 					if (mode === "script") {
 						const data = await runGuarded(
 							(challengeId) => api("script", { method: "POST", body: { projectPath, connId, code: sql, challengeId } }),
-							askConfirm,
+							(info) => askConfirm(Object.assign({}, info, { target: confirmTarget() })),
 						);
 						setResult({ kind: "exec", message: (data && data.message) || "", affectedRows: data && data.affectedRows });
 					} else if (mode === "execute") {
@@ -1450,7 +1581,7 @@ window.__ModuleLoader__.load({
 						if (params.trim()) { try { parsedParams = JSON.parse(params); } catch (e) { throw new Error(t("paramsJson") + ": " + e.message); } }
 						const data = await runGuarded(
 							(challengeId) => api("execute", { method: "POST", body: { projectPath, connId, statement: sql, params: parsedParams, database: db || undefined, challengeId } }),
-							askConfirm,
+							(info) => askConfirm(Object.assign({}, info, { target: confirmTarget(), params: parsedParams })),
 						);
 						setResult({ kind: "exec", message: (data && data.message) || "", affectedRows: data && data.affectedRows });
 					} else {
@@ -1494,8 +1625,13 @@ window.__ModuleLoader__.load({
 						"div",
 						{ className: "dbt-listrow" },
 						React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
-							React.createElement("option", { value: "" }, t("viewManage") + "…"),
-							conns.map((c) => React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + ")"))),
+							React.createElement("option", { value: "" }, t("selectConn")),
+							conns.map((c) => {
+								// 授权后缀：option 文本标注该连接的项目授权模式（无授权留空）
+								const g = (grants || []).find((x) => x.connId === c.id);
+								const suffix = g && g.mode ? " · " + g.mode : "";
+								return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + suffix + ")");
+							})),
 						// 当前库（Navicat 式跨库：选中非默认库后 SQL 在该库执行，pg/gaussdb 按库路由）
 						dbList.length > 1 ? React.createElement("select", { value: db, onChange: (e) => setDb(e.target.value) },
 							React.createElement("option", { value: "" }, t("defaultDb")),
@@ -1504,17 +1640,22 @@ window.__ModuleLoader__.load({
 					React.createElement(
 						"div",
 						{ className: "dbt-listrow" },
-						React.createElement("select", { value: mode, onChange: (e) => setMode(e.target.value) },
-							React.createElement("option", { value: "query" }, t("modeQuery")),
-							React.createElement("option", { value: "execute" }, t("modeExecute")),
-							React.createElement("option", { value: "script" }, t("modeScript"))),
+						// 模式切换 mini seg（复用 dbt-seg 既有类）：execute/script 属风险写入，切到后输入框与按钮同步风险提示
+						React.createElement(
+							"div",
+							{ className: "dbt-seg" },
+							[["query", t("modeQuery")], ["execute", t("modeExecute")], ["script", t("modeScript")]].map(([m, label]) =>
+								React.createElement("button", { key: m, className: mode === m ? "active" : "", onClick: () => setMode(m) }, label)),
+						),
 					),
 				),
-				// SQL 输入：等宽字体 + 填充式输入（背景/focus ring 由样式层承担），min-height 加大
+				// SQL 输入：等宽字体 + 填充式输入（背景/focus ring 由样式层承担），min-height 加大；
+				// execute/script 为写语义：danger 色描边提示当前输入会改动数据
 				React.createElement("textarea", {
 					placeholder: mode === "script" ? t("scriptPlaceholder") : t("sqlPlaceholder"),
 					value: sql, onChange: (e) => setSql(e.target.value),
-					style: { fontFamily: MONO_FONT, minHeight: mode === "script" ? 160 : 96 },
+					style: Object.assign({ fontFamily: MONO_FONT, minHeight: mode === "script" ? 160 : 96 },
+						mode !== "query" ? { outline: "1px solid var(--dbt-danger, #ff453a)" } : null),
 				}),
 				mode !== "script"
 					? React.createElement("input", { placeholder: t("paramsJson"), value: params, onChange: (e) => setParams(e.target.value), style: { fontFamily: MONO_FONT } })
@@ -1522,7 +1663,8 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
-					React.createElement("button", { className: "dbt-btn primary", disabled: busy || !connId || !sql.trim(), onClick: run }, busy ? t("running") : t("run")),
+					// 风险语义：query 保持 primary；execute/script 降为 danger 按钮
+					React.createElement("button", { className: mode === "query" ? "dbt-btn primary" : "dbt-btn danger", disabled: busy || !connId || !sql.trim(), onClick: run }, busy ? t("running") : t("run")),
 				),
 				renderResult(),
 			);
@@ -1587,16 +1729,23 @@ window.__ModuleLoader__.load({
 			}
 			function onError(e) { setError(String(e && e.message ? e.message : e)); }
 
-			const shared = { conns, grants, projectPath, busy, run, reload, onError };
+			const shared = { conns, grants, projectPath, busy, run, reload, onError, askConfirm };
+			// 四视图常驻元素：Panel 渲染期构建一次，切 tab 不重建（状态保留），ManageView/GrantsView/ConsoleView 复用 shared
+			const viewEls = {
+				manage: React.createElement(ManageView, shared),
+				grants: React.createElement(GrantsView, shared),
+				console: React.createElement(ConsoleView, shared),
+			};
 			return React.createElement(
 				"div",
 				{ className: "dbt-panel" },
 				React.createElement(
 					"div",
-					{ className: "dbt-tabs" },
+					{ className: "dbt-tabs", role: "tablist" },
 					[["manage", t("viewManage")], ["grants", t("viewGrants")], ["browse", t("viewBrowse")], ["console", t("viewConsole")]].map(([v, label]) =>
 						React.createElement("button", {
 							key: v, className: view === v ? "active" : "",
+							role: "tab", "aria-selected": view === v,
 							onClick: () => setView(v),
 						}, label)),
 				),
@@ -1619,7 +1768,7 @@ window.__ModuleLoader__.load({
 						React.createElement("span", { className: "dbt-muted" }, t("projectLabel", { path: projectPath })),
 						// 编辑图标：极简铅笔 SVG（验收要求无 emoji；svg aria-hidden，按钮 aria-label 提供语义）
 						React.createElement("button", {
-							className: "dbt-btn", onClick: () => setProjectEdited(true), "aria-label": "edit",
+							className: "dbt-btn", onClick: () => setProjectEdited(true), "aria-label": t("edit"),
 						},
 							React.createElement("svg", { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": "true" },
 								React.createElement("path", {
@@ -1627,19 +1776,22 @@ window.__ModuleLoader__.load({
 									stroke: "currentColor", strokeWidth: 1.2, strokeLinejoin: "round",
 								})),
 						)),
-				error ? React.createElement("div", { className: "dbt-err" }, t("error") + ": " + error) : null,
-				message ? React.createElement("div", { className: "dbt-msg" }, message) : null,
-				// 视图切换：key=view 触发 dbt-in 进入动画（opacity + 4px 上移，.22s）
-				// browse 视图撑满面板剩余高度（BrowsePane 内详情栏才能钉在面板最底部）
-				React.createElement("div", { className: "dbt-view", key: view, style: view === "browse" ? { flex: "1 1 auto", minHeight: 0 } : undefined },
-					view === "manage" ? React.createElement(ManageView, shared) : null,
-					view === "grants" ? React.createElement(GrantsView, shared) : null,
-					// browse：内嵌浏览面板（对象树 + 结构/数据预览，点表即看）
-					view === "browse" ? React.createElement(BrowsePane, {
-						ctx: props.ctx, conns, projectPath, grants, askConfirm,
-					}) : null,
-					view === "console" ? React.createElement(ConsoleView, Object.assign({}, shared, { askConfirm })) : null,
-				),
+				error ? React.createElement("div", { className: "dbt-err", "aria-live": "polite" }, t("error") + ": " + error) : null,
+				message ? React.createElement("div", { className: "dbt-msg", "aria-live": "polite" }, message) : null,
+				// 视图常驻挂载 + hidden 切换：切 tab 保留各视图内部状态（控制台 SQL、浏览选中不丢）；
+				// dbt-in 入场动画只在面板首次打开播一次（.dbt-view 类自带，常驻后不随 tab 重播）；
+				// browse 撑满面板剩余高度（BrowsePane 内详情栏才能钉在面板最底部），active 控制首次激活才拉树。
+				// .dbt-view 类的 display:flex 会盖过 hidden 的 UA 样式，故内联 display 同步切换
+				["manage", "grants", "browse", "console"].map((v) =>
+					React.createElement("div", {
+						key: v, className: "dbt-view", hidden: view !== v,
+						style: v === "browse"
+							? (view === "browse" ? { flex: "1 1 auto", minHeight: 0 } : { display: "none" })
+							: (view === v ? undefined : { display: "none" }),
+					},
+						v === "browse"
+							? React.createElement(BrowsePane, { ctx: props.ctx, conns, projectPath, grants, askConfirm, active: view === "browse" })
+							: viewEls[v])),
 				React.createElement("div", { className: "dbt-muted" }, t("footerHint")),
 				confirmReq ? React.createElement(DangerDialog, { challenge: confirmReq, onClose: () => setConfirmReq(null) }) : null,
 			);
@@ -1705,7 +1857,7 @@ window.__ModuleLoader__.load({
 		// 测试面：单元格写回纯函数（单测直接断言命令构造，无需起 React/HTTP）
 		exports.__testables = {
 			dialectOf, quoteIdent, parseCellText, isTruncatedCell, isBlobCell,
-			buildUpdate, buildRedisOp, buildMongoOp,
+			buildUpdate, buildRedisOp, buildMongoOp, renderStatementWithParams,
 		};
 		return module.exports;
 	},
