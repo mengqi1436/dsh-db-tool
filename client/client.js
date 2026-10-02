@@ -93,8 +93,7 @@ window.__ModuleLoader__.load({
 			emptyData: "暂无数据",
 			retry: "重试",
 			selectTableHint: "在左侧选择表后查看数据",
-			// 单元格查看/编辑（Navicat 式就地写回）
-			editCell: "编辑",
+			// 单元格底部详情栏（Navicat 式就地写回）
 			cellValue: "完整值",
 			copyBtn: "复制",
 			copied: "已复制",
@@ -200,8 +199,7 @@ window.__ModuleLoader__.load({
 			emptyData: "No rows",
 			retry: "Retry",
 			selectTableHint: "Select a table on the left to view data",
-			// Cell view/edit (Navicat-style in-place write-back)
-			editCell: "Edit",
+			// Cell bottom detail bar (Navicat-style in-place write-back)
 			cellValue: "Full value",
 			copyBtn: "Copy",
 			copied: "Copied",
@@ -1127,9 +1125,8 @@ window.__ModuleLoader__.load({
 		};
 		function PreviewGrid(props) {
 			const { preview, schema, kind, editable, tableType, tableName, dbRef, schemaName, connId, projectPath, onSaved, askConfirm } = props;
-			const [pop, setPop] = React.useState(null); // {rowIdx, colName, cell} 单元格浮层
-			const [editing, setEditing] = React.useState(false);
-			const [text, setText] = React.useState(""); // 编辑态 textarea 值（进入浮层时就位）
+			const [sel, setSel] = React.useState(null); // {rowIdx, colName, cell} 底部详情栏当前单元格（null=收起底栏）
+			const [text, setText] = React.useState(""); // 详情栏 textarea 值（选中即就位）
 			const [editNull, setEditNull] = React.useState(false); // 「设为 NULL」勾选（null 单元格默认勾选）
 			const [cellErr, setCellErr] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
@@ -1140,23 +1137,23 @@ window.__ModuleLoader__.load({
 				? schema.filter((c) => c && c.key === "PRI").map((c) => c.name)
 				: [];
 
-			// 打开浮层（查看态）：编辑态初值一并就位——textarea 空 ↔ 勾选设为 NULL
-			function openCell(rowIdx, colName, cell) {
-				setPop({ rowIdx, colName, cell });
-				setEditing(false);
+			// 点单元格开合底栏：同格再点收起；新格选中即把 textarea 初值就位——textarea 空 ↔ 勾选设为 NULL
+			function toggleCell(rowIdx, colName, cell) {
 				setCellErr("");
+				if (sel && sel.rowIdx === rowIdx && sel.colName === colName) { setSel(null); return; }
+				setSel({ rowIdx, colName, cell });
 				setEditNull(cell === null);
 				setText(cell === null ? "" : String(cell));
 			}
 			function copyCell() {
-				if (!pop) return;
-				navigator.clipboard.writeText(String(pop.cell)).then(() => {
+				if (!sel) return;
+				navigator.clipboard.writeText(String(sel.cell)).then(() => {
 					setCopied(true);
 					window.setTimeout(() => setCopied(false), 1500);
 				}, () => { /* 剪贴板不可用（无权限等）：静默，按钮文案不变 */ });
 			}
 
-			// 单元格编辑资格：返回 null=可编辑，否则为原因 i18n key（浮层 .dbt-readhint 展示）
+			// 单元格编辑资格：返回 null=可编辑，否则为原因 i18n key（底栏 .dbt-readhint 展示）
 			function cellReason(colName, shown) {
 				if (!editable || !dialectOf(kind)) return "readOnlyRo";
 				if (isMongo) return colName === "_id" ? "readOnlyRo" : null;
@@ -1171,11 +1168,11 @@ window.__ModuleLoader__.load({
 				return null;
 			}
 
-			// 保存：构造写回命令（按 kind 分派）→ 顺序执行（redis 两步）→ 全部成功关浮层并回调 onSaved
+			// 保存：构造写回命令（按 kind 分派）→ 顺序执行（redis 两步）→ 全部成功收起底栏并回调 onSaved
 			async function saveCell() {
-				if (!pop) return;
+				if (!sel) return;
 				setCellErr("");
-				const { rowIdx, colName } = pop;
+				const { rowIdx, colName } = sel;
 				const row = (preview.rows || [])[rowIdx] || [];
 				let r;
 				if (kind === "redis") {
@@ -1200,26 +1197,32 @@ window.__ModuleLoader__.load({
 							askConfirm,
 						);
 					}
-					setPop(null);
+					setSel(null);
 					if (onSaved) onSaved();
 				} catch (e) {
-					// 取消确认（e.cancelled）不算失败：浮层保持打开供重试
+					// 取消确认（e.cancelled）不算失败：底栏保持打开供重试
 					if (!e.cancelled) setCellErr(t("error") + ": " + String(e && e.message ? e.message : e));
 				} finally {
 					setBusy(false);
 				}
 			}
 
-			const popReason = pop ? cellReason(pop.colName, pop.cell === null ? "NULL" : String(pop.cell)) : null;
+			// 切表/翻页联动：预览数据引用变化即收起底栏，避免行号错位指向旧行
+			React.useEffect(() => { setSel(null); }, [preview]);
+
+			const shown = sel ? (sel.cell === null ? "NULL" : String(sel.cell)) : null;
+			const selReason = sel ? cellReason(sel.colName, shown) : null;
+			// 截断/BLOB 独立提示：命中即补显，若已作为只读原因展示过则不再重复
+			const truncHint = !sel ? null : isTruncatedCell(shown) ? "truncatedNoEdit" : isBlobCell(shown) ? "blobNoEdit" : null;
 			return React.createElement(
 				"div",
 				{ className: "dbt-browse-root", style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } },
-				// 顶层只读提示：授权为 ro 时整格只读，单元格仍可点击查看完整值
+				// 顶层只读提示：授权为 ro 时整格只读，单元格仍可点开底栏查看完整值
 				!editable ? React.createElement("div", { className: "dbt-readhint" }, t("readOnlyRo")) : null,
-				// relative 容器承载单元格浮层（简化定位：水平居中贴底）
+				// 预览表格区（flex:1 撑满剩余空间；底部详情栏在表格之后、面板流内）
 				React.createElement(
 					"div",
-					{ style: { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
+					{ style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
 					React.createElement(
 						"div",
 						{ className: "dbt-browse-tablewrap" },
@@ -1240,51 +1243,48 @@ window.__ModuleLoader__.load({
 											React.createElement("td", { key: j, title: row[j] === null ? "NULL" : String(row[j]) },
 												React.createElement("button", {
 													className: "dbt-cellbtn", type: "button",
-													onClick: () => openCell(i, colName, row[j]),
-												}, row[j] === null ? React.createElement("span", { className: "dbt-nullchip" }, "NULL") : String(row[j]))))),
+													onClick: () => toggleCell(i, colName, row[j]),
+												}, row[j] === null ? React.createElement("span", { className: "dbt-nullchip" }, "NULL") : String(row[j])))))),
 							),
 						),
-					),
-					pop ? React.createElement(
-						"div",
-						{ className: "dbt-cellpop", style: { position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 12 } },
-						React.createElement("strong", null, t("cellValue") + " · " + pop.colName),
-						React.createElement(
-							"div",
-							{ className: "dbt-cellpop-value" },
-							pop.cell === null ? React.createElement("span", { className: "dbt-nullchip" }, "NULL") : String(pop.cell),
-						),
-						popReason ? React.createElement("div", { className: "dbt-readhint" }, t(popReason)) : null,
-						cellErr ? React.createElement("div", { className: "dbt-err" }, cellErr) : null,
-						editing
-							? React.createElement(
-								"div",
-								{ className: "dbt-celledit" },
-								React.createElement("textarea", { value: text, onChange: (e) => setText(e.target.value) }),
-								React.createElement(
-									"label",
-									// 不用 .dbt-row：全局 input flex:1 会把 checkbox 拉伸占满、标签被推到远端（视觉审查命中）
-									{ style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", width: "fit-content" } },
-									React.createElement("input", { type: "checkbox", style: { flex: "none", minWidth: 0, width: "auto" }, checked: editNull, onChange: (e) => setEditNull(e.target.checked) }),
-									t("setNull"),
-								),
-								React.createElement(
-									"div",
-									{ className: "dbt-row" },
-									React.createElement("button", { className: "dbt-btn primary", disabled: busy, onClick: saveCell }, busy ? t("cellSaving") : t("save")),
-									React.createElement("button", { className: "dbt-btn", disabled: busy, onClick: () => setEditing(false) }, t("cancel")),
-								),
-							)
-							: React.createElement(
-								"div",
-								{ className: "dbt-cellpop-actions" },
-								React.createElement("button", { className: "dbt-btn", onClick: copyCell }, copied ? t("copied") : t("copyBtn")),
-								popReason === null ? React.createElement("button", { className: "dbt-btn primary", onClick: () => setEditing(true) }, t("editCell")) : null,
-								React.createElement("button", { className: "dbt-btn", onClick: () => setPop(null) }, t("close")),
-							),
-						) : null,
 					),
 				),
+				// 底部详情栏（Navicat/检查器式）：预览表格下方一栏，textarea 直接可编辑，点保存写回
+				sel ? React.createElement(
+					"div",
+					{ className: "dbt-celldetail" },
+					// 标题行：完整值 · 列名；null 单元格带 NULL 芯片；只读原因随之展示
+					React.createElement(
+						"div",
+						null,
+						React.createElement("strong", null, t("cellValue") + " · " + sel.colName),
+						sel.cell === null ? React.createElement("span", { className: "dbt-nullchip" }, "NULL") : null,
+						selReason ? React.createElement("span", { className: "dbt-readhint" }, t(selReason)) : null,
+					),
+					// 完整值编辑区：textarea 恒为编辑形态，不可编辑时只读
+					React.createElement("textarea", {
+						className: "dbt-celldetail-input",
+						value: text,
+						readOnly: selReason !== null,
+						onChange: (e) => setText(e.target.value),
+					}),
+					sel.cell === null ? React.createElement(
+						"label",
+						// 不用 .dbt-row：全局 input flex:1 会把 checkbox 拉伸占满、标签被推到远端（视觉审查命中）
+						{ style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", width: "fit-content" } },
+						React.createElement("input", { type: "checkbox", style: { flex: "none", minWidth: 0, width: "auto" }, checked: editNull, onChange: (e) => setEditNull(e.target.checked) }),
+						t("setNull"),
+					) : null,
+					truncHint && truncHint !== selReason ? React.createElement("span", { className: "dbt-readhint" }, t(truncHint)) : null,
+					cellErr ? React.createElement("span", { className: "dbt-err" }, cellErr) : null,
+					React.createElement(
+						"div",
+						{ className: "dbt-row" },
+						React.createElement("button", { className: "dbt-btn", onClick: copyCell }, copied ? t("copied") : t("copyBtn")),
+						selReason === null ? React.createElement("button", { className: "dbt-btn primary", disabled: busy, onClick: saveCell }, busy ? t("cellSaving") : t("save")) : null,
+						React.createElement("button", { className: "dbt-btn", onClick: () => setSel(null) }, t("close")),
+					),
+				) : null,
 			);
 		}
 
