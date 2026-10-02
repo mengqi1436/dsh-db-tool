@@ -100,12 +100,12 @@ describe('buildUpdate（SQL 6 库）', () => {
 		expect(r.ops[0]!.database).toBe('shop');
 	});
 
-	it('postgresql：schema 全限定 + $n 占位 + database 含 schema', () => {
+	it('postgresql：schema 全限定 + $n 占位 + database 只传库名', () => {
 		const r = T.buildUpdate('postgresql', 'users', 'shop.public', 'public', 'name', 'Lee', false, pk, pkVals);
 		expect(r.ok).toBe(true);
 		expect(r.ops[0]!.statement).toBe('UPDATE "public"."users" SET "name" = $1 WHERE "id" = $2');
 		expect(r.ops[0]!.params).toEqual(['Lee', 7]);
-		expect(r.ops[0]!.database).toBe('shop.public');
+		expect(r.ops[0]!.database).toBe('shop');
 	});
 
 	it('oracle：owner 全限定 + :n 占位（主键列名随 schema 原样大写）', () => {

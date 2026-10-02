@@ -532,6 +532,7 @@ window.__ModuleLoader__.load({
 			}
 			// 表全限定：pg/gauss 用 schema 前缀（库由 execute 的 database 参数路由，语句内不写库名）；
 			// mysql 带库名（adapter 无 database 路由）；oracle/dmdb 的 dbRef 即 OWNER；sqlite 仅表名
+			// execute 的 database 参数只传库名（db.schema 形态取点前段），连接目标只能是库，schema 靠语句内全限定
 			let table;
 			if (kind === "postgresql" || kind === "gaussdb") {
 				table = schemaName
@@ -560,7 +561,7 @@ window.__ModuleLoader__.load({
 				ops: [{
 					statement: "UPDATE " + table + " SET " + setSql + " WHERE " + wheres.join(" AND "),
 					params,
-					database: kind === "sqlite" ? undefined : dbRef,
+					database: kind === "sqlite" ? undefined : dbRef.split(".")[0],
 				}],
 			};
 		}
