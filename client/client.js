@@ -1250,6 +1250,8 @@ window.__ModuleLoader__.load({
 						),
 					),
 				),
+				// 分页条（BrowsePane 传入）在详情栏之上，详情栏钉在面板最底部
+				props.children,
 				// 底部详情栏（Navicat/检查器式）：预览表格下方一栏，textarea 直接可编辑，点保存写回
 				sel ? React.createElement(
 					"div",
@@ -1354,6 +1356,16 @@ window.__ModuleLoader__.load({
 				// Navicat 式单元格网格：kind/可编辑性由当前连接与授权决定（rw=可编辑），保存后重拉当前页
 				const conn = conns.find((c) => c.id === sel.connId);
 				const grant = (grants || []).find((g) => g.connId === sel.connId);
+				// 分页条作为 children 传入：渲染顺序 表格 → 分页 → 详情栏（详情栏钉在面板最底部）
+				const footer = sel && view === "preview" && !loadErr ? React.createElement(
+					"div",
+					{ className: "dbt-browse-footer" },
+					React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1) }, "‹ " + t("prevPage")),
+					React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
+					React.createElement("span", { style: { flex: 1 } }),
+					preview && preview.truncated ? React.createElement("span", { className: "dbt-muted" }, t("previewTruncated")) : null,
+					React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(sel, page + 1) }, t("nextPage") + " ›"),
+				) : null;
 				return React.createElement(PreviewGrid, {
 					preview, schema,
 					kind: conn ? conn.kind : undefined,
@@ -1365,7 +1377,7 @@ window.__ModuleLoader__.load({
 					connId: sel.connId, projectPath,
 					onSaved: () => openTable(sel, page),
 					askConfirm,
-				});
+				}, footer);
 			}
 
 			// 内嵌面板纵向布局：上半对象树（限高滚动，容器类名留给样式层），下半预览主区 + 分页
@@ -1398,16 +1410,6 @@ window.__ModuleLoader__.load({
 					// 限高兜底：无固定高度弹窗壳后给内容区可视上限，预览表在容器内滚动、单元格浮层贴底可见
 					React.createElement("div", { className: "dbt-browse-content", style: { maxHeight: 420 } }, rightPane()),
 				),
-				// 分页条（仅已选表的数据预览视图；空选中态不显示）
-				sel && view === "preview" && !loadErr ? React.createElement(
-					"div",
-					{ className: "dbt-browse-footer" },
-					React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1) }, "‹ " + t("prevPage")),
-					React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
-					React.createElement("span", { style: { flex: 1 } }),
-					preview && preview.truncated ? React.createElement("span", { className: "dbt-muted" }, t("previewTruncated")) : null,
-					React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(sel, page + 1) }, t("nextPage") + " ›"),
-				) : null,
 			);
 		}
 
