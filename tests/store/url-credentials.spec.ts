@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { DbToolStore, mergeUrlCredentials } from '../../lib/store/index.js';
+import { DbToolStore, mergeUrlCredentials, redactUrl } from '../../lib/store/index.js';
 import { DbToolService } from '../../lib/manager.js';
 import { fakeAdapter } from '../tool/fixture.js';
 import { cleanupDir, makeTempHome, readStoreFile } from './helpers.js';
@@ -152,6 +152,91 @@ describe('mergeUrlCredentials（公开官方样例）', () => {
     expect(mergeUrlCredentials({ url: 'mysql://u:keep@h:3306', urlUser: 'nu', urlPassword: '' })).toBe(
       'mysql://nu:keep@h:3306',
     );
+  });
+});
+
+describe('mergeUrlCredentials（多主机 / jdbc: 前缀回退路径）', () => {
+  const HOSTS = '10.192.37.217:8000,10.192.37.216:8000,10.192.37.218:8000';
+
+  it('验收用例：多主机 gaussdb:// URL 注入用户名+密码，authority 原样保留', () => {
+    expect(
+      mergeUrlCredentials({
+        url: `gaussdb://${HOSTS}/gycwd?`,
+        urlUser: 'user',
+        urlPassword: 'P@ss:word',
+      }),
+    ).toBe(`gaussdb://user:P%40ss%3Aword@${HOSTS}/gycwd?`);
+  });
+
+  it('验收用例：jdbc:gaussdb:// 多主机 URL 注入成功且保留前缀', () => {
+    expect(
+      mergeUrlCredentials({
+        url: `jdbc:gaussdb://${HOSTS}/gycwd?loggerLevel=OFF&currentSchema=gycwd`,
+        urlUser: 'user',
+        urlPassword: 'P@ss:word',
+      }),
+    ).toBe(`jdbc:gaussdb://user:P%40ss%3Aword@${HOSTS}/gycwd?loggerLevel=OFF&currentSchema=gycwd`);
+  });
+
+  it('回退路径只填密码：`:pass@` 无用户名形态（多主机 authority 不破坏）', () => {
+    expect(mergeUrlCredentials({ url: `redis://${HOSTS}/0`, urlPassword: 'pw' })).toBe(`redis://:pw@${HOSTS}/0`);
+  });
+
+  it('回退路径只填用户名：`user@` 无密码段', () => {
+    expect(mergeUrlCredentials({ url: `gaussdb://${HOSTS}/db`, urlUser: 'u' })).toBe(`gaussdb://u@${HOSTS}/db`);
+  });
+
+  it('回退路径两者均空串：原样返回', () => {
+    expect(mergeUrlCredentials({ url: `gaussdb://${HOSTS}/db`, urlUser: '', urlPassword: '' })).toBe(
+      `gaussdb://${HOSTS}/db`,
+    );
+  });
+
+  it('回退路径覆盖已有 userinfo：以最后一个 @ 为界整体替换', () => {
+    expect(
+      mergeUrlCredentials({ url: `gaussdb://old:oldpw@${HOSTS}/db`, urlUser: 'u2', urlPassword: 'p2' }),
+    ).toBe(`gaussdb://u2:p2@${HOSTS}/db`);
+  });
+
+  it('回退路径只填用户名：保留基底密码（与 WHATWG setter 语义对齐）', () => {
+    expect(mergeUrlCredentials({ url: `gaussdb://old:oldpw@${HOSTS}/db`, urlUser: 'u2' })).toBe(
+      `gaussdb://u2:oldpw@${HOSTS}/db`,
+    );
+  });
+
+  it('回退路径只填密码：保留基底用户名', () => {
+    expect(mergeUrlCredentials({ url: `gaussdb://old:oldpw@${HOSTS}/db`, urlPassword: 'np' })).toBe(
+      `gaussdb://old:np@${HOSTS}/db`,
+    );
+  });
+
+  it('回退路径：单主机 jdbc: 前缀同样注入（WHATWG 对 opaque path 的 setter 无效）', () => {
+    expect(
+      mergeUrlCredentials({ url: 'jdbc:postgresql://h:5432/db', urlUser: 'app', urlPassword: 'p@ss' }),
+    ).toBe('jdbc:postgresql://app:p%40ss@h:5432/db');
+  });
+
+  it('回退路径：残缺文本（无 scheme:// 形态）→ 维持「URL 无效」报错', () => {
+    expect(() => mergeUrlCredentials({ url: 'not a url', urlPassword: 'x' })).toThrow(/URL 无效/);
+  });
+
+  it('redactUrl 往返：多主机注入结果脱敏回 :***@（含 jdbc: 前缀）', () => {
+    const plain = mergeUrlCredentials({ url: `gaussdb://${HOSTS}/gycwd?`, urlUser: 'user', urlPassword: 'P@ss:word' })!;
+    expect(redactUrl(plain)).toBe(`gaussdb://user:***@${HOSTS}/gycwd?`);
+    const jdbc = mergeUrlCredentials({
+      url: `jdbc:gaussdb://${HOSTS}/gycwd?loggerLevel=OFF`,
+      urlUser: 'user',
+      urlPassword: 'P@ss:word',
+    })!;
+    expect(redactUrl(jdbc)).toBe(`jdbc:gaussdb://user:***@${HOSTS}/gycwd?loggerLevel=OFF`);
+  });
+});
+
+describe('redactUrl（jdbc: 前缀）', () => {
+  it('jdbc: 前缀单主机 URL 脱敏；无前缀形态不受影响', () => {
+    expect(redactUrl('jdbc:postgresql://app:pw@h:5432/db')).toBe('jdbc:postgresql://app:***@h:5432/db');
+    expect(redactUrl('jdbc:mysql://root:s3cret@h:3306/shop')).toBe('jdbc:mysql://root:***@h:3306/shop');
+    expect(redactUrl('jdbc:h2:mem:test')).toBe('jdbc:h2:mem:test'); // 无 :// authority 形态原样返回
   });
 });
 

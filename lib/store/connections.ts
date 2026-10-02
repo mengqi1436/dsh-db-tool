@@ -57,11 +57,17 @@ interface ConnectionsFile {
   connections: ConnRecord[];
 }
 
+/** authority 段定位：scheme:// 到首个 /?#（兼容可选 jdbc: 前缀，如 jdbc:gaussdb://），
+ *  捕获组 1 为 scheme:// 部分、组 2 为 authority（多主机逗号串整体落在该段内）。
+ *  redactUrl 与 mergeUrlCredentials 的字符串回退注入共用。 */
+const AUTHORITY_RE = /^((?:jdbc:)?[a-z][a-z0-9+.-]*:\/\/)([^/?#]*)/i;
+
 /** 将 URL 中的密码段替换为 ***：scheme://user:pass@host → scheme://user:***@host。
  *  密码可能包含 / ? # @ 等字符：先取 scheme:// 到首个 /?#  的 authority 段，
- *  在 authority 内以最后一个 @ 分界取 userinfo，再以最后一个 : 分界取密码。 */
+ *  在 authority 内以最后一个 @ 分界取 userinfo，再以最后一个 : 分界取密码。
+ *  scheme 兼容可选 jdbc: 前缀（jdbc:gaussdb://…），无前缀行为不变。 */
 export function redactUrl(url: string): string {
-  const m = url.match(/^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*)/i);
+  const m = url.match(AUTHORITY_RE);
   if (!m) return url;
   const authority = m[2] ?? '';
   const at = authority.lastIndexOf('@');
@@ -80,7 +86,12 @@ export function redactUrl(url: string): string {
  *  - url 含脱敏标记 ':***@'（编辑回填值）→ 有 secretsUrl 以其为基底整体替换，否则报错；
  *  - 注入用 WHATWG URL 的 username/password setter（自动 percent-encode '@:/?# ' 等特殊字符），
  *    与适配器侧 decodeURIComponent / 驱动 RFC 3986 解码严格互逆；只填一项只覆盖一项
- *    （redis 'redis://:pass@host' 无用户名形态、oracle 必填用户名校验均兼容）。 */
+ *    （redis 'redis://:pass@host' 无用户名形态、oracle 必填用户名校验均兼容）。
+ *  - WHATWG 解析失败（如多主机逗号端口 gaussdb://h1:8000,h2:8000/…）或 setter 静默无效
+ *    （jdbc:gaussdb://… 为 opaque path、host 为空）时回退字符串注入：正则定位 authority 段
+ *    （兼容可选 jdbc: 前缀），段内以最后一个 @ 为界替换/插入 userinfo，其余部分逐字保留；
+ *    凭据按 encodeURIComponent 编码，只填一项只覆盖一项的语义与 setter 对齐；
+ *    无 scheme://authority 形态的残缺串仍报「URL 无效」。 */
 export function mergeUrlCredentials(opts: {
   url?: string;
   urlUser?: string;
@@ -102,15 +113,49 @@ export function mergeUrlCredentials(opts: {
   } else {
     base = url;
   }
-  let u: URL;
+  let u: URL | undefined;
   try {
     u = new URL(base);
   } catch {
-    throw new Error('连接 URL 无效，无法注入用户名/密码');
+    u = undefined; // WHATWG 解析失败：多主机逗号端口、残缺串等
+  }
+  const m = base.match(AUTHORITY_RE);
+  // 回退条件：解析失败；或 opaque path（host 为空、setter no-op）且 authority 非空。
+  // authority 为空（sqlite:// 等无主机形态）不回退，维持 setter no-op 的现状语义。
+  if (u === undefined || (u.host === '' && (m?.[2] ?? '') !== '')) {
+    if (m === null) throw new Error('连接 URL 无效，无法注入用户名/密码');
+    return injectUserInfo(base, m, urlUser, urlPassword);
   }
   if (urlUser !== undefined && urlUser !== '') u.username = urlUser;
   if (urlPassword !== undefined && urlPassword !== '') u.password = urlPassword;
   return u.toString();
+}
+
+/** 字符串回退注入：在 authority（m[2]）内以最后一个 @ 为界替换/插入 userinfo。
+ *  与 WHATWG setter 语义对齐：只填一项只覆盖一项（另一项保留基底值）；
+ *  两者均无效时不改动原样返回。凭据按 encodeURIComponent 编码（与适配器侧
+ *  decodeURIComponent 互逆），authority 之外（path/query/fragment）逐字保留。 */
+function injectUserInfo(base: string, m: RegExpMatchArray, urlUser?: string, urlPassword?: string): string {
+  const whole = m[0] ?? '';
+  const authority = m[2] ?? '';
+  const user = urlUser !== undefined && urlUser !== '' ? encodeURIComponent(urlUser) : undefined;
+  const pass = urlPassword !== undefined && urlPassword !== '' ? encodeURIComponent(urlPassword) : undefined;
+  if (user === undefined && pass === undefined) return base;
+  const at = authority.lastIndexOf('@');
+  const oldUserinfo = at >= 0 ? authority.slice(0, at) : '';
+  const colon = oldUserinfo.lastIndexOf(':');
+  const oldUser = colon >= 0 ? oldUserinfo.slice(0, colon) : oldUserinfo;
+  const oldPass = colon >= 0 ? oldUserinfo.slice(colon + 1) : undefined;
+  let userinfo: string;
+  if (user !== undefined && pass !== undefined) {
+    userinfo = `${user}:${pass}`;
+  } else if (user !== undefined) {
+    userinfo = oldPass !== undefined ? `${user}:${oldPass}` : user;
+  } else {
+    userinfo = `${oldUser}:${pass}`;
+  }
+  const hostPart = at >= 0 ? authority.slice(at + 1) : authority;
+  return whole.slice(0, whole.length - authority.length) + userinfo + '@' + hostPart + base.slice(whole.length);
 }
 
 function splitPassword(fields: Record<string, unknown> | undefined): {

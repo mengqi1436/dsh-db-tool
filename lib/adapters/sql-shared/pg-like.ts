@@ -33,8 +33,30 @@ export interface PgLikePool {
   connect(): Promise<PgLikeClient>;
   end(): Promise<void>;
 }
+/** 一次性探测客户端（gaussdb-node 与 pg 均原生导出 Client，结构同此） */
+export interface PgLikeProbeClient {
+  connect(): Promise<unknown>;
+  query(text: string, values?: unknown[]): Promise<PgLikeResult>;
+  end(): Promise<unknown>;
+}
 export interface PgLikeDriver {
   Pool: new (config: Record<string, unknown>) => PgLikePool;
+  Client?: new (config: Record<string, unknown>) => PgLikeProbeClient;
+}
+
+/** 多主机 URL 中的单台主机 */
+export interface PgUrlHost {
+  host: string;
+  port?: number;
+}
+/** normalizeUrl 解析结果：prefix + hosts 各台重组（或单台 prefix 直含 authority）+ suffix 可互相还原 */
+export interface NormalizedPgUrl {
+  /** scheme:// + userinfo（有则含 @，原样保留）；单台/无 authority 时含完整 authority */
+  prefix: string;
+  /** 仅 authority 含多台（逗号分隔）时设置；单台/无 authority 不设 */
+  hosts?: PgUrlHost[];
+  /** authority 结束（首个 /、? 或 #）起原样保留；无 authority 时为 '' */
+  suffix: string;
 }
 
 /** 供服务层管理事务的扩展成员（DatabaseAdapter 契约之外的可选能力） */
@@ -44,14 +66,15 @@ export interface TxHandle {
   rollback(): Promise<void>;
 }
 
-function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
+function poolConfig(conn: ResolvedConnection, overrideUrl?: string): Record<string, unknown> {
   const base: Record<string, unknown> = {
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   };
   if (conn.url) {
-    base.connectionString = conn.url;
+    // overrideUrl：多主机探测选定台 / 剥 jdbc: 后的最终 connectionString
+    base.connectionString = overrideUrl ?? conn.url;
   } else if (conn.fields) {
     const f = conn.fields;
     // 兜底默认值按 kind 区分（仅表单字段被清空时触发）：GaussDB 官方默认端口 8000
@@ -70,13 +93,123 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
   return base;
 }
 
+/**
+ * 规范化 JDBC / 多主机风格连接 URL。
+ *
+ * 背景：`jdbc:gaussdb://...` 的 `jdbc:` 是 WHATWG 非特殊 scheme，驱动内 new URL()
+ * 把 `gaussdb://...` 当不透明路径 → hostname/port 为空 → 兜底连本机；多主机
+ * authority（host:port,host:port）端口段含逗号非数字 → new URL 直接抛 Invalid URL。
+ * 故自行按文本解析 authority，不经 WHATWG 解析。
+ */
+export function normalizeUrl(url: string): NormalizedPgUrl {
+  const stripped = url.replace(/^jdbc:/i, '');
+  const schemeEnd = stripped.indexOf('://');
+  // 无 authority（非 URL 形态）：整串原样保留，交由驱动按既有逻辑处理
+  if (schemeEnd < 0) return { prefix: stripped, suffix: '' };
+  const rest = stripped.slice(schemeEnd + 3);
+  const authEnd = /[/?#]/.exec(rest)?.index ?? rest.length;
+  const authority = rest.slice(0, authEnd);
+  const suffix = rest.slice(authEnd);
+  const at = authority.lastIndexOf('@');
+  const userinfo = at >= 0 ? authority.slice(0, at + 1) : '';
+  const hostPart = authority.slice(at + 1);
+  const hosts = hostPart.split(',').map((seg) => {
+    // ponytail: 按最后一个冒号拆 host/port，仅支持 IPv4/主机名（IPv6 需方括号感知，遇到再加）
+    const ci = seg.lastIndexOf(':');
+    if (ci < 0) return { host: seg };
+    const port = Number.parseInt(seg.slice(ci + 1), 10);
+    return Number.isFinite(port) ? { host: seg.slice(0, ci), port } : { host: seg };
+  });
+  const prefix = `${stripped.slice(0, schemeEnd)}://${userinfo}`;
+  // 单台不设 hosts（调用方只在多台时探测）
+  if (hosts.length <= 1) return { prefix: prefix + hostPart, suffix };
+  return { prefix, hosts, suffix };
+}
+
+/**
+ * 逐台探测可用节点（移植自用户项目 GaussDB-MCP 的 probeHosts）：返回第一台可连
+ * （masterOnly 时须为主节点，pg_is_in_recovery() 为 true 的备节点跳过）的主机；
+ * 全部失败返回 undefined（调用方回退首台，让 testConnect 报真实连接错误）。
+ */
+// ponytail: 仅适配器创建时探测一次；运行中主备切换不自动 failover，需要时在 pool error 事件里重建池再探测
+export async function pickHost(
+  driver: PgLikeDriver,
+  base: Record<string, unknown>,
+  hosts: PgUrlHost[],
+  masterOnly: boolean,
+): Promise<PgUrlHost | undefined> {
+  if (!driver.Client) return undefined;
+  for (const h of hosts) {
+    // urlUser/urlPassword 是调用方传入的内部凭据约定键，转成驱动的 user/password 后剔除
+    const { urlUser, urlPassword, ...rest } = base;
+    const cfg: Record<string, unknown> = { ...rest, connectionString: undefined, host: h.host };
+    if (h.port != null) cfg.port = h.port;
+    // 凭据自 base.urlUser/base.urlPassword 解出；无则不设
+    if (typeof urlUser === 'string' && urlUser !== '') cfg.user = urlUser;
+    if (typeof urlPassword === 'string') cfg.password = urlPassword;
+    const client = new driver.Client(cfg);
+    try {
+      await client.connect();
+      if (masterOnly) {
+        const res = await client.query('SELECT pg_is_in_recovery() AS in_recovery');
+        if (res.rows[0]?.in_recovery === true) {
+          await client.end().catch(() => {});
+          continue; // 备节点跳过
+        }
+      }
+      await client.end().catch(() => {});
+      return h.port != null ? { host: h.host, port: h.port } : { host: h.host };
+    } catch {
+      await client.end().catch(() => {});
+    }
+  }
+  return undefined;
+}
+
 export async function createPgLikeAdapter(
   kind: DbKind,
   Driver: PgLikeDriver,
   conn: ResolvedConnection,
   opts?: { mode?: AccessMode },
 ): Promise<DatabaseAdapter & { tx: TxHandle }> {
-  const pool = new Driver.Pool(poolConfig(conn));
+  // GaussDB JDBC 风格 URL 驱动自带的 WHATWG 解析处理不了（jdbc: 非特殊 scheme 使
+  // hostname/port 为空 → 兜底连本机；多主机 authority 端口段含逗号 → 抛 Invalid URL），
+  // 故建池前先规范化，多主机时逐台探测选可用节点；postgresql 多主机列表剥 jdbc: 后
+  // 原样透传（pg 驱动原生支持 libpq 多主机 failover），不 probe。
+  const norm = conn.url ? normalizeUrl(conn.url) : null;
+  const joinSeg = (h: PgUrlHost): string => `${h.host}${h.port != null ? ':' + h.port : ''}`;
+  const cleanUrl = norm ? norm.prefix + (norm.hosts ?? []).map(joinSeg).join(',') + norm.suffix : undefined;
+  let finalUrl: string | undefined = cleanUrl;
+  if (kind === 'gaussdb' && norm?.hosts && norm.hosts.length > 1) {
+    const { prefix, suffix } = norm;
+    const joinHost = (h: PgUrlHost): string => prefix + joinSeg(h) + suffix;
+    const firstUrl = joinHost(norm.hosts[0]!);
+    // targetServerType=master（键值大小写不敏感）→ 只接受主节点
+    const qi = suffix.indexOf('?');
+    let masterOnly = false;
+    for (const [k, v] of new URLSearchParams(qi >= 0 ? suffix.slice(qi + 1) : '')) {
+      if (k.toLowerCase() === 'targetservertype' && v.toLowerCase() === 'master') masterOnly = true;
+    }
+    const base = poolConfig(conn, firstUrl);
+    // 探测凭据自 prefix userinfo 解出（按最后一个 @ / 最后一个 : 分界，decode 与
+    // percent-encode 注入互逆）；仅密码无用户名时 user 不设
+    if (prefix.endsWith('@')) {
+      const body = prefix.slice(prefix.indexOf('://') + 3, -1);
+      const ci = body.lastIndexOf(':');
+      if (ci >= 0) {
+        const user = decodeURIComponent(body.slice(0, ci));
+        if (user !== '') base.urlUser = user;
+        base.urlPassword = decodeURIComponent(body.slice(ci + 1));
+      } else if (body !== '') {
+        base.urlUser = decodeURIComponent(body);
+      }
+    }
+    const picked = await pickHost(Driver, base, norm.hosts, masterOnly);
+    // 全败回退首台重组值：让 testConnect 报真实连接错误
+    finalUrl = picked ? joinHost(picked) : firstUrl;
+  }
+  const cfg = poolConfig(conn, finalUrl);
+  const pool = new Driver.Pool(cfg);
   const readOnly = opts?.mode === 'ro';
   // 所有池（主池 + 跨库池）统一走此初始化。
   // pg 约定：release(err) 若无等待者会 emit pool 'error'，无监听器会崩进程——
@@ -106,9 +239,10 @@ export async function createPgLikeAdapter(
   const dbPools = new Map<string, PgLikePool>();
   const mainDb = (): string | null => {
     if (conn.fields) return conn.fields.database ? String(conn.fields.database) : null;
-    if (!conn.url) return null;
+    if (!finalUrl) return null;
     try {
-      return decodeURIComponent(new URL(conn.url).pathname.replace(/^\//, '')) || null;
+      // 规范化后的最终 URL（单台 authority）才可被 new URL 正确解析
+      return decodeURIComponent(new URL(finalUrl).pathname.replace(/^\//, '')) || null;
     } catch {
       return null;
     }
@@ -117,7 +251,8 @@ export async function createPgLikeAdapter(
     if (!db || db === mainDb()) return pool;
     const cached = dbPools.get(db);
     if (cached) return cached;
-    const created = new Driver.Pool({ ...poolConfig(conn), database: db });
+    // 与主池同一份最终 cfg（多主机探测选定台后的 connectionString），仅覆盖库名
+    const created = new Driver.Pool({ ...cfg, database: db });
     setupPool(created); // 与主池一致：error 兜底 + ro 会话只读
     dbPools.set(db, created);
     return created;
