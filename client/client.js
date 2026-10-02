@@ -107,7 +107,6 @@ window.__ModuleLoader__.load({
 			truncatedNoEdit: "值已截断显示，就地编辑可能覆盖数据，请改用 SQL 控制台",
 			blobNoEdit: "二进制值不支持就地编辑",
 			redisTypeRo: "Redis 该类型不支持就地编辑",
-			cellSaved: "已保存",
 			// SQL 控制台
 			modeQuery: "只读查询",
 			modeExecute: "写入执行",
@@ -217,7 +216,6 @@ window.__ModuleLoader__.load({
 			truncatedNoEdit: "Value shown truncated; edit via SQL Console instead",
 			blobNoEdit: "Binary values cannot be edited here",
 			redisTypeRo: "This Redis type cannot be edited here",
-			cellSaved: "Saved",
 			modeQuery: "query (read-only)",
 			modeExecute: "execute (write)",
 			modeScript: "script",
@@ -352,7 +350,7 @@ window.__ModuleLoader__.load({
 				".dbt-btn.danger:hover{background:rgba(255,69,58,.12);}",
 				".dbt-btn:disabled{opacity:.4;cursor:default;transform:none;}",
 				"/* ===== 文本反馈 ===== */",
-				".dbt-muted{color:var(--dbt-text-secondary);font-size:11px;}",
+				".dbt-muted,.dbt-readhint{color:var(--dbt-text-secondary);font-size:11px;}",
 				".dbt-err{color:var(--dbt-danger);font-size:12px;white-space:pre-wrap;}",
 				".dbt-msg{color:var(--dbt-success);font-size:12px;white-space:pre-wrap;}",
 				"/* ===== 行 hairline 表格 + 毛玻璃 sticky 表头 ===== */",
@@ -417,7 +415,6 @@ window.__ModuleLoader__.load({
 				".dbt-celledit textarea{font-family:var(--dbt-mono);font-size:13px;min-height:96px;resize:vertical;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:8px;padding:8px;}",
 				".dbt-celledit textarea:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
 				".dbt-nullchip{display:inline-flex;align-items:center;border:1px solid var(--dbt-warning);color:var(--dbt-warning);border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;}",
-				".dbt-readhint{color:var(--dbt-text-secondary);font-size:11px;}",
 				"/* ===== 视图切换入场（仅 transform/opacity；reduced-motion 全局已禁） ===== */",
 				"@keyframes dbt-in{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}",
 				".dbt-view{display:flex;flex-direction:column;gap:10px;animation:dbt-in .22s var(--dbt-ease);}",
@@ -427,7 +424,7 @@ window.__ModuleLoader__.load({
 				".dbt-seg button.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
 				".dbt-browse-root .dbt-seg button{font-size:12px;padding:4px 12px;}",
 				"/* ===== 降级：透明度减弱 / 动效减弱 ===== */",
-				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog,.dbt-browse-dialog,.dbt-cellpop{backdrop-filter:none;-webkit-backdrop-filter:none;}.dbt-dialog,.dbt-browse-dialog{background:#2c2c2e;}.dbt-cellpop{background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}.dbt-browse-root .dbt-table th{background:#1e1e20;}}",
+				"@media (prefers-reduced-transparency: reduce){.dbt-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55);}.dbt-dialog,.dbt-browse-dialog,.dbt-cellpop{backdrop-filter:none;-webkit-backdrop-filter:none;background:#2c2c2e;}.dbt-table th{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20;}.dbt-browse-root .dbt-table th{background:#1e1e20;}}",
 				"@media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce){.dbt-dialog,.dbt-browse-dialog,.dbt-cellpop{background:#f5f5f7;}.dbt-table th,.dbt-browse-root .dbt-table th{background:#f2f2f7;}}",
 				"@media (prefers-reduced-motion: reduce){.dbt-panel *,.dbt-browse-root *{transition:none!important;animation:none!important;}.dbt-btn:active{transform:none;}}",
 			].join("\n");
@@ -454,7 +451,8 @@ window.__ModuleLoader__.load({
 					React.createElement("div", { className: "dbt-muted" }, t("confirmHint")),
 					React.createElement(
 						"div",
-						{ className: "dbt-row", style: { justifyContent: "flex-end" } },
+						// 末对齐由样式层 .dbt-dialog .dbt-row 规则承担，无需内联 style
+						{ className: "dbt-row" },
 						React.createElement("button", { className: "dbt-btn danger", onClick: () => done(true) }, t("confirmRun")),
 						React.createElement("button", { className: "dbt-btn", onClick: () => done(false) }, t("confirmCancel")),
 					),
@@ -1345,7 +1343,7 @@ window.__ModuleLoader__.load({
 
 		function BrowseDialog(props) {
 			const { conns, projectPath, grants, askConfirm, onClose, ctx } = props;
-			// grants / askConfirm：预留给后续单元格编辑的危险操作确认通道，本任务先接住不使用
+			// grants（editable 判定）与 askConfirm（单元格写回确认）下传 PreviewGrid
 			// portal 异步解析接入：portalReady 仅用于触发重渲染（mountDialog 内部读 portalImpl）。
 			// createPortal 不换组件实例——portalReady 切换前后是同一 DOM 节点，pos state 保持，居中定位不受 portal 重挂影响。
 			const [portalReady, setPortalReady] = React.useState(!!portalImpl);
@@ -1914,7 +1912,7 @@ window.__ModuleLoader__.load({
 				return ctx.betterSidebar.registerTab({
 					id: TAB_ID,
 					title: function () { return t("tabTitle"); },
-					icon: function (size) { return icon(size); },
+					icon,
 					order: 45,
 					single: true,
 					component: function (p) {
