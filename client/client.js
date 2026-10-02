@@ -497,15 +497,43 @@ window.__ModuleLoader__.load({
 		}
 		// PiP 独立窗口渲染时禁 portal：PiP root 本身就挂在 pipDoc.body 上，再 portal 回主 document 会把 DOM 拉出独立窗口
 		let portalDisabled = false;
-		// createRoot 多级探测（PiP 独立窗口需要独立 React root）：react-dom → react-dom/client
+		// createRoot 三重解析（PiP 独立窗口需要独立 React root，结构对齐上方 portal 解析）：
+		// ①模块加载时同步 require react-dom → react-dom/client（宿主按 specifier 解析，两者是不同键）
+		// ②宿主模块系统异步 import("react-dom/client") ③均不可用则 PiP 超时降级 DOM 浮窗
 		let reactCreateRoot = null;
+		let rootTried = false;    // 异步 import 只发起一次
+		let rootPending = null;   // 订阅解析成功的回调列表
+		let rootSource = null;    // 就绪方式：sync / async / null（未就绪，诊断日志用）
 		try {
 			var rd2 = require("react-dom");
-			reactCreateRoot = rd2 && typeof rd2.createRoot === "function" ? rd2.createRoot.bind(rd2) : null;
-			if (!reactCreateRoot) {
-				try { var rdc = require("react-dom/client"); reactCreateRoot = rdc && typeof rdc.createRoot === "function" ? rdc.createRoot.bind(rdc) : null; } catch (e2) { /* 保持 null */ }
+			if (rd2 && typeof rd2.createRoot === "function") {
+				reactCreateRoot = rd2.createRoot.bind(rd2); rootTried = true; rootSource = "sync";
+			} else {
+				try { var rdc = require("react-dom/client"); if (rdc && typeof rdc.createRoot === "function") { reactCreateRoot = rdc.createRoot.bind(rdc); rootTried = true; rootSource = "sync"; } } catch (e2) { /* 保持 null */ }
 			}
-		} catch (e) { /* 保持 null，PiP 不可用走 DOM 浮窗降级 */ }
+		} catch (e) { /* 保持 null，等异步解析 */ }
+		function resolveRootAsync(ctx) {
+			if (rootTried) return;
+			rootTried = true;
+			if (reactCreateRoot) return;
+			var mods = ctx && ctx.modules;
+			var p = mods && typeof mods.import === "function" ? mods.import("react-dom/client") : null;
+			if (p && typeof p.then === "function") {
+				p.then(function (m) {
+					if (m && typeof m.createRoot === "function") {
+						reactCreateRoot = m.createRoot.bind(m);
+						rootSource = "async";
+						var waiters = rootPending || []; rootPending = null;
+						for (var i = 0; i < waiters.length; i++) waiters[i]();
+					}
+				}).catch(function () { /* 解析失败，PiP 走超时降级 */ });
+			}
+		}
+		function onRootReady(cb) {
+			if (reactCreateRoot) { cb(); return; }
+			(rootPending = rootPending || []).push(cb);
+		}
+		let pipResult = "not-tried"; // 最近一次 PiP 尝试结果：opened / rejected:<err.name>（诊断日志用）
 
 		/* ---------------- 连接管理 ---------------- */
 		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", ssl: false };
@@ -1351,11 +1379,14 @@ window.__ModuleLoader__.load({
 			const [portalReady, setPortalReady] = React.useState(!!portalImpl);
 			React.useEffect(() => {
 				resolvePortalAsync(ctx);
+				resolveRootAsync(ctx);
 				onPortalReady(function () { setPortalReady(true); });
-				// 诊断：一次性输出（帮助真机排查 iframe 隔离与 portal 解析结果）
+				// 诊断：一次性输出（帮助真机排查 iframe 隔离与 portal/createRoot 解析结果、PiP 尝试结果）
 				if (!window.__dbtPortalDiag) {
 					window.__dbtPortalDiag = true;
-					console.info("[dbt] portal:", portalImpl ? "sync/async ok" : "unavailable", "sameDoc:", window.top === window.self);
+					console.info("[dbt] portal:", portalImpl ? "sync/async ok" : "unavailable",
+						"createRoot:", rootSource || "none", "pip:", pipResult,
+						"sameDoc:", window.top === window.self);
 				}
 			}, []);
 			const [sel, setSel] = React.useState(null); // 弹窗内当前选中（null=未选表，右栏显示引导空态）
@@ -1577,12 +1608,16 @@ window.__ModuleLoader__.load({
 				confirmReq ? React.createElement(DangerDialog, { challenge: confirmReq, onClose: () => setConfirmReq(null) }) : null,
 			);
 		}
-		function openBrowsePip(ctx, deps) { // deps: {conns, projectPath, grants, onClosed} → 返回 pipWindow | null
+		function openBrowsePip(ctx, deps) { // deps: {conns, projectPath, grants, onClosed, onFallback} → 返回 pipWindow | null
 			try {
 				const dpip = window.documentPictureInPicture;
-				if (!dpip || typeof dpip.requestWindow !== "function" || !reactCreateRoot || !portalImpl) return null;
+				// 入口只硬性要求 dpip；createRoot/portal 未就绪不再放弃——手势内先开窗，root 异步就绪后渲染，超时由调用方降级
+				if (!dpip || typeof dpip.requestWindow !== "function") return null;
+				resolveRootAsync(ctx); // createRoot 同步未就绪时，趁 3 秒超时窗口发起宿主异步 import
 				// PiP 只能在用户手势内同步发起 requestWindow，Promise then 里再做 DOM 装配
-				return dpip.requestWindow({ width: 1100, height: 720 }).then((w) => {
+				const p = dpip.requestWindow({ width: 1100, height: 720 });
+				pipResult = "opened"; // requestWindow 已发起；拒绝走下方 catch
+				return p.then((w) => {
 					const doc = w.document;
 					// 相对地址基准：PiP 文档是 about:blank，fetch 的相对 API 路径须按主 origin 解析
 					const base = doc.createElement("base");
@@ -1591,25 +1626,46 @@ window.__ModuleLoader__.load({
 					// 样式：整套 --dbt-* token 与规则注入 PiP 文档
 					if (styleEl) doc.head.appendChild(doc.importNode(styleEl, true));
 					doc.body.style.margin = "0";
-					portalDisabled = true; // PiP root 已在 pipDoc.body 上，禁 portal 防 DOM 被拉回主窗口
-					const root = reactCreateRoot(doc.body);
+					// 加载占位：createRoot 异步解析期间给用户可见反馈（PiP 场景少用，不做 i18n key）
+					const ph = doc.createElement("div");
+					ph.style.cssText = "display:flex;align-items:center;justify-content:center;height:100%;font:14px sans-serif;color:#888;";
+					ph.textContent = "正在打开数据浏览…";
+					doc.body.appendChild(ph);
+					let root = null;
+					let settled = false; // root 已渲染或窗口已关闭：晚到的 onRootReady 回调与超时兜底均不再处理
 					const closePip = () => {
-						try { root.unmount(); } catch (e) { /* 已卸载 */ }
+						if (root) { try { root.unmount(); } catch (e) { /* 已卸载 */ } }
 						portalDisabled = false;
 						try { w.close(); } catch (e2) { /* 已关闭 */ }
 					};
-					root.render(React.createElement(PipBrowseApp, {
-						ctx, conns: deps.conns, projectPath: deps.projectPath, grants: deps.grants,
-						onClose: () => { closePip(); deps.onClosed(); },
-					}));
+					onRootReady(() => {
+						if (settled) return;
+						settled = true;
+						portalDisabled = true; // PiP root 已在 pipDoc.body 上，禁 portal 防 DOM 被拉回主窗口
+						root = reactCreateRoot(doc.body);
+						root.render(React.createElement(PipBrowseApp, {
+							ctx, conns: deps.conns, projectPath: deps.projectPath, grants: deps.grants,
+							onClose: () => { closePip(); deps.onClosed(); },
+						}));
+						ph.remove();
+					});
 					w.addEventListener("pagehide", () => { // 用户点 PiP 窗口系统关闭钮
+						settled = true;
+						if (root) { try { root.unmount(); } catch (e) { /* 已卸载 */ } }
 						portalDisabled = false;
-						try { root.unmount(); } catch (e) { /* 已卸载 */ }
 						deps.onClosed();
 					});
+					// 超时兜底：3 秒内 createRoot 没就绪 → 关 PiP 清理并回调降级（调用方打开 DOM 浮窗）
+					setTimeout(() => {
+						if (settled) return;
+						settled = true;
+						closePip();
+						deps.onFallback();
+					}, 3000);
 					return w;
-				}).catch(() => null);
+				}).catch((err) => { pipResult = "rejected:" + (err && err.name || "Error"); return null; });
 			} catch (e) {
+				pipResult = "rejected:" + (e && e.name || "Error");
 				return Promise.resolve(null);
 			}
 		}
@@ -1750,6 +1806,8 @@ window.__ModuleLoader__.load({
 				const p = openBrowsePip(props.ctx, {
 					conns, projectPath, grants,
 					onClosed: () => setPipWin(null),
+					// PiP 超时降级（createRoot 未就绪）：清掉窗口句柄并回退 DOM 浮窗
+					onFallback: () => { setPipWin(null); setBrowseOpen(true); },
 				});
 				if (p && typeof p.then === "function") {
 					p.then((w) => { if (w) setPipWin(w); else setBrowseOpen(true); });
