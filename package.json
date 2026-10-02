@@ -38,9 +38,7 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-locale",
-        "react-dom",
-        "react-dom/client"
+        "@deepseek-ai/dsh-client-locale"
       ],
       "platform": "web"
     }
