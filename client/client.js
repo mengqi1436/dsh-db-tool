@@ -388,7 +388,7 @@ window.__ModuleLoader__.load({
 				".dbt-chev.leaf{visibility:hidden;}",
 				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
 				/* ===== Navicat 式浏览弹窗 ===== */
-				".dbt-browse-dialog{position:fixed;width:min(1100px,calc(100vw - 48px));height:min(720px,calc(100vh - 48px));min-width:min(680px,calc(100vw - 16px));min-height:min(420px,calc(100vh - 16px));background:var(--dbt-dialog-bg);color:inherit;border:1px solid var(--dbt-separator);border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 16px rgba(0,0,0,.18);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;font-size:14px;animation:dbt-in .22s var(--dbt-ease);}",
+				".dbt-browse-dialog{position:fixed;z-index:2147483000;width:min(1100px,calc(100vw - 48px));height:min(720px,calc(100vh - 48px));min-width:min(680px,calc(100vw - 16px));min-height:min(420px,calc(100vh - 16px));background:var(--dbt-dialog-bg);color:inherit;border:1px solid var(--dbt-separator);border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 16px rgba(0,0,0,.18);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;font-size:14px;animation:dbt-in .22s var(--dbt-ease);}",
 				".dbt-browse-dialog.dragging{user-select:none;}",
 				".dbt-browse-header{flex:none;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--dbt-separator);}",
 				".dbt-browse-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:17px;}",
@@ -493,8 +493,19 @@ window.__ModuleLoader__.load({
 			(portalPending = portalPending || []).push(cb);
 		}
 		function mountDialog(children) {
-			return portalImpl ? portalImpl(children, document.body) : children;
+			return (portalImpl && !portalDisabled) ? portalImpl(children, document.body) : children;
 		}
+		// PiP 独立窗口渲染时禁 portal：PiP root 本身就挂在 pipDoc.body 上，再 portal 回主 document 会把 DOM 拉出独立窗口
+		let portalDisabled = false;
+		// createRoot 多级探测（PiP 独立窗口需要独立 React root）：react-dom → react-dom/client
+		let reactCreateRoot = null;
+		try {
+			var rd2 = require("react-dom");
+			reactCreateRoot = rd2 && typeof rd2.createRoot === "function" ? rd2.createRoot.bind(rd2) : null;
+			if (!reactCreateRoot) {
+				try { var rdc = require("react-dom/client"); reactCreateRoot = rdc && typeof rdc.createRoot === "function" ? rdc.createRoot.bind(rdc) : null; } catch (e2) { /* 保持 null */ }
+			}
+		} catch (e) { /* 保持 null，PiP 不可用走 DOM 浮窗降级 */ }
 
 		/* ---------------- 连接管理 ---------------- */
 		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", ssl: false };
@@ -1384,13 +1395,14 @@ window.__ModuleLoader__.load({
 				if (closeRef.current) closeRef.current.focus();
 			}, []);
 
-			// 拖动定位：首帧给个保守值，mount 后按浮窗实测尺寸居中（侧栏 iframe 视口窄，常量估宽会错位）
+			// 拖动定位：首帧给个保守值，mount 后按浮窗实测尺寸居中（坐标基准取浮窗所在 document 的视口——DOM 浮窗为主视口，PiP 独立窗口为 PiP 视口）
 			const dialogRef2 = React.useRef(null);
 			const [pos, setPos] = React.useState(() => ({ top: 72, left: 12 }));
 			React.useEffect(() => {
 				const el = dialogRef2.current;
 				if (!el) return;
-				const w = window.innerWidth || 1200, h = window.innerHeight || 800;
+				const view = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+				const w = view.innerWidth || 1200, h = view.innerHeight || 800;
 				setPos({
 					top: Math.max(0, Math.round((h - el.offsetHeight) / 2)),
 					left: Math.max(0, Math.round((w - el.offsetWidth) / 2)),
@@ -1408,7 +1420,8 @@ window.__ModuleLoader__.load({
 			}
 			function onHeaderPointerMove(e) {
 				if (!draggingRef.current) return;
-				const h = window.innerHeight || 800, w = window.innerWidth || 1200;
+				const view = (e.currentTarget.ownerDocument && e.currentTarget.ownerDocument.defaultView) || window;
+				const h = view.innerHeight || 800, w = view.innerWidth || 1200;
 				// clamp 全部用浮窗实测尺寸：整体保持在视口内（窄视口下常量估宽会把窗拖丢）
 				const dlg = e.currentTarget.parentElement;
 				const dlgH = (dlg && dlg.offsetHeight) || 720;
@@ -1544,6 +1557,63 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		/* ---------------- PiP 独立窗口（Document Picture-in-Picture） ---------------- */
+		// OS 级独立窗口：可拖出桌面端主窗口、系统级置顶。内容为完整数据浏览 UI（同 JS 环境复用
+		// BrowseDialog/DangerDialog 与 mock 之外的宿主 fetch 同源）；DOM 浮窗作为不可用时的降级。
+		// 打开成功返回 pipWindow，失败返回 null（调用方降级为 DOM 浮窗）。
+		function PipBrowseApp(props) { // {ctx, conns, projectPath, grants, onClose}
+			// 危险操作确认渲染在 PiP 窗口内（Panel 的确认对话框在主窗口，PiP 用户看不见）
+			const [confirmReq, setConfirmReq] = React.useState(null);
+			const askConfirm = React.useCallback((info) => new Promise((resolve) => {
+				setConfirmReq(Object.assign({}, info, { resolve }));
+			}), []);
+			return React.createElement(
+				React.Fragment,
+				null,
+				React.createElement(BrowseDialog, {
+					ctx: props.ctx, conns: props.conns, projectPath: props.projectPath,
+					grants: props.grants, askConfirm: askConfirm, onClose: props.onClose,
+				}),
+				confirmReq ? React.createElement(DangerDialog, { challenge: confirmReq, onClose: () => setConfirmReq(null) }) : null,
+			);
+		}
+		function openBrowsePip(ctx, deps) { // deps: {conns, projectPath, grants, onClosed} → 返回 pipWindow | null
+			try {
+				const dpip = window.documentPictureInPicture;
+				if (!dpip || typeof dpip.requestWindow !== "function" || !reactCreateRoot || !portalImpl) return null;
+				// PiP 只能在用户手势内同步发起 requestWindow，Promise then 里再做 DOM 装配
+				return dpip.requestWindow({ width: 1100, height: 720 }).then((w) => {
+					const doc = w.document;
+					// 相对地址基准：PiP 文档是 about:blank，fetch 的相对 API 路径须按主 origin 解析
+					const base = doc.createElement("base");
+					base.href = window.location.origin + "/";
+					doc.head.appendChild(base);
+					// 样式：整套 --dbt-* token 与规则注入 PiP 文档
+					if (styleEl) doc.head.appendChild(doc.importNode(styleEl, true));
+					doc.body.style.margin = "0";
+					portalDisabled = true; // PiP root 已在 pipDoc.body 上，禁 portal 防 DOM 被拉回主窗口
+					const root = reactCreateRoot(doc.body);
+					const closePip = () => {
+						try { root.unmount(); } catch (e) { /* 已卸载 */ }
+						portalDisabled = false;
+						try { w.close(); } catch (e2) { /* 已关闭 */ }
+					};
+					root.render(React.createElement(PipBrowseApp, {
+						ctx, conns: deps.conns, projectPath: deps.projectPath, grants: deps.grants,
+						onClose: () => { closePip(); deps.onClosed(); },
+					}));
+					w.addEventListener("pagehide", () => { // 用户点 PiP 窗口系统关闭钮
+						portalDisabled = false;
+						try { root.unmount(); } catch (e) { /* 已卸载 */ }
+						deps.onClosed();
+					});
+					return w;
+				}).catch(() => null);
+			} catch (e) {
+				return Promise.resolve(null);
+			}
+		}
+
 		/* ---------------- SQL 控制台 ---------------- */
 		// Apple 等宽字体栈（规范 §1）：优先样式层 --dbt-mono token，fallback 内联栈
 		const MONO_FONT = "var(--dbt-mono, ui-monospace, \"SF Mono\", Menlo, Consolas, monospace)";
@@ -1672,6 +1742,21 @@ window.__ModuleLoader__.load({
 			const [confirmReq, setConfirmReq] = React.useState(null); // {statement,danger,reason,resolve}
 			// 数据浏览浮窗开关：由 Panel 层持有（不随 view 切换卸载），跨 tab 常驻
 			const [browseOpen, setBrowseOpen] = React.useState(false);
+			// PiP 独立窗口句柄：优先于 DOM 浮窗（OS 级窗口，可拖出桌面端主窗口）；存在时 DOM 浮窗不渲染
+			const [pipWin, setPipWin] = React.useState(null);
+			function openBrowse() {
+				if (pipWin) { try { pipWin.focus(); } catch (e) { /* 已关闭 */ } return; }
+				// requestWindow 必须在用户手势内同步发起（本函数仅由 onClick 直调）
+				const p = openBrowsePip(props.ctx, {
+					conns, projectPath, grants,
+					onClosed: () => setPipWin(null),
+				});
+				if (p && typeof p.then === "function") {
+					p.then((w) => { if (w) setPipWin(w); else setBrowseOpen(true); });
+				} else {
+					setBrowseOpen(true);
+				}
+			}
 
 			const askConfirm = React.useCallback((info) => new Promise((resolve) => {
 				setConfirmReq(Object.assign({}, info, { resolve }));
@@ -1729,7 +1814,7 @@ window.__ModuleLoader__.load({
 						// browse tab：切视图的同时直接打开浮窗（单击即用，不必再进树点表）
 						React.createElement("button", {
 							key: v, className: view === v ? "active" : "",
-							onClick: () => { setView(v); if (v === "browse") setBrowseOpen(true); },
+							onClick: () => { setView(v); if (v === "browse") openBrowse(); },
 						}, label)),
 				),
 				(projectEdited || !projectPath)
@@ -1772,7 +1857,7 @@ window.__ModuleLoader__.load({
 						// 主提示用正常文字色（dbt-muted 11px 次要色压深底对比不足，视觉审查命中）
 						React.createElement("div", { style: { fontSize: 13 } }, t("browsePanelHint")),
 						React.createElement("div", { className: "dbt-row" },
-							React.createElement("button", { className: "dbt-btn primary", onClick: () => setBrowseOpen(true) }, t("reopenBrowse"))),
+							React.createElement("button", { className: "dbt-btn primary", onClick: openBrowse }, t("reopenBrowse"))),
 					) : null,
 					view === "console" ? React.createElement(ConsoleView, Object.assign({}, shared, { askConfirm })) : null,
 				),

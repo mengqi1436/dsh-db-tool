@@ -1,5 +1,21 @@
 # Changelog — dsh-db-tool
 
+## 1.5.4
+
+数据浏览弹窗升级为 **Document Picture-in-Picture 独立窗口**——OS 级单独窗口，可拖出 DSH 桌面端主窗口、系统级置顶，不再受限于应用窗口内。宿主主进程对 `window.open` 全部 `setWindowOpenHandler(() => deny)`，PiP 是插件能力内唯一的独立窗口通道。
+
+### 新增
+
+- **PiP 独立窗口优先**：点击「数据浏览」优先经 `documentPictureInPicture.requestWindow` 打开独立窗口，内嵌完整数据浏览 UI（对象树/结构/数据预览/单元格编辑全部可用，危险操作确认对话框同样渲染在 PiP 窗口内）。实现要点：`<base href>` 注入使相对 API 路径在 about:blank 的 PiP 文档中按主 origin 解析；整套 `--dbt-*` 样式注入 PiP 文档；PiP 渲染期间禁用 portal（PiP root 已在其文档 body 上，portal 会把 DOM 拉回主窗口）。
+- **降级链**：PiP API 不可用/被拒/无 `react-dom` createRoot 时自动回落 DOM 浮窗（原全局 portal 形态），行为不回退。
+- **关闭联动**：PiP 内浮窗关闭按钮或系统关闭钮（pagehide）均正确卸载 React root、恢复 portal 并同步侧栏提示卡状态。
+- **z-index 修复**：DOM 浮窗 `z-index` 提升至 2147483000，不再被宿主顶部标签/输入框等 UI 压盖。
+- **坐标基准修正**：浮窗居中与拖动钳制改按浮窗所在 `ownerDocument.defaultView` 的视口计算——PiP 窗口内用 PiP 视口、DOM 浮窗用主视口，两端均正确居中且拖不出视口。
+
+### 测试
+
+- `.tmp-verify/verify.mjs` 升级三态矩阵（31 断言全过）：PiP 态（独立窗口打开/内容渲染/主文档无浮窗/关闭联动）、nopip 态（DOM 浮窗基线：portal/居中/真实鼠标拖动）、nord 态（无 react-dom 降级）。
+
 ## 1.5.3
 
 数据浏览浮窗升级为全局弹窗——浮窗此前渲染在侧边栏 Panel 子树内被容器裁剪，只能覆盖侧栏区域；现 portal 到 `document.body` 后覆盖整个应用窗口（含主对话区）。

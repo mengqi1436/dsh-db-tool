@@ -76,9 +76,10 @@ function consoleErrors() {
 
 const RECT_EXPR = `(() => { const el = document.querySelector('.dbt-browse-dialog'); if (!el) return null; const r = el.getBoundingClientRect(); const b = document.body; return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: r.width, h: r.height, iw: innerWidth, ih: innerHeight, parentIsBody: el.parentElement === b, parentTag: el.parentElement && el.parentElement.tagName }; })()`;
 
-async function scenario(nord) {
-  const label = nord ? "nord 态（无 react-dom 降级）" : "默认态（portal 可用）";
-  const url = BASE + "/harness.html" + (nord ? "?nord=1" : "");
+async function scenario(nord, nopip) {
+  const label = nord ? "nord 态（无 react-dom 降级）" : nopip ? "nopip 态（DOM 浮窗基线）" : "PiP 态（独立窗口优先）";
+  const q = nord ? "?nord=1" : nopip ? "?nopip=1" : "";
+  const url = BASE + "/harness.html" + q;
   console.log(`\n===== ${label} ${url} =====`);
   pw(["close"]); // 清残留 session，失败忽略
   const opened = pw(["open", url]);
@@ -90,6 +91,30 @@ async function scenario(nord) {
 
   const click = evalPage(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === ${BTN_BROWSE}); if (!b) return 'NO_BTN'; b.click(); return 'CLICKED'; })()`);
   step(`${label}: 点击「数据浏览」`, click.ok && click.value === "CLICKED", String(click.value ?? click.ok));
+
+  // PiP 态：浮窗应进入 Document PiP 独立窗口（主文档不再有 DOM 浮窗）
+  if (!nord && !nopip) {
+    const pipReady = await waitFor(`!!(window.documentPictureInPicture && window.documentPictureInPicture.window && window.documentPictureInPicture.window.document.querySelector('.dbt-browse-dialog'))`);
+    step("PiP 态: 独立窗口打开且浮窗渲染于其中", pipReady);
+    if (pipReady) {
+      const info = evalPage(`(() => { const w = window.documentPictureInPicture.window; return { rows: w.document.querySelectorAll('.dbt-treerow').length, mainHas: !!document.querySelector('.dbt-browse-dialog'), w: w.innerWidth, h: w.innerHeight }; })()`);
+      step("PiP 态: PiP 文档内对象树已渲染（mock API 经 base 生效）", info.ok && !!info.value && info.value.rows > 0,
+        info.value ? `rows=${info.value.rows} pipViewport=${info.value.w}x${info.value.h}` : "无 info");
+      step("PiP 态: 主文档不再有 DOM 浮窗（不嵌入主窗口）", info.ok && !!info.value && info.value.mainHas === false,
+        info.value ? `mainHas=${info.value.mainHas}` : "无 info");
+      // 关闭联动：PiP 内浮窗关闭钮 → 独立窗口关闭
+      evalPage(`(() => { const w = window.documentPictureInPicture.window; const c = w.document.querySelector('.dbt-browse-close'); if (c) c.click(); return 'closed'; })()`);
+      await sleep(800);
+      const gone = evalPage(`(() => { const p = window.documentPictureInPicture; return !p.window || p.window.closed; })()`);
+      step("PiP 态: 浮窗关闭按钮联动关闭独立窗口", gone.ok && gone.value, JSON.stringify(gone.value));
+    }
+    const jsErr = evalPage("window.__JS_ERRORS__.length");
+    step("PiP 态: 页面无未捕获 JS 错误（__JS_ERRORS__）", jsErr.ok && jsErr.value === 0, `共 ${jsErr.value} 条`);
+    const ce = consoleErrors();
+    step("PiP 态: console 无 error", ce === 0, `Errors=${ce}`);
+    pw(["close"]);
+    return;
+  }
 
   const shown = await waitFor("!!document.querySelector('.dbt-browse-dialog')");
   step(`${label}: 浮窗 .dbt-browse-dialog 出现`, shown);
@@ -135,8 +160,9 @@ async function scenario(nord) {
   pw(["close"]);
 }
 
-await scenario(false);
-await scenario(true);
+await scenario(false, false); // PiP 独立窗口优先
+await scenario(false, true);  // nopip：DOM 浮窗基线（portal/居中/拖动）
+await scenario(true, false);  // nord：无 react-dom 降级
 
 // ---- 汇总 ----
 const pass = results.filter((x) => x.ok).length;

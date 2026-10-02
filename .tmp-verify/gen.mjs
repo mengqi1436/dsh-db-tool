@@ -126,6 +126,8 @@ window.__JS_ERRORS__ = [];
 window.addEventListener("error", function (e) { window.__JS_ERRORS__.push(String((e && e.message) || e)); });
 // ?nord=1：模拟宿主未提供 react-dom，client.js 应走无 portal 降级路径（浮窗留在宿主容器内）
 const NORD = new URLSearchParams(location.search).has("nord");
+// ?nopip=1：移除 Document PiP API，client.js 应跳过 PiP 独立窗口走 DOM 浮窗（居中/拖动断言的基线态）
+if (new URLSearchParams(location.search).has("nopip")) { delete window.documentPictureInPicture; }
 window.__DBT_DEF__ = null;
 window.__ModuleLoader__ = {
   load(def) { window.__DBT_DEF__ = def; },
