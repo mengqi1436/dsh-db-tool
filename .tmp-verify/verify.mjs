@@ -1,4 +1,4 @@
-// 两态视觉验证：默认态（浮窗 portal 挂 body、居中全视口、可拖动）+ ?nord=1（宿主无 react-dom 降级）。
+// 四态视觉验证：默认 PiP 态（独立窗口优先）+ ?nopip=1（DOM 浮窗基线）+ ?nord=1（宿主无 react-dom 降级）+ ?noclient=1（无 react-dom/client，PiP 降级 DOM 浮窗）。
 // 用法：node .tmp-verify/verify.mjs [client.js 路径]   （默认 client/client.js，相对仓库根）
 // 依赖：playwright-cli 在 PATH；harness 的 React 从 CDN 拉取（需联网）。
 // 输出：逐条 [PASS]/[FAIL] + 汇总 PASS/FAIL 与关键数值；全过退出码 0，否则 1。
@@ -76,9 +76,9 @@ function consoleErrors() {
 
 const RECT_EXPR = `(() => { const el = document.querySelector('.dbt-browse-dialog'); if (!el) return null; const r = el.getBoundingClientRect(); const b = document.body; return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: r.width, h: r.height, iw: innerWidth, ih: innerHeight, parentIsBody: el.parentElement === b, parentTag: el.parentElement && el.parentElement.tagName }; })()`;
 
-async function scenario(nord, nopip) {
-  const label = nord ? "nord 态（无 react-dom 降级）" : nopip ? "nopip 态（DOM 浮窗基线）" : "PiP 态（独立窗口优先）";
-  const q = nord ? "?nord=1" : nopip ? "?nopip=1" : "";
+async function scenario(nord, nopip, noclient) {
+  const label = nord ? "nord 态（无 react-dom 降级）" : nopip ? "nopip 态（DOM 浮窗基线）" : noclient ? "noclient 态（无 react-dom/client 降级）" : "PiP 态（独立窗口优先）";
+  const q = nord ? "?nord=1" : nopip ? "?nopip=1" : noclient ? "?noclient=1" : "";
   const url = BASE + "/harness.html" + q;
   console.log(`\n===== ${label} ${url} =====`);
   pw(["close"]); // 清残留 session，失败忽略
@@ -93,7 +93,7 @@ async function scenario(nord, nopip) {
   step(`${label}: 点击「数据浏览」`, click.ok && click.value === "CLICKED", String(click.value ?? click.ok));
 
   // PiP 态：浮窗应进入 Document PiP 独立窗口（主文档不再有 DOM 浮窗）
-  if (!nord && !nopip) {
+  if (!nord && !nopip && !noclient) {
     const pipReady = await waitFor(`!!(window.documentPictureInPicture && window.documentPictureInPicture.window && window.documentPictureInPicture.window.document.querySelector('.dbt-browse-dialog'))`);
     step("PiP 态: 独立窗口打开且浮窗渲染于其中", pipReady);
     if (pipReady) {
@@ -112,6 +112,23 @@ async function scenario(nord, nopip) {
     step("PiP 态: 页面无未捕获 JS 错误（__JS_ERRORS__）", jsErr.ok && jsErr.value === 0, `共 ${jsErr.value} 条`);
     const ce = consoleErrors();
     step("PiP 态: console 无 error", ce === 0, `Errors=${ce}`);
+    pw(["close"]);
+    return;
+  }
+
+  // noclient 态：react-dom/client 不可得 → createRoot 探测失败 → PiP 不应可用，DOM 浮窗降级
+  //（真机怀疑形态：portal 可用、createRoot 不可用。10 秒窗口兼容修复合入后“闪现 PiP 再超时降级”的中间态）
+  if (noclient) {
+    const shown = await waitFor("!!document.querySelector('.dbt-browse-dialog')", 20);
+    step(`${label}: 主文档出现 DOM 浮窗 .dbt-browse-dialog（降级）`, shown);
+    if (!shown) { pw(["close"]); return; }
+    await sleep(500); // 稳定窗：排除 PiP 窗口仍在收尾
+    const pipGone = evalPage(`(() => { const p = window.documentPictureInPicture; return !p || !p.window || p.window.closed; })()`);
+    step(`${label}: PiP 独立窗口未开或已关闭（不与 DOM 浮窗并存）`, pipGone.ok && pipGone.value, JSON.stringify(pipGone.value));
+    const jsErr = evalPage("window.__JS_ERRORS__.length");
+    step(`${label}: 页面无未捕获 JS 错误（__JS_ERRORS__）`, jsErr.ok && jsErr.value === 0, `共 ${jsErr.value} 条`);
+    const ce = consoleErrors();
+    step(`${label}: console 无 error`, ce === 0, `Errors=${ce}`);
     pw(["close"]);
     return;
   }
@@ -163,6 +180,7 @@ async function scenario(nord, nopip) {
 await scenario(false, false); // PiP 独立窗口优先
 await scenario(false, true);  // nopip：DOM 浮窗基线（portal/居中/拖动）
 await scenario(true, false);  // nord：无 react-dom 降级
+await scenario(false, false, true); // noclient：无 react-dom/client，PiP 降级 DOM 浮窗
 
 // ---- 汇总 ----
 const pass = results.filter((x) => x.ok).length;
