@@ -1,4 +1,4 @@
-// 内嵌单态视觉验证：数据浏览内嵌侧边栏——对象树/结构/数据预览/单元格编辑全部在面板内完成（无浮窗壳、无 PiP）。
+// 内嵌单态视觉验证：数据浏览内嵌侧边栏——对象树/结构/数据预览/单元格底部详情栏直改直存全部在面板内完成（无浮窗壳、无 PiP）。
 // 用法：node .tmp-verify/verify.mjs [client.js 路径]   （默认 client/client.js，相对仓库根）
 // 依赖：playwright-cli 在 PATH；harness 的 React 从 CDN 拉取（需联网）。
 // 输出：逐条 [PASS]/[FAIL] + 汇总 PASS/FAIL；全过退出码 0，否则 1。
@@ -13,7 +13,7 @@ const SESSION = "dbt-verify";
 // 按钮文案统一 Unicode 转义，绕开 cmd.exe 命令行编码（eval 表达式经 /c 转发）
 const BTN_BROWSE = "'\\u6570\\u636e\\u6d4f\\u89c8'"; // 数据浏览
 const BTN_PREVIEW = "'\\u6570\\u636e\\u9884\\u89c8'"; // 数据预览
-const BTN_EDIT = "'\\u7f16\\u8f91'"; // 编辑
+const BTN_SAVE = "'\\u4fdd\\u5b58'"; // 保存
 const TAB_MANAGE = "'\\u8fde\\u63a5\\u7ba1\\u7406'"; // 连接管理
 const TAB_GRANTS = "'\\u9879\\u76ee\\u6388\\u6743'"; // 项目授权
 const TAB_CONSOLE = "'SQL \\u63a7\\u5236\\u53f0'"; // SQL 控制台
@@ -80,7 +80,7 @@ function consoleErrors() {
   return m ? Number(m[1]) : -1;
 }
 
-// ---- 4. 内嵌单场景：树 → 选表 → 结构/数据预览 → 单元格编辑保存 → 四视图冒烟 ----
+// ---- 4. 内嵌单场景：树 → 选表 → 结构/数据预览 → 单元格底栏直改直存 → 四视图冒烟 ----
 console.log(`\n===== 内嵌单态 ${BASE}/harness.html =====`);
 pw(["close"]); // 清残留 session，失败忽略
 const opened = pw(["open", BASE + "/harness.html"]);
@@ -127,24 +127,29 @@ step("点击「数据预览」seg", clickSeg.ok && clickSeg.value === "CLICKED",
 const dataRows = await waitFor(`[...document.querySelectorAll('.dbt-table tbody tr')].some(tr => tr.querySelector('.dbt-cellbtn'))`);
 step("数据行出现（tbody 行内含 .dbt-cellbtn）", dataRows);
 
-// 4) 第一个单元格 → 浮层 → 「编辑」→ .dbt-celledit textarea
+// 4) 第一个单元格 → 底部详情栏直出（位于预览表格之后/下方），textarea 直接可编辑
 const clickCell = evalPage(`(() => { const c = document.querySelector('.dbt-cellbtn'); if (!c) return 'NO_CELL'; c.click(); return 'CLICKED'; })()`);
 step("点击第一个 .dbt-cellbtn", clickCell.ok && clickCell.value === "CLICKED", String(clickCell.value ?? clickCell.ok));
-const popShown = await waitFor("!!document.querySelector('.dbt-cellpop')");
-step("单元格浮层 .dbt-cellpop 出现", popShown);
-const clickEdit = evalPage(`(() => { const b = [...document.querySelectorAll('.dbt-cellpop button')].find(x => x.textContent.trim() === ${BTN_EDIT}); if (!b) return 'NO_EDIT'; b.click(); return 'CLICKED'; })()`);
-step("点击「编辑」", clickEdit.ok && clickEdit.value === "CLICKED", String(clickEdit.value ?? clickEdit.ok));
-const editShown = await waitFor("!!document.querySelector('.dbt-celledit textarea')");
-step("编辑态 .dbt-celledit textarea 出现", editShown);
+const detailShown = await waitFor("!!document.querySelector('.dbt-celldetail')");
+step("底部详情栏 .dbt-celldetail 出现", detailShown);
+const detailAfterTable = evalPage(`(() => { const t = document.querySelector('.dbt-table'); const d = document.querySelector('.dbt-celldetail'); return t && d ? !!(t.compareDocumentPosition(d) & Node.DOCUMENT_POSITION_FOLLOWING) : null; })()`);
+step(".dbt-celldetail 位于预览表格之后（文档序在后）", detailAfterTable.ok && detailAfterTable.value === true,
+  `compareDocumentPosition: ${JSON.stringify(detailAfterTable.value)}`);
+const inputShown = await waitFor("!!document.querySelector('.dbt-celldetail-input')");
+step("详情栏输入框 .dbt-celldetail-input textarea 出现", inputShown);
 
-// 5) 保存 → execute 恰好调用一次
-const clickSave = evalPage(`(() => { const b = document.querySelector('.dbt-celledit .dbt-btn.primary'); if (!b) return 'NO_SAVE'; b.click(); return 'CLICKED'; })()`);
+// 5) 栏内改值（原生 setter + input 事件）→ 保存 → execute 恰好一次 → 底栏收起
+const setVal = evalPage(`(() => { const ta = document.querySelector('.dbt-celldetail-input'); if (!ta) return 'NO_INPUT'; const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; setter.call(ta, '9-updated'); ta.dispatchEvent(new Event('input', { bubbles: true })); return 'SET'; })()`);
+step("详情栏内改值（原生 setter + input 事件）", setVal.ok && setVal.value === "SET", String(setVal.value ?? setVal.ok));
+const clickSave = evalPage(`(() => { const b = [...document.querySelectorAll('.dbt-celldetail button')].find(x => x.textContent.trim() === ${BTN_SAVE}); if (!b) return 'NO_SAVE'; b.click(); return 'CLICKED'; })()`);
 step("点击保存", clickSave.ok && clickSave.value === "CLICKED", String(clickSave.value ?? clickSave.ok));
 const saved = await waitFor("window.__EXEC_LOG__.length === 1");
 const execStmt = evalPage("JSON.stringify(window.__EXEC_LOG__[0] || null)");
 step("保存后 execute 恰好调用 1 次（__EXEC_LOG__）", saved, execStmt.ok ? String(execStmt.value) : "无法读取");
+const detailGone = await waitFor("!document.querySelector('.dbt-celldetail')");
+step("保存后底部详情栏收起（.dbt-celldetail 不在）", detailGone);
 const jsErr1 = evalPage("window.__JS_ERRORS__.length");
-step("编辑保存流程无未捕获 JS 错误（__JS_ERRORS__）", jsErr1.ok && jsErr1.value === 0, `共 ${jsErr1.value} 条`);
+step("直改直存流程无未捕获 JS 错误（__JS_ERRORS__）", jsErr1.ok && jsErr1.value === 0, `共 ${jsErr1.value} 条`);
 
 // 6) 四视图切换冒烟：连接管理 / 项目授权 / SQL 控制台
 const smoke = [
