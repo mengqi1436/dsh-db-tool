@@ -1,74 +1,38 @@
 # Changelog — dsh-db-tool
 
-## 1.5.5
+## 1.5.6
 
-修复 PiP 独立窗口在真机从未发起的问题——数据浏览在真机上始终静默降级为 DOM 浮窗，从未尝试 Document Picture-in-Picture。
+数据浏览内嵌侧边栏——对象树/结构/数据预览/单元格编辑全部在面板内完成，删除浮动窗与 PiP 死路径（DSH 主进程 deny 一切新窗口，PiP 在真机恒降级，属不可达路径）。
 
-### 修复
+### 重构
 
-- **根因（inject 缺 react-dom/client）**：真机宿主注入的 `react-dom` 无 `createRoot`，回退 `require("react-dom/client")` 因 `dsh.client.inject` 未声明而失败——createRoot 探测恒为空，PiP 恒不尝试并静默降级。现 `dsh.client.inject` 追加 `react-dom/client`。
-- **createRoot 三重解析**：同步 `require` 两 specifier（`react-dom` / `react-dom/client`）+ 宿主模块系统 `ctx.modules.import` 异步解析兜底，任一命中即启用 PiP。
-- **手势内开窗 + 3 秒超时降级**：PiP 在用户手势内先发起开窗并显示加载占位，createRoot 就绪后渲染；3 秒未就绪自动降级 DOM 浮窗——行为不劣于现状，不再有"开窗后空白"的中间态。
-- **诊断日志扩展**：portal/createRoot 解析状态与 PiP 拒因均输出一次性诊断日志，供真机排查。
+- **内嵌化**：数据浏览不再弹窗——点击「数据浏览」tab 面板内直接呈现对象树，选表后结构/数据预览切换与 Navicat 式单元格查看编辑全部在面板内完成。
+- **浮窗壳与 portal/PiP 链删除**：浮窗壳组件、`mountDialog` portal 工厂、createRoot 三重解析、`documentPictureInPicture` 开窗与降级链、noclient 兼容分支整体移除——数据浏览唯一形态即内嵌。
+- **inject 收敛**：`dsh.client.inject` 移除 `react-dom` / `react-dom/client`（client.js 不再 require react-dom 系），仅保留 react 与宿主服务声明。
+
+### 样式
+
+- **全组件规格统一**：字号/控件/间距/圆角统一到 `--dbt-radius-*`（card/ctrl/pill）token 规格表，面板、树行、表格、卡片、对话框共用同一套控件规格。
+- **浮窗大字号回收**：随浮窗删除，1.5.1 引入的浮窗专属大字号（标题 17px/600 等）回收，回到面板统一字号档位。
 
 ### 测试
 
-- `.tmp-verify/verify.mjs` 新增第 4 态 `?noclient=1`（宿主 react-dom 仅 portal 可用、`react-dom/client` 不可得——真机怀疑形态）：断言 PiP 不可用、DOM 浮窗降级、PiP 窗口不与浮窗并存、无 JS 错误（四态 38 断言全过）。
+- `.tmp-verify/verify.mjs` 重写为内嵌单态：删除 PiP/nopip/nord/noclient 四态矩阵，单场景断言内嵌对象树 → 选表 → 数据预览 → 单元格编辑保存 → 四视图切换冒烟；`gen.mjs` mockRequire 移除 react-dom 分支（保留 react）。
 
-## 1.5.4
+## 1.5.1–1.5.5
 
-数据浏览弹窗升级为 **Document Picture-in-Picture 独立窗口**——OS 级单独窗口，可拖出 DSH 桌面端主窗口、系统级置顶，不再受限于应用窗口内。宿主主进程对 `window.open` 全部 `setWindowOpenHandler(() => deny)`，PiP 是插件能力内唯一的独立窗口通道。
+数据浏览的快速演进期：从侧栏弹窗到独立浮动窗、全局浮窗、再到 Document Picture-in-Picture 独立窗口逐版升级，最终因 DSH 主进程 deny 一切新窗口，PiP 在真机恒静默降级为浮窗——独立窗口路线止步于此，1.5.6 起收敛为面板内嵌形态。各版要点：
 
 ### 新增
 
-- **PiP 独立窗口优先**：点击「数据浏览」优先经 `documentPictureInPicture.requestWindow` 打开独立窗口，内嵌完整数据浏览 UI（对象树/结构/数据预览/单元格编辑全部可用，危险操作确认对话框同样渲染在 PiP 窗口内）。实现要点：`<base href>` 注入使相对 API 路径在 about:blank 的 PiP 文档中按主 origin 解析；整套 `--dbt-*` 样式注入 PiP 文档；PiP 渲染期间禁用 portal（PiP root 已在其文档 body 上，portal 会把 DOM 拉回主窗口）。
-- **降级链**：PiP API 不可用/被拒/无 `react-dom` createRoot 时自动回落 DOM 浮窗（原全局 portal 形态），行为不回退。
-- **关闭联动**：PiP 内浮窗关闭按钮或系统关闭钮（pagehide）均正确卸载 React root、恢复 portal 并同步侧栏提示卡状态。
-- **z-index 修复**：DOM 浮窗 `z-index` 提升至 2147483000，不再被宿主顶部标签/输入框等 UI 压盖。
-- **坐标基准修正**：浮窗居中与拖动钳制改按浮窗所在 `ownerDocument.defaultView` 的视口计算——PiP 窗口内用 PiP 视口、DOM 浮窗用主视口，两端均正确居中且拖不出视口。
-
-### 测试
-
-- `.tmp-verify/verify.mjs` 升级三态矩阵（31 断言全过）：PiP 态（独立窗口打开/内容渲染/主文档无浮窗/关闭联动）、nopip 态（DOM 浮窗基线：portal/居中/真实鼠标拖动）、nord 态（无 react-dom 降级）。
-
-## 1.5.3
-
-数据浏览浮窗升级为全局弹窗——浮窗此前渲染在侧边栏 Panel 子树内被容器裁剪，只能覆盖侧栏区域；现 portal 到 `document.body` 后覆盖整个应用窗口（含主对话区）。
+- **1.5.1**：数据浏览升级为独立浮动窗口 + 全数据库 Navicat 式单元格查看/编辑——8 库写回路径（SQL 主键 UPDATE 走绑定参数、redis 按键类型映射白名单命令、mongo `updateOne` + `$set`），截断/BLOB/ro 授权拒就地编辑；Mongo Extended JSON 复活为唯一后端改动；左树挂载自动展开第一层级。
+- **1.5.4**：浮窗升级为 Document Picture-in-Picture 独立窗口——OS 级单独窗口、系统级置顶、可拖出主窗口；PiP API 不可用/被拒时自动回落 DOM 浮窗；浮窗 z-index 提升不再被宿主 UI 压盖。
 
 ### 修复
 
-- **浮窗被侧栏容器裁剪（根因修复）**：浮窗此前渲染在侧边栏 Panel 子树内，被容器 `overflow` 裁剪只能覆盖侧栏区域——`require("react-dom")` 在宿主模块系统下失败后走了 Panel 内回退路径。现 `mountDialog` 三重降级解析 portal：①同步 `require("react-dom")`（`dsh.client.inject` 新增声明 react-dom）；②宿主模块系统 `ctx.modules.import("react-dom")` 异步解析后重挂到 `document.body`；③均不可用时保持现状并输出一次性诊断日志（含 `window.top === window.self` 判断与 portal 解析结果，供真机排查）。
-- **定位与拖动行为不变、范围升级**：浮窗 portal 到全局 body 后，现有居中定位与拖动钳制自动升级为全应用视口坐标（覆盖含主对话区的整个窗口），交互行为不变。
-
-仅前端改动（`client/client.js` + `package.json` manifest），`dist/lib` 零改动，零新增依赖。
-
-## 1.5.2
-
-修复数据浏览浮窗在窄视口（桌面端侧栏 iframe，宽约 875px）下的定位与拖动问题。
-
-### 修复
-
-- **浮窗初始位置居中**：此前初始停靠坐标按 1100px 常量估宽（`视口宽-1100-24`），窄视口下算出负值被钳到 12 导致浮窗贴边铺满侧栏。现 mount 后按浮窗实测尺寸（`offsetWidth/offsetHeight`）计算视口正中。
-- **拖动不再丢失浮窗**：水平钳制此前用 1100 常量估宽（左界 `-(1100-120)`），实际浮窗在窄视口被 CSS 压缩到约 850px 后，多出的 ~250px 区间可把浮窗整只拖出视口外。现垂直/水平钳制全部改用实测尺寸，浮窗任意拖动始终完整保持在视口内（四角极限已验证：`top/left ≥ 0` 且 `bottom/right ≤ 视口`）。
-
-## 1.5.1
-
-数据浏览升级为独立浮动窗口 + 全数据库 Navicat 式单元格查看编辑（后端仅 MongoDB 一处小改，其余纯前端；零新增依赖）。
-
-### 新增
-
-- **数据浏览独立浮窗**：单击「数据浏览」标签直接打开浮动窗口（无需先选表）；浮窗为非模态形态——无遮罩、`role="dialog"` 保留但移除 `aria-modal` 与焦点陷阱，主页面在浮窗打开时照常操作；标题栏 `setPointerCapture` 拖动（垂直钳制用浮窗实际高度保证不溢出视口，水平允许拖出一半留 120px 可抓回）；`browseOpen` 状态提升到 Panel 层，浮窗**跨标签常驻**——切到连接管理/SQL 控制台时浮窗保持原位，主页面操作不受影响；标签页内保留提示卡与「打开数据浏览」重开按钮。
-- **左树默认展开第一层级**：`BrowseTree` 新增 `autoExpand`，弹窗挂载即展开全部连接节点（复用既有懒加载，失败仍走就地错误行）；未选表时右栏显示引导空态。
-- **全数据库单元格查看/编辑（Navicat 式）**：`PreviewGrid` 组件——单击任意数据单元格弹出完整值浮层（可复制、NULL 徽标、截断/BLOB 提示），rw 授权下可就地编辑并保存（复用 `execute` API + 危险确认通道，成功后自动重拉当前页）。8 库写回路径：mysql/sqlite（`` `db`.`tbl` ``+`?`）、postgresql/gaussdb（`"schema"."tbl"`+`$n`+database 路由）、oracle/dmdb（`"OWNER"."TBL"`+`:n`）为主键 UPDATE、值全走绑定参数；redis 按键类型映射写白名单命令（hash→HSET、zset score→ZADD、member/set→ZREM+ZADD/SREM+SADD 两步）；mongodb → `updateOne` + `$set`，`_id` 按 ObjectId 走 `$oid` 过滤、date 列包 `$date`。安全防线：ro 授权整体禁编辑；截断值与 BLOB 拒就地编辑（防残缺文本覆盖真实数据）；无主键表、redis list/stream、mongo `_id` 与定位列只读并提示原因。
-- **Mongo Extended JSON 复活（唯一后端改动）**：`lib/adapters/mongodb` 新增 `reviveEjson`——execute 的文档级 DML（insert/update/replace/delete）入参递归复活 `{"$oid":24位hex}`→ObjectId、`{"$date"}`→Date（vendor 缺失时降级原样）；非法 `$oid` 抛中文可读错误；集合级操作不复活，`assertNoWhere` 注入防线保持。
-- **Apple 风格重排**：浮窗标题 17px/600、弹窗 14px、树行 14px、单元格 13px 等宽；表格列间 hairline 分隔 + 表头加深 + 行悬停；浮窗 16px 圆角 + 分层投影；`prefers-reduced-transparency`/light 降级同步。
-- i18n 追加 15 个 key（浮窗提示 3 + 单元格编辑 12），zh/en 双语完整。
-
-### 测试
-
-- 新增 `tests/client/preview-edit.spec.ts`（29 用例：方言映射、标识符转义、参数绑定不含值拼接、截断/BLOB 拒编辑、redis 五类键命令映射、mongo `$oid`/`$date` filter 构造、NULL 语义）。
-- `tests/adapters-nosql-ent/mongodb.spec.ts` 补 reviveEjson 边界 6 用例（数组递归、非字符串/超长 hex `$oid`、单键非 EJSON 对象、非法类型 `$date`）。
-- 变异测试达标：`client/client.js` 纯函数层 91.32%（covered 92.51%）；reviveEjson 区段报告 87%（经变异注入实验证明剩余存活体全部可杀，报告值为保守下限）。`stryker.config.json` 关闭 vitest `related`（spec 经 `readFileSync + new Function` 动态加载源文件时 related 发现不到测试）。
+- **1.5.2**：窄视口（桌面端侧栏 iframe，宽约 875px）下浮窗初始贴边铺满、可整只拖出视口——初始居中与拖动钳制全部改用浮窗实测尺寸。
+- **1.5.3**：浮窗被侧栏容器裁剪、只能覆盖侧栏区域的根因修复——react-dom 三重降级解析后 portal 到 `document.body`，浮窗升级为覆盖整个应用窗口的全局弹窗。
+- **1.5.5**：PiP 在真机从未发起的根因修复——宿主 inject 缺 `react-dom/client` 致 createRoot 探测恒空、PiP 恒静默降级；`dsh.client.inject` 追加该 specifier + 手势内开窗 3 秒超时降级 + portal/createRoot/PiP 诊断日志。
 
 ## 1.5.0
 

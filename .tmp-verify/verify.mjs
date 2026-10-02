@@ -1,7 +1,7 @@
-// 四态视觉验证：默认 PiP 态（独立窗口优先）+ ?nopip=1（DOM 浮窗基线）+ ?nord=1（宿主无 react-dom 降级）+ ?noclient=1（无 react-dom/client，PiP 降级 DOM 浮窗）。
+// 内嵌单态视觉验证：数据浏览内嵌侧边栏——对象树/结构/数据预览/单元格编辑全部在面板内完成（无浮窗壳、无 PiP）。
 // 用法：node .tmp-verify/verify.mjs [client.js 路径]   （默认 client/client.js，相对仓库根）
 // 依赖：playwright-cli 在 PATH；harness 的 React 从 CDN 拉取（需联网）。
-// 输出：逐条 [PASS]/[FAIL] + 汇总 PASS/FAIL 与关键数值；全过退出码 0，否则 1。
+// 输出：逐条 [PASS]/[FAIL] + 汇总 PASS/FAIL；全过退出码 0，否则 1。
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join, dirname, resolve } from "node:path";
@@ -10,7 +10,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const clientPath = resolve(process.argv[2] || "client/client.js");
 let BASE = "http://127.0.0.1:8734"; // 实际端口由自起 serve 的 PORT= 输出覆盖
 const SESSION = "dbt-verify";
-const BTN_BROWSE = "'\\u6570\\u636e\\u6d4f\\u89c8'"; // “数据浏览”，Unicode 转义绕开命令行编码
+// 按钮文案统一 Unicode 转义，绕开 cmd.exe 命令行编码（eval 表达式经 /c 转发）
+const BTN_BROWSE = "'\\u6570\\u636e\\u6d4f\\u89c8'"; // 数据浏览
+const BTN_PREVIEW = "'\\u6570\\u636e\\u9884\\u89c8'"; // 数据预览
+const BTN_EDIT = "'\\u7f16\\u8f91'"; // 编辑
+const TAB_MANAGE = "'\\u8fde\\u63a5\\u7ba1\\u7406'"; // 连接管理
+const TAB_GRANTS = "'\\u9879\\u76ee\\u6388\\u6743'"; // 项目授权
+const TAB_CONSOLE = "'SQL \\u63a7\\u5236\\u53f0'"; // SQL 控制台
 const results = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -19,7 +25,7 @@ function step(name, ok, detail = "") {
   console.log(`[${ok ? "PASS" : "FAIL"}] ${name}${detail ? "  —— " + detail : ""}`);
 }
 
-// ---- 1. 生成 harness（gen.mjs 输出 harness.html；两态由 URL 查询参数 ?nord=1 区分，serve.mjs 剥离 query 同文件服务两态）----
+// ---- 1. 生成 harness（gen.mjs 输出 harness.html；内嵌单态无查询参数分支）----
 const gen = spawnSync(process.execPath, [join(here, "gen.mjs"), clientPath], { encoding: "utf8" });
 step("生成 harness.html", gen.status === 0, (gen.stdout + gen.stderr).trim().replace(/\n/g, " "));
 
@@ -74,113 +80,90 @@ function consoleErrors() {
   return m ? Number(m[1]) : -1;
 }
 
-const RECT_EXPR = `(() => { const el = document.querySelector('.dbt-browse-dialog'); if (!el) return null; const r = el.getBoundingClientRect(); const b = document.body; return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: r.width, h: r.height, iw: innerWidth, ih: innerHeight, parentIsBody: el.parentElement === b, parentTag: el.parentElement && el.parentElement.tagName }; })()`;
+// ---- 4. 内嵌单场景：树 → 选表 → 结构/数据预览 → 单元格编辑保存 → 四视图冒烟 ----
+console.log(`\n===== 内嵌单态 ${BASE}/harness.html =====`);
+pw(["close"]); // 清残留 session，失败忽略
+const opened = pw(["open", BASE + "/harness.html"]);
+step("打开页面", opened.ok, opened.log);
+pw(["resize", "1280", "800"]);
 
-async function scenario(nord, nopip, noclient) {
-  const label = nord ? "nord 态（无 react-dom 降级）" : nopip ? "nopip 态（DOM 浮窗基线）" : noclient ? "noclient 态（无 react-dom/client 降级）" : "PiP 态（独立窗口优先）";
-  const q = nord ? "?nord=1" : nopip ? "?nopip=1" : noclient ? "?noclient=1" : "";
-  const url = BASE + "/harness.html" + q;
-  console.log(`\n===== ${label} ${url} =====`);
-  pw(["close"]); // 清残留 session，失败忽略
-  const opened = pw(["open", url]);
-  step(`${label}: 打开页面`, opened.ok, opened.log);
-  pw(["resize", "1280", "800"]);
+const ready = await waitFor("window.__READY__ === 'rendered'");
+step("harness 渲染完成（__READY__）", ready);
 
-  const ready = await waitFor("window.__READY__ === 'rendered'");
-  step(`${label}: harness 渲染完成（__READY__）`, ready);
+// 1) 点「数据浏览」tab → 对象树内嵌于面板（非浮窗）
+const click = evalPage(`(() => { const b = [...document.querySelectorAll('.dbt-tabs button')].find(x => x.textContent.trim() === ${BTN_BROWSE}); if (!b) return 'NO_BTN'; b.click(); return 'CLICKED'; })()`);
+step("点击「数据浏览」tab", click.ok && click.value === "CLICKED", String(click.value ?? click.ok));
 
-  const click = evalPage(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === ${BTN_BROWSE}); if (!b) return 'NO_BTN'; b.click(); return 'CLICKED'; })()`);
-  step(`${label}: 点击「数据浏览」`, click.ok && click.value === "CLICKED", String(click.value ?? click.ok));
+const treeShown = await waitFor("document.querySelectorAll('.dbt-treerow').length > 0");
+step("内嵌对象树 .dbt-treerow 出现", treeShown);
+const noFloat = evalPage("!document.querySelector('.dbt-browse-dialog')");
+step("无浮窗壳 .dbt-browse-dialog（内嵌于面板，非浮窗）", noFloat.ok && noFloat.value === true,
+  `.dbt-browse-dialog 存在: ${noFloat.value === true ? false : "未知/存在"}`);
 
-  // PiP 态：浮窗应进入 Document PiP 独立窗口（主文档不再有 DOM 浮窗）
-  if (!nord && !nopip && !noclient) {
-    const pipReady = await waitFor(`!!(window.documentPictureInPicture && window.documentPictureInPicture.window && window.documentPictureInPicture.window.document.querySelector('.dbt-browse-dialog'))`);
-    step("PiP 态: 独立窗口打开且浮窗渲染于其中", pipReady);
-    if (pipReady) {
-      const info = evalPage(`(() => { const w = window.documentPictureInPicture.window; return { rows: w.document.querySelectorAll('.dbt-treerow').length, mainHas: !!document.querySelector('.dbt-browse-dialog'), w: w.innerWidth, h: w.innerHeight }; })()`);
-      step("PiP 态: PiP 文档内对象树已渲染（mock API 经 base 生效）", info.ok && !!info.value && info.value.rows > 0,
-        info.value ? `rows=${info.value.rows} pipViewport=${info.value.w}x${info.value.h}` : "无 info");
-      step("PiP 态: 主文档不再有 DOM 浮窗（不嵌入主窗口）", info.ok && !!info.value && info.value.mainHas === false,
-        info.value ? `mainHas=${info.value.mainHas}` : "无 info");
-      // 关闭联动：PiP 内浮窗关闭钮 → 独立窗口关闭
-      evalPage(`(() => { const w = window.documentPictureInPicture.window; const c = w.document.querySelector('.dbt-browse-close'); if (c) c.click(); return 'closed'; })()`);
-      await sleep(800);
-      const gone = evalPage(`(() => { const p = window.documentPictureInPicture; return !p.window || p.window.closed; })()`);
-      step("PiP 态: 浮窗关闭按钮联动关闭独立窗口", gone.ok && gone.value, JSON.stringify(gone.value));
-    }
-    const jsErr = evalPage("window.__JS_ERRORS__.length");
-    step("PiP 态: 页面无未捕获 JS 错误（__JS_ERRORS__）", jsErr.ok && jsErr.value === 0, `共 ${jsErr.value} 条`);
-    const ce = consoleErrors();
-    step("PiP 态: console 无 error", ce === 0, `Errors=${ce}`);
-    pw(["close"]);
-    return;
-  }
+// 2) 展开 shop → 点 users 表 → 结构表格内嵌（parentElement 不是 body）
+// 连接节点若未自动展开（autoExpand 缺失时）先点连接行兜底
+let shopReady = await waitFor(`[...document.querySelectorAll('.dbt-treerow .dbt-treename')].some(x => x.textContent.trim() === 'shop')`);
+if (!shopReady) {
+  evalPage(`(() => { const r = [...document.querySelectorAll('.dbt-treerow')].find(x => x.querySelector('.dbt-treename')); if (r) r.click(); return 'ok'; })()`);
+  shopReady = await waitFor(`[...document.querySelectorAll('.dbt-treerow .dbt-treename')].some(x => x.textContent.trim() === 'shop')`);
+}
+step("展开连接后 shop 库行出现", shopReady);
+const clickShop = evalPage(`(() => { const n = [...document.querySelectorAll('.dbt-treerow .dbt-treename')].find(x => x.textContent.trim() === 'shop'); if (!n) return 'NO_SHOP'; n.parentElement.click(); return 'CLICKED'; })()`);
+step("点击展开 shop", clickShop.ok && clickShop.value === "CLICKED", String(clickShop.value ?? clickShop.ok));
 
-  // noclient 态：react-dom/client 不可得 → createRoot 探测失败 → PiP 不应可用，DOM 浮窗降级
-  //（真机怀疑形态：portal 可用、createRoot 不可用。10 秒窗口兼容修复合入后“闪现 PiP 再超时降级”的中间态）
-  if (noclient) {
-    const shown = await waitFor("!!document.querySelector('.dbt-browse-dialog')", 20);
-    step(`${label}: 主文档出现 DOM 浮窗 .dbt-browse-dialog（降级）`, shown);
-    if (!shown) { pw(["close"]); return; }
-    await sleep(500); // 稳定窗：排除 PiP 窗口仍在收尾
-    const pipGone = evalPage(`(() => { const p = window.documentPictureInPicture; return !p || !p.window || p.window.closed; })()`);
-    step(`${label}: PiP 独立窗口未开或已关闭（不与 DOM 浮窗并存）`, pipGone.ok && pipGone.value, JSON.stringify(pipGone.value));
-    const jsErr = evalPage("window.__JS_ERRORS__.length");
-    step(`${label}: 页面无未捕获 JS 错误（__JS_ERRORS__）`, jsErr.ok && jsErr.value === 0, `共 ${jsErr.value} 条`);
-    const ce = consoleErrors();
-    step(`${label}: console 无 error`, ce === 0, `Errors=${ce}`);
-    pw(["close"]);
-    return;
-  }
+await waitFor(`[...document.querySelectorAll('.dbt-treerow .dbt-treename')].some(x => x.textContent.trim().indexOf('users') === 0)`);
+const clickUsers = evalPage(`(() => { const n = [...document.querySelectorAll('.dbt-treerow .dbt-treename')].find(x => x.textContent.trim().indexOf('users') === 0); if (!n) return 'NO_USERS'; n.parentElement.click(); return 'CLICKED'; })()`);
+step("点击 users 表", clickUsers.ok && clickUsers.value === "CLICKED", String(clickUsers.value ?? clickUsers.ok));
 
-  const shown = await waitFor("!!document.querySelector('.dbt-browse-dialog')");
-  step(`${label}: 浮窗 .dbt-browse-dialog 出现`, shown);
-  if (!shown) { pw(["close"]); return; }
+const tblShown = await waitFor("!!document.querySelector('.dbt-table')");
+step("表格 .dbt-table 出现", tblShown);
+const embed = evalPage(`(() => { const t = document.querySelector('.dbt-table'); return t ? t.parentElement !== document.body : null; })()`);
+step(".dbt-table 内嵌于面板（parentElement 不是 body）", embed.ok && embed.value === true,
+  `parentElement 判定: ${JSON.stringify(embed.value)}`);
 
-  const rect = evalPage(RECT_EXPR);
-  const r = rect.value;
-  step(`${label}: 读取浮窗 rect`, rect.ok && !!r, r ? `left=${r.left} top=${r.top} ${r.w}x${r.h} 视口=${r.iw}x${r.ih} parent=${r.parentTag}` : "无 rect");
+// 3) 点数据预览 seg → 数据行出现（数据行单元格是 .dbt-cellbtn，与结构行区分）
+const clickSeg = evalPage(`(() => { const b = [...document.querySelectorAll('.dbt-seg button')].find(x => x.textContent.trim() === ${BTN_PREVIEW}); if (!b) return 'NO_SEG'; b.click(); return 'CLICKED'; })()`);
+step("点击「数据预览」seg", clickSeg.ok && clickSeg.value === "CLICKED", String(clickSeg.value ?? clickSeg.ok));
+const dataRows = await waitFor(`[...document.querySelectorAll('.dbt-table tbody tr')].some(tr => tr.querySelector('.dbt-cellbtn'))`);
+step("数据行出现（tbody 行内含 .dbt-cellbtn）", dataRows);
 
-  if (!nord) {
-    step("默认态: portal 挂载到 document.body", !!r && r.parentIsBody, `parentElement===body: ${!!r && r.parentIsBody}`);
-    const centered = !!r && r.left > 0 && r.right < r.iw && r.top > 0 && r.bottom < r.ih;
-    step("默认态: 居中覆盖视口（left>0 且 right<innerWidth，四边均在视口内）", centered,
-      r ? `left=${r.left} right=${r.right} iw=${r.iw} / top=${r.top} bottom=${r.bottom} ih=${r.ih}` : "无 rect");
+// 4) 第一个单元格 → 浮层 → 「编辑」→ .dbt-celledit textarea
+const clickCell = evalPage(`(() => { const c = document.querySelector('.dbt-cellbtn'); if (!c) return 'NO_CELL'; c.click(); return 'CLICKED'; })()`);
+step("点击第一个 .dbt-cellbtn", clickCell.ok && clickCell.value === "CLICKED", String(clickCell.value ?? clickCell.ok));
+const popShown = await waitFor("!!document.querySelector('.dbt-cellpop')");
+step("单元格浮层 .dbt-cellpop 出现", popShown);
+const clickEdit = evalPage(`(() => { const b = [...document.querySelectorAll('.dbt-cellpop button')].find(x => x.textContent.trim() === ${BTN_EDIT}); if (!b) return 'NO_EDIT'; b.click(); return 'CLICKED'; })()`);
+step("点击「编辑」", clickEdit.ok && clickEdit.value === "CLICKED", String(clickEdit.value ?? clickEdit.ok));
+const editShown = await waitFor("!!document.querySelector('.dbt-celledit textarea')");
+step("编辑态 .dbt-celledit textarea 出现", editShown);
 
-    // 拖动：真实鼠标事件（header 中心按下 → 左上移动 80/30 → 抬起），位置应变化且整体仍在视口内
-    const hdr = evalPage(`(() => { const h = document.querySelector('.dbt-browse-header'); if (!h) return null; const b = h.getBoundingClientRect(); return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) }; })()`);
-    step("默认态: 定位拖动柄 header 中心", hdr.ok && !!hdr.value, hdr.value ? `(${hdr.value.x}, ${hdr.value.y})` : "无 header");
-    if (hdr.ok && hdr.value) {
-      const { x, y } = hdr.value;
-      const seq = [["mousemove", String(x), String(y)], ["mousedown"], ["mousemove", String(x - 80), String(y - 30)], ["mouseup"]];
-      let dragOk = true;
-      for (const a of seq) { const rr = pw(a); if (!rr.ok) { dragOk = false; step("默认态: 拖动事件序列", false, rr.log); break; } }
-      if (dragOk) {
-        await sleep(400); // 等 React 重渲染落位
-        const r2 = evalPage(RECT_EXPR).value;
-        const inViewport = !!r2 && r2.left >= 0 && r2.right <= r2.iw && r2.top >= 0 && r2.bottom <= r2.ih;
-        const moved = !!r2 && !!r && (r2.left !== r.left || r2.top !== r.top);
-        step("默认态: 拖动后位置变化", moved, r2 ? `left ${r.left}→${r2.left}, top ${r.top}→${r2.top}` : "无 rect");
-        step("默认态: 拖动后整体仍在视口内（left>=0, right<=iw, top>=0, bottom<=ih）", inViewport,
-          r2 ? `left=${r2.left} right=${r2.right} iw=${r2.iw} / top=${r2.top} bottom=${r2.bottom} ih=${r2.ih}` : "无 rect");
-      }
-    }
-  } else {
-    step("nord 态: 浮窗回退渲染（parentElement 不是 body）", !!r && !r.parentIsBody,
-      r ? `parentTag=${r.parentTag} parentIsBody=${r.parentIsBody}` : "无 rect");
-  }
+// 5) 保存 → execute 恰好调用一次
+const clickSave = evalPage(`(() => { const b = document.querySelector('.dbt-celledit .dbt-btn.primary'); if (!b) return 'NO_SAVE'; b.click(); return 'CLICKED'; })()`);
+step("点击保存", clickSave.ok && clickSave.value === "CLICKED", String(clickSave.value ?? clickSave.ok));
+const saved = await waitFor("window.__EXEC_LOG__.length === 1");
+const execStmt = evalPage("JSON.stringify(window.__EXEC_LOG__[0] || null)");
+step("保存后 execute 恰好调用 1 次（__EXEC_LOG__）", saved, execStmt.ok ? String(execStmt.value) : "无法读取");
+const jsErr1 = evalPage("window.__JS_ERRORS__.length");
+step("编辑保存流程无未捕获 JS 错误（__JS_ERRORS__）", jsErr1.ok && jsErr1.value === 0, `共 ${jsErr1.value} 条`);
 
-  const jsErr = evalPage("window.__JS_ERRORS__.length");
-  step(`${label}: 页面无未捕获 JS 错误（__JS_ERRORS__）`, jsErr.ok && jsErr.value === 0, `共 ${jsErr.value} 条`);
-  const ce = consoleErrors();
-  step(`${label}: console 无 error`, ce === 0, `Errors=${ce}`);
-  pw(["close"]);
+// 6) 四视图切换冒烟：连接管理 / 项目授权 / SQL 控制台
+const smoke = [
+  ["连接管理", TAB_MANAGE, ".dbt-listrow"],
+  ["项目授权", TAB_GRANTS, ".dbt-seg"],
+  ["SQL 控制台", TAB_CONSOLE, "textarea"],
+];
+for (const [label, lit, sel] of smoke) {
+  const c = evalPage(`(() => { const b = [...document.querySelectorAll('.dbt-tabs button')].find(x => x.textContent.trim() === ${lit}); if (!b) return 'NO_TAB'; b.click(); return 'CLICKED'; })()`);
+  step(`切换到「${label}」`, c.ok && c.value === "CLICKED", String(c.value ?? c.ok));
+  const shown = await waitFor(`!!document.querySelector('${sel}')`);
+  step(`「${label}」视图控件 ${sel} 出现`, shown);
 }
 
-await scenario(false, false); // PiP 独立窗口优先
-await scenario(false, true);  // nopip：DOM 浮窗基线（portal/居中/拖动）
-await scenario(true, false);  // nord：无 react-dom 降级
-await scenario(false, false, true); // noclient：无 react-dom/client，PiP 降级 DOM 浮窗
+const jsErr = evalPage("window.__JS_ERRORS__.length");
+step("全程无未捕获 JS 错误（__JS_ERRORS__）", jsErr.ok && jsErr.value === 0, `共 ${jsErr.value} 条`);
+const ce = consoleErrors();
+step("console 无 error", ce === 0, `Errors=${ce}`);
+pw(["close"]);
 
 // ---- 汇总 ----
 const pass = results.filter((x) => x.ok).length;

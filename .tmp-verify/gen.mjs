@@ -118,34 +118,19 @@ const html = `<!doctype html>
 </head>
 <body>
 <div id="host"></div>
-<div id="stage-note">主页面占位区（弹窗应悬浮于其上，且主页面可交互）</div>
+<div id="stage-note">主页面占位区（数据浏览内嵌于左侧面板，无浮窗）</div>
 <script>
 // ---- mock DSH 宿主 ----
 // 页面级 JS 错误收集（verify.mjs 断言“无 JS 错误”用）
 window.__JS_ERRORS__ = [];
 window.addEventListener("error", function (e) { window.__JS_ERRORS__.push(String((e && e.message) || e)); });
-// ?nord=1：模拟宿主未提供 react-dom，client.js 应走无 portal 降级路径（浮窗留在宿主容器内）
-const NORD = new URLSearchParams(location.search).has("nord");
-// ?noclient=1：模拟宿主未提供 react-dom/client（真机 inject 缺失形态）——portal 可用、createRoot 不可用，PiP 应降级 DOM 浮窗
-const NOCLIENT = new URLSearchParams(location.search).has("noclient");
-// ?nopip=1：移除 Document PiP API，client.js 应跳过 PiP 独立窗口走 DOM 浮窗（居中/拖动断言的基线态）
-if (new URLSearchParams(location.search).has("nopip")) { delete window.documentPictureInPicture; }
+// 1.5.6 起数据浏览内嵌侧边栏：client.js 不再 require react-dom 系（浮窗 portal/PiP 链已删），mock 仅提供 react
 window.__DBT_DEF__ = null;
 window.__ModuleLoader__ = {
   load(def) { window.__DBT_DEF__ = def; },
 };
 function mockRequire(name) {
   if (name === "react") return window.React;
-  if (name === "react-dom") {
-    if (NORD) throw new Error("mock 宿主未提供模块: react-dom (nord=1)");
-    // noclient 态模拟真机怀疑形态：宿主注入的 react-dom 仅 portal 可用、无 createRoot（不污染全局 UMD，boot 挂载仍用完整 ReactDOM）
-    if (NOCLIENT) return { createPortal: window.ReactDOM.createPortal };
-    return window.ReactDOM;
-  }
-  if (name === "react-dom/client") {
-    if (NORD || NOCLIENT) throw new Error("mock 宿主未提供模块: react-dom/client");
-    return { createRoot: window.ReactDOM.createRoot };
-  }
   throw new Error("mock 宿主未提供模块: " + name);
 }
 // ---- mock API ----
