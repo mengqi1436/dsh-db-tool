@@ -1380,10 +1380,11 @@ window.__ModuleLoader__.load({
 				}, footer);
 			}
 
-			// 内嵌面板纵向布局：上半对象树（限高滚动，容器类名留给样式层），下半预览主区 + 分页
+			// 内嵌面板纵向布局：撑满面板高度（.dbt-panel 为 height:100% 的 flex column），
+			// 树限高 / main flex:1 内滚 / 分页与详情栏依次钉底
 			return React.createElement(
 				"div",
-				{ className: "dbt-view" },
+				{ className: "dbt-view", style: { flex: "1 1 auto", minHeight: 0 } },
 				React.createElement(
 					"div",
 					{ style: { maxHeight: 280, overflowY: "auto" } },
@@ -1407,8 +1408,8 @@ window.__ModuleLoader__.load({
 									v === "structure" ? t("structure") : t("preview"))),
 						),
 					),
-					// 限高兜底：无固定高度弹窗壳后给内容区可视上限，预览表在容器内滚动、单元格浮层贴底可见
-					React.createElement("div", { className: "dbt-browse-content", style: { maxHeight: 420 } }, rightPane()),
+					// 内容区由 flex 吃满 main 剩余高度（表格外滚），不再用固定 maxHeight 兜底
+					React.createElement("div", { className: "dbt-browse-content" }, rightPane()),
 				),
 			);
 		}
@@ -1628,7 +1629,8 @@ window.__ModuleLoader__.load({
 				error ? React.createElement("div", { className: "dbt-err" }, t("error") + ": " + error) : null,
 				message ? React.createElement("div", { className: "dbt-msg" }, message) : null,
 				// 视图切换：key=view 触发 dbt-in 进入动画（opacity + 4px 上移，.22s）
-				React.createElement("div", { className: "dbt-view", key: view },
+				// browse 视图撑满面板剩余高度（BrowsePane 内详情栏才能钉在面板最底部）
+				React.createElement("div", { className: "dbt-view", key: view, style: view === "browse" ? { flex: "1 1 auto", minHeight: 0 } : undefined },
 					view === "manage" ? React.createElement(ManageView, shared) : null,
 					view === "grants" ? React.createElement(GrantsView, shared) : null,
 					// browse：内嵌浏览面板（对象树 + 结构/数据预览，点表即看）
