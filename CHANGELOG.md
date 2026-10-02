@@ -1,5 +1,13 @@
 # Changelog — dsh-db-tool
 
+## 1.5.9
+
+修复 PostgreSQL/GaussDB 跨 schema 单元格保存报「数据库不存在」。
+
+### 修复
+
+- **跨 schema 保存路由**：`buildUpdate` 给 execute 的 `database` 参数此前误传 `"库.schema"` 整串，后端会拿它当数据库名建连接池（PG 官方语义：三段名中的 database 必须等于当前连接的库，不能跨库引用）。现只传库名（`dbRef.split(".")[0]`），schema 由语句内 `"schema"."table"` 全限定——连接目标只能是库。依据：PostgreSQL 16《ddl-schemas》；经 context7 核验 MySQL（跨库语句官方支持，语句内 `db`.`tbl` 自足）、Oracle/DM（owner 全限定同形态）、SQLite（单库无路由）各族语义一致。
+
 ## 1.5.8
 
 修复单元格详情底栏的叠压与透明问题。
