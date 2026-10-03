@@ -21,3 +21,5 @@ out/
 .tmp-*
 .impeccable/
 docs/
+DESIGN.md
+PRODUCT.md
