@@ -19,3 +19,4 @@ dsh-boot-diag*.txt
 .zcode/
 out/
 .tmp-*
+.impeccable/
