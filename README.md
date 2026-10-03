@@ -14,6 +14,18 @@ DSH 社区插件：在聊天中安全操作数据库，配套侧边栏管理台�
 - **侧边栏 4 面板**（dsh-better-sidebar，zh/en）：连接管理、项目授权、数据浏览、SQL 控制台
 - **db-admin skill**：随插件分发，覆盖 8 库方言速查、安全规范、确认流程
 
+### SQL 控制台
+
+侧边栏 SQL 控制台面板已升级为 Navicat 式多标签编辑器（CodeMirror 6）：
+
+- **多标签**：新建/关闭/切换查询标签，每个标签独立保存 SQL、结果与历史（历史上限 50 条，可展开点击回填）
+- **语法高亮与补全**：按方言切换——mysql→MySQL、postgresql/gaussdb→PostgreSQL、sqlite→SQLite、oracle/dmdb→PL/SQL；Redis/Mongo 为关键字/方法补全的纯文本编辑；表列元数据自动拉取注入补全（上限 50 表）。编辑器 bundle（`vendor/codemirror-sql.cjs`，`npm run build:codemirror` 生成，`npm run build` 自动串接）加载失败时静默降级 textarea
+- **快捷键**：`Ctrl/Cmd+Enter` 执行全部，`Ctrl/Cmd+Shift+Enter` 执行选中
+- **格式化**：sql-formatter 按方言格式化，解析失败回退原文
+- **逐条执行**：客户端预分类读/写语句分别路由 `/api/query` 与 `/api/execute`，只读授权下写语句自动跳过并标注；出错可一键定位到对应语句起始处
+- **事务**：rw 授权下可开始/提交/回滚（服务端粘性连接会话；空闲 5 分钟超时自动回滚并审计，授权回收/降级即时生效）
+- **结果网格**：表头三态排序、50 行/页分页、单元格点击复制、CSV/JSON 导出
+
 ## 数据布局
 
 `$DSH_HOME/db-tool/`（0700）：
@@ -74,11 +86,11 @@ npx stryker run # 变异测试（范围 lib/guard + lib/manager + lib/store，�
 lib/        host 插件（store / adapters×8 / guard / manager / http / index）
 client/     侧边栏单文件产物（client.js，即源码）
 skills/     db-admin skill
-scripts/    构建与工具脚本（mongodb 驱动 bundle、DSH 宿主热修复 patch:dsh 等）
+scripts/    构建与工具脚本（mongodb 驱动 / CodeMirror 编辑器 bundle、DSH 宿主热修复 patch:dsh 等）
 patches/    DSH 宿主 dsh-app-boot 热修复补丁（patch:dsh 按宿主版本选用）
 docs/       预留（当前为空）
 tests/      vitest（离线 mock + DBT_TEST_* 门控真机）
-vendor/     mongodb-driver.cjs bundle（gitignore，发布经 files 白名单收录）
+vendor/     mongodb-driver.cjs 与 codemirror-sql.cjs bundle（gitignore，发布经 files 白名单收录）
 ```
 
 ## 许可证

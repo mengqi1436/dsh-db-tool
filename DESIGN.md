@@ -206,6 +206,10 @@ focus 统一为 `outline: 2px solid accent; outline-offset: -1px`（输入类）
 - **形态**：实色分区底（暗 `#2c2c2e` / light `#f5f5f7`；透明度减弱时取降级实色 `#2c2c2e`/`#f2f2f7`）、12px 圆角、`margin-top:10px` 钉在表格之下，mono 输入域 + 操作行。
 - **NULL chip**：黄描边黄字胶囊（999px、11px/600、`1px 8px` padding）。
 
+### SQL 控制台编辑器（CodeMirror）与结果网格
+- **编辑器**：第三方渲染区（CM6 bundle）挂 `dbt-cm-` 前缀外壳 class（`dbt-cm-root`/`dbt-cm-tabbar`/`dbt-cm-tab`/`dbt-editor-host`），CM6 默认 `cm-editor`/`cm-line` 类保留不动；bundle 内主题与 HighlightStyle 颜色一律 `var(--dbt-*, 字面回退)`，回退值对齐本 token 表——token 作用域覆盖不到的地方用回退兜底，不写裸色。多标签条复用分段控件语言：激活态 `seg-active` 底 + 600 字重 + 激活微影，路由徽标为二级灰底 caption chip。
+- **结果网格**：完全复用表格语言——mono 数据、hairline 行分隔、sticky 毛玻璃表头（复用 `.dbt-table th` 不另设材质）；排序表头是无边框透明按钮（`.dbt-grid-sort`，继承文字色、focus accent 描边），三态轮换；分页条复用 BrowsePane footer 模式与 `dbt-browse-footer` 样式，50 行/页对齐 preview 上限。
+
 ### Named Rules
 **原生但可触规则。** 静止平面，hover/active 才有反馈：hover 加深一档底色、active `scale(.97)`；无 transition 的状态变化视为缺陷。hover 反馈一律包进 `@media (hover:hover) and (pointer:fine)`，触屏 tap 不触发 hover 底色；过渡属性逐项列明，禁用 `transition:all`。浏览器面板入场用 `dbt-in`（4px 上移 + 淡入，.22s），仅 transform/opacity。
 

@@ -52,8 +52,12 @@ window.__ModuleLoader__.load({
 			edit: "编辑",
 			delete: "删除",
 			deleteConnConfirm: "确定删除连接「{name}」？将级联删除其密钥与所有项目的授权。",
+			fieldKind: "数据库类型",
+			requiredMark: "（必填）",
 			deleteConnTitle: "删除连接",
 			auditShort: "审计日志",
+			noConnsGuide: "还没有连接，先添加一个，再授权给项目使用。",
+			addConn: "添加连接",
 			confirmParams: "参数",
 			grantModeGroup: "{name} 授权模式",
 			save: "保存",
@@ -70,6 +74,10 @@ window.__ModuleLoader__.load({
 			auditConfirmed: "已确认",
 			// 授权
 			grantsHint: "为当前项目授权连接。只读=仅查询/浏览，读写=允许执行语句与脚本。未授权的连接在业务操作中一律拒绝。",
+			grantsEmptyHint: "当前项目尚未授权任何连接，在下方每行选择「只读」或「读写」即可完成授权。",
+			grantsSummary: "已授权 {granted}/{total} 个连接",
+			modeBadgeRo: "只读",
+			modeBadgeRw: "读写",
 			modeNone: "未授权",
 			modeRo: "只读",
 			modeRw: "读写",
@@ -109,17 +117,35 @@ window.__ModuleLoader__.load({
 			blobNoEdit: "二进制值不支持就地编辑",
 			redisTypeRo: "Redis 该类型不支持就地编辑",
 			// SQL 控制台
-			modeQuery: "只读查询",
-			modeExecute: "写入执行",
 			modeScript: "脚本",
 			run: "执行",
 			running: "执行中…",
 			sqlPlaceholder: "输入 SQL / 命令…（Redis: [\"GET\",\"key\"]；Mongo: {\"find\":\"users\",\"filter\":{}}）",
+			// SQL 控制台（多标签重构）：标签 / 工具 / 预分类 / 事务 / 历史
+			modeSql: "SQL",
+			newTab: "新建标签",
+			closeTab: "关闭标签页",
+			queryTab: "查询 {n}",
+			runSelection: "执行选中",
+			formatSql: "格式化",
+			skippedRo: "已跳过（只读授权）",
+			locate: "定位",
+			historyTitle: "历史",
+			historyEmpty: "暂无历史",
+			txBegin: "开始事务",
+			txCommit: "提交事务",
+			txRollback: "回滚事务",
+			txActive: "事务进行中",
+			txInline: "事务内",
+			txDefaultDbOnly: "事务绑定连接默认库：请先清空库选择",
+			routeQuery: "查询",
+			routeExec: "写入",
+			routeScript: "脚本",
 			// 视图状态与控制台（T2）
 			selectConn: "选择连接…",
 			copyFailed: "复制失败",
 			scriptPlaceholder: "输入 JS 脚本（vm 沙箱，含 db 助手对象）…",
-			paramsJson: "查询参数（JSON 数组，可选）",
+			paramsJson: "查询参数（JSON 数组，可选；多语句时每条共用同一组参数）",
 			rowsResult: "{n} 行",
 			execResult: "受影响 {n} 行",
 			needConfirmTitle: "危险操作确认",
@@ -167,8 +193,12 @@ window.__ModuleLoader__.load({
 			edit: "Edit",
 			delete: "Delete",
 			deleteConnConfirm: "Delete connection \"{name}\"? Its secrets and all project grants will be removed.",
+			fieldKind: "Database type",
+			requiredMark: " (required)",
 			deleteConnTitle: "Delete Connection",
 			auditShort: "Audit log",
+			noConnsGuide: "No connections yet — add one first, then grant it to your project.",
+			addConn: "Add Connection",
 			confirmParams: "Params",
 			grantModeGroup: "Access mode for {name}",
 			save: "Save",
@@ -184,6 +214,10 @@ window.__ModuleLoader__.load({
 			auditDenied: "denied",
 			auditConfirmed: "confirmed",
 			grantsHint: "Grant connections to the current project. ro = read-only (query/browse), rw = read-write (execute/script allowed). Unauthorized connections are always rejected.",
+			grantsEmptyHint: "No connections granted to this project yet. Pick read-only or read-write on a row below to grant.",
+			grantsSummary: "{granted}/{total} connections granted",
+			modeBadgeRo: "RO",
+			modeBadgeRw: "RW",
 			modeNone: "none",
 			modeRo: "read-only ro",
 			modeRw: "read-write rw",
@@ -221,17 +255,35 @@ window.__ModuleLoader__.load({
 			truncatedNoEdit: "Value shown truncated; edit via SQL Console instead",
 			blobNoEdit: "Binary values cannot be edited here",
 			redisTypeRo: "This Redis type cannot be edited here",
-			modeQuery: "query (read-only)",
-			modeExecute: "execute (write)",
 			modeScript: "script",
 			run: "Run",
 			running: "Running…",
 			sqlPlaceholder: "SQL / command… (Redis: [\"GET\",\"key\"]; Mongo: {\"find\":\"users\",\"filter\":{}})",
+			// SQL console (multi-tab rework): tabs / toolbar / pre-classification / transactions / history
+			modeSql: "SQL",
+			newTab: "New tab",
+			closeTab: "Close tab",
+			queryTab: "Query {n}",
+			runSelection: "Run selection",
+			formatSql: "Format",
+			skippedRo: "Skipped (read-only grant)",
+			locate: "Locate",
+			historyTitle: "History",
+			historyEmpty: "No history yet",
+			txBegin: "Begin",
+			txCommit: "Commit",
+			txRollback: "Roll back",
+			txActive: "In transaction",
+			txInline: "In tx",
+			txDefaultDbOnly: "Transactions bind the connection's default database: clear the database selection first",
+			routeQuery: "read",
+			routeExec: "write",
+			routeScript: "script",
 			// View state & console (T2)
 			selectConn: "Select a connection…",
 			copyFailed: "Copy failed",
 			scriptPlaceholder: "JS script (vm sandbox, with db helper)…",
-			paramsJson: "params (JSON array, optional)",
+			paramsJson: "params (JSON array, optional; shared by every statement in a batch)",
 			rowsResult: "{n} rows",
 			execResult: "{n} rows affected",
 			needConfirmTitle: "Dangerous operation",
@@ -369,6 +421,19 @@ window.__ModuleLoader__.load({
 				".dbt-table th{position:sticky;top:0;z-index:1;background:var(--dbt-th-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);font-weight:600;font-size:12px;}",
 				".dbt-table td{font-family:var(--dbt-mono);}",
 				".dbt-tablewrap{border:none;border-radius:var(--dbt-radius-card);overflow:auto;max-height:320px;background:var(--dbt-surface);}",
+				"/* ===== 结果网格（SQL 控制台）：可排序表头按钮（毛玻璃 sticky 表头复用 .dbt-table th，不另设） ===== */",
+				".dbt-grid-sort{border:none;background:transparent;color:inherit;font:inherit;font-weight:600;font-size:12px;padding:0;margin:0;cursor:pointer;display:block;width:100%;text-align:left;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				".dbt-grid-sort:focus-visible{outline:2px solid var(--dbt-accent);outline-offset:-1px;border-radius:2px;}",
+				"/* ===== SQL 控制台（多标签）：标签条 / 编辑器宿主 / 结果行路由徽标（全 token，跟随明暗） ===== */",
+				".dbt-cm-tabbar{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;overflow-x:auto;}",
+				".dbt-cm-tab{display:flex;align-items:center;gap:4px;border:none;background:transparent;color:inherit;font-size:12px;padding:5px 8px;border-radius:var(--dbt-radius-pill);cursor:pointer;white-space:nowrap;transition:background .18s var(--dbt-ease);}",
+				".dbt-cm-tab.active{background:var(--dbt-seg-active);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}",
+				".dbt-cm-tabclose{border:none;background:transparent;color:inherit;opacity:.5;padding:0 1px;cursor:pointer;font-size:11px;line-height:1;}",
+				".dbt-cm-tabclose:hover{opacity:1;}",
+				".dbt-editor-host{height:280px;display:flex;flex-direction:column;}",
+				".dbt-editor-host textarea{flex:1;font-family:var(--dbt-mono);background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:8px 10px;resize:none;}",
+				".dbt-editor-host textarea:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
+				".dbt-routechip{flex:none;background:var(--dbt-surface-strong);color:var(--dbt-text-secondary);border-radius:6px;padding:1px 6px;font-size:var(--dbt-caption-xs,10px);font-weight:600;line-height:1.45;}",
 				"/* ===== 浏览面板表格：列分明（列间 hairline + 表头加深一档 + 行 hover） ===== */",
 				".dbt-browse-root .dbt-table th + th,.dbt-browse-root .dbt-table td + td{border-left:1px solid var(--dbt-separator);}",
 				".dbt-browse-root .dbt-table th{background:rgba(30,30,32,.85);}",
@@ -709,6 +774,131 @@ window.__ModuleLoader__.load({
 			return parts.map((seg, i) => (i === parts.length - 1 ? seg : seg + (i < arr.length ? lit(arr[i]) : "?"))).join("");
 		}
 
+		/* ---------------- 控制台工具纯函数（语句切分 / 格式化方言 / 导出 / 耗时，ConsoleView 与测试共用） ---------------- */
+
+		// sql-formatter 方言映射（vendor bundle 的 format() 用）；mongodb/redis 非 SQL 方言返回 null
+		function fmtDialectOf(kind) {
+			if (kind === "mysql") return "mysql";
+			if (kind === "postgresql" || kind === "gaussdb") return "postgresql";
+			if (kind === "sqlite") return "sqlite";
+			if (kind === "oracle" || kind === "dmdb") return "plsql";
+			return null;
+		}
+
+		// SQL 文本 → 语句列表 [{ text, start }]：text 为原文切片（保留内部注释/空白），start 为语句
+		// 首字符偏移（跳过前导空白/注释，错误就地显示后定位光标用）。词法跳过与 lang-sql 方言 spec
+		// 一一对应：单/双引号字符串（反斜杠与双写转义，mysql 另含反引号标识符）、-- 行注释
+		// （slashComments）、/* */ 块注释、$$...$$ dollar-quoting（doubleDollarQuotedStrings，仅
+		// postgresql/gaussdb）、MySQL DELIMITER 自定义分隔符（客户端指令：仅语句缓冲为空时切换后续
+		// 分隔符，指令行不产生语句）、Oracle/达梦 BEGIN..END 块（块内分号不切分；CREATE
+		// PROCEDURE/FUNCTION 体的分号由该块覆盖）。空/纯注释语句被过滤；无尾分隔符的最后一条也返回。
+		// ponytail: depth 计数不识别 CASE..END/LOOP/IF 等（块内混用可能提前切分）；需要时换完整 PL/SQL 词法
+		function splitSqlStatements(sql, kind) {
+			const src = String(sql == null ? "" : sql);
+			const out = [];
+			const isWord = (c) => /[A-Za-z0-9_$]/.test(c);
+			let sep = ";";
+			let i = 0, stmtStart = 0, contentStart = 0, hasContent = false, depth = 0; // depth: BEGIN..END 嵌套计数
+			while (i < src.length) {
+				const c = src[i];
+				if (c === "-" && src[i + 1] === "-") { // -- 行注释至行尾
+					while (i < src.length && src[i] !== "\n") i++;
+					continue;
+				}
+				if (c === "/" && src[i + 1] === "*") { // /* 块注释至 */（未闭合则吞到结尾）
+					i += 2;
+					while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
+					i = Math.min(src.length, i + 2);
+					continue;
+				}
+				if (c === "'" || c === '"' || (kind === "mysql" && c === "`")) { // 引号串：反斜杠与双写转义
+					if (!hasContent) contentStart = i;
+					hasContent = true;
+					i++;
+					while (i < src.length) {
+						if (src[i] === "\\") { i += 2; continue; }
+						if (src[i] === c) {
+							if (src[i + 1] === c) { i += 2; continue; } // 双写转义
+							i++;
+							break;
+						}
+						i++;
+					}
+					continue;
+				}
+				if ((kind === "postgresql" || kind === "gaussdb") && c === "$" && src[i + 1] === "$") {
+					if (!hasContent) contentStart = i; // $$dollar 串至下一 $$（未闭合则吞到结尾）
+					hasContent = true;
+					i += 2;
+					while (i < src.length && !(src[i] === "$" && src[i + 1] === "$")) i++;
+					i = Math.min(src.length, i + 2);
+					continue;
+				}
+				// DELIMITER <sep> 客户端指令：仅当前语句缓冲无内容时生效（mysql cli 行首语义）
+				if (kind === "mysql" && depth === 0 && !hasContent
+					&& (i === 0 || !isWord(src[i - 1]))
+					&& src.slice(i, i + 9).toUpperCase() === "DELIMITER"
+					&& (src[i + 9] === " " || src[i + 9] === "\t")) {
+					let j = i + 9, e = j;
+					while (e < src.length && src[e] !== "\n" && src[e] !== "\r") e++;
+					while (j < e && (src[j] === " " || src[j] === "\t")) j++;
+					if (j < e) { sep = src.slice(j, e); stmtStart = e; i = e; continue; }
+				}
+				// BEGIN/END 词计数（oracle/dmdb）：块内分号不切分；END 不把 depth 减到负（顶层 CASE..END 不受影响）
+				if ((kind === "oracle" || kind === "dmdb") && (i === 0 || !isWord(src[i - 1]))) {
+					if (src.slice(i, i + 5).toUpperCase() === "BEGIN" && !isWord(src[i + 5] || " ")) {
+						if (!hasContent) contentStart = i;
+						depth++; hasContent = true; i += 5; continue;
+					}
+					if (src.slice(i, i + 3).toUpperCase() === "END" && !isWord(src[i + 3] || " ")) {
+						if (depth > 0) depth--;
+						if (!hasContent) contentStart = i;
+						hasContent = true; i += 3; continue;
+					}
+				}
+				if (depth === 0 && src.startsWith(sep, i)) { // 语句终止：收割有内容的语句
+					if (hasContent) out.push({ text: src.slice(stmtStart, i), start: contentStart });
+					i += sep.length;
+					stmtStart = i;
+					contentStart = i;
+					hasContent = false;
+					continue;
+				}
+				if (!/\s/.test(c)) { if (!hasContent) contentStart = i; hasContent = true; }
+				i++;
+			}
+			if (hasContent) out.push({ text: src.slice(stmtStart), start: contentStart }); // 无尾分隔符的最后一条
+			return out;
+		}
+
+		// 结果导出：CSV 侧 NULL/undefined → 空串，含逗号/引号/换行的值按 RFC 4180 双引号包裹且内部
+		// 双写转义，行尾统一 \r\n；JSON 侧 NULL 保留 null（不落为空串，避免与空字符串列混淆）
+		function csvCell(v) {
+			const s = v == null ? "" : String(v);
+			return /[",\r\n]/.test(s) ? '"' + s.split('"').join('""') + '"' : s;
+		}
+		function toCsv(columns, rows) {
+			const cols = Array.isArray(columns) ? columns : [];
+			const lines = [cols.map(csvCell).join(",")];
+			for (const row of (Array.isArray(rows) ? rows : [])) {
+				lines.push(cols.map((_, i) => csvCell((row || [])[i])).join(","));
+			}
+			return lines.join("\r\n") + "\r\n";
+		}
+		function toJson(columns, rows) {
+			const cols = Array.isArray(columns) ? columns : [];
+			return JSON.stringify((Array.isArray(rows) ? rows : []).map((row) => {
+				const o = {};
+				cols.forEach((c, i) => { o[c] = (row || [])[i] == null ? null : (row || [])[i]; });
+				return o;
+			}));
+		}
+
+		// 耗时展示：<1000ms 取整为 "N ms"，否则秒保留两位小数
+		function fmtMs(n) {
+			return n < 1000 ? Math.round(n) + " ms" : (n / 1000).toFixed(2) + " s";
+		}
+
 		// Stryker disable all（buildMongoOp 之后：以下 auditTable/KIND_DEFAULTS/buildEditForm 为连接表单工具，无单元断言）
 		function auditTable(audit) {
 			return resultTable(
@@ -771,11 +961,31 @@ window.__ModuleLoader__.load({
 
 	// UI 组件渲染层无单元断言（纯函数层止于此），禁用至文件尾
 	// Stryker disable all
+	// 键盘焦点环（单一事实源，ConnForm/ManageView/treerow/preview tr 共用）：样式块本轮冻结、
+	// :focus-visible 无内联 style 通道，focus 事件中探测键盘聚焦后直写 accent 内缩描边，blur 还原。
+	// selfCheck=true 用于行容器（tr）：子元素聚焦冒泡（React onFocus 走 focusin）时忽略，仅行自身生效。
+	function focusRingProps(selfCheck) {
+		return {
+			onFocus: (e) => {
+				const el = e.currentTarget;
+				if (selfCheck && e.target !== el) return;
+				if (el.matches && el.matches(":focus-visible")) {
+					el.style.outline = "2px solid var(--dbt-accent, #0a84ff)";
+					el.style.outlineOffset = "-1px";
+				}
+			},
+			onBlur: (e) => { e.currentTarget.style.outline = ""; e.currentTarget.style.outlineOffset = ""; },
+		};
+	}
 	function ConnForm(props) {
 			// 新建（无 initial）默认分字段模式并预填官方默认值；编辑保持用户数据原样
 			const [form, setForm] = React.useState(() => props.initial || freshForm());
 			const [dirty, setDirty] = React.useState(() => new Set()); // 用户手改过的字段（切 kind 时保留）
 			const [draftTest, setDraftTest] = React.useState(null); // null | {ok, msg}
+			// 无障碍：URL/分字段切换（及表单挂载）后焦点引导进该模式首个输入，避免键盘/SR 用户滞留切换按钮
+			const firstInputRef = React.useRef(null);
+			React.useEffect(() => { if (firstInputRef.current) firstInputRef.current.focus(); }, [form.mode]);
+			// 按钮焦点环：统一走模块级 focusRingProps()（语义同前）
 			function patch(p) {
 				setForm((prev) => Object.assign({}, prev, p));
 				setDirty((prev) => { const n = new Set(prev); for (const k of Object.keys(p)) n.add(k); return n; });
@@ -831,6 +1041,9 @@ window.__ModuleLoader__.load({
 					setDraftTest({ ok: false, msg: t("testFail") + "：" + (e && e.message ? e.message : String(e)) });
 				}
 			}
+			// aria-label 局部文案：与 placeholder 同源，避免表达式重复
+			const pwLabel = props.initial && props.initial.hasPassword ? t("passwordSaved") : t("fieldsPassword");
+			const idLabel = t("connId") + "（" + t("idAutoHint") + "）";
 			return React.createElement(
 				"div",
 				{ className: "dbt-card" },
@@ -839,10 +1052,10 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
-					React.createElement("select", { value: form.kind, onChange: (e) => switchKind(e.target.value) },
+					React.createElement("select", { value: form.kind, "aria-label": t("fieldKind"), onChange: (e) => switchKind(e.target.value) },
 						DB_KINDS.map((k) => React.createElement("option", { key: k, value: k }, k))),
-					React.createElement("input", { placeholder: t("connName"), value: form.name, onChange: (e) => patch({ name: e.target.value }) }),
-					React.createElement("input", { placeholder: t("connId") + "（" + t("idAutoHint") + "）", value: form.id, disabled: !!props.initial, onChange: (e) => patch({ id: e.target.value }) }),
+					React.createElement("input", { placeholder: t("connName"), "aria-label": t("connName"), value: form.name, onChange: (e) => patch({ name: e.target.value }) }),
+					React.createElement("input", { placeholder: idLabel, "aria-label": idLabel, value: form.id, disabled: !!props.initial, onChange: (e) => patch({ id: e.target.value }) }),
 					React.createElement("label", { className: "dbt-row", style: { flex: "none" } },
 						React.createElement("input", { type: "checkbox", checked: !!form.ssl, onChange: (e) => patch({ ssl: e.target.checked }) }), t("ssl")),
 				),
@@ -850,39 +1063,39 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-seg" },
-					React.createElement("button", { className: form.mode === "url" ? "active" : "", onClick: () => patch({ mode: "url" }) }, t("urlMode")),
-					React.createElement("button", { className: form.mode === "fields" ? "active" : "", onClick: reenterFields }, t("fieldsMode")),
+					React.createElement("button", { className: form.mode === "url" ? "active" : "", "aria-pressed": form.mode === "url", onClick: () => patch({ mode: "url" }), ...focusRingProps() }, t("urlMode")),
+					React.createElement("button", { className: form.mode === "fields" ? "active" : "", "aria-pressed": form.mode === "fields", onClick: reenterFields, ...focusRingProps() }, t("fieldsMode")),
 				),
 				form.mode === "url"
 					? React.createElement(
 						"div",
 						{ style: { display: "flex", flexDirection: "column", gap: 6 } },
-						React.createElement("input", { placeholder: t("url"), value: form.url, onChange: (e) => patch({ url: e.target.value }) }),
+						React.createElement("input", { placeholder: t("url"), "aria-label": t("url") + t("requiredMark"), "aria-required": "true", ref: firstInputRef, value: form.url, onChange: (e) => patch({ url: e.target.value }) }),
 						React.createElement("div", { className: "dbt-row" },
-							React.createElement("input", { placeholder: t("urlUser"), value: form.urlUser, onChange: (e) => patch({ urlUser: e.target.value }) }),
-							React.createElement("input", { type: "password", placeholder: t("urlPassword"), value: form.urlPassword, onChange: (e) => patch({ urlPassword: e.target.value }) })),
+							React.createElement("input", { placeholder: t("urlUser"), "aria-label": t("urlUser"), value: form.urlUser, onChange: (e) => patch({ urlUser: e.target.value }) }),
+							React.createElement("input", { type: "password", placeholder: t("urlPassword"), "aria-label": t("urlPassword"), value: form.urlPassword, onChange: (e) => patch({ urlPassword: e.target.value }) })),
 					)
 					: React.createElement(
 						"div",
 						{ style: { display: "flex", flexDirection: "column", gap: 6 } },
 						React.createElement("div", { className: "dbt-row" },
-							React.createElement("input", { placeholder: t("fieldsHost"), value: form.host, onChange: (e) => patch({ host: e.target.value }) }),
-							React.createElement("input", { placeholder: t("fieldsPort"), value: form.port, onChange: (e) => patch({ port: e.target.value }) }),
-							React.createElement("input", { placeholder: t("fieldsDatabase"), value: form.database, onChange: (e) => patch({ database: e.target.value }) })),
+							React.createElement("input", { placeholder: t("fieldsHost"), "aria-label": t("fieldsHost") + t("requiredMark"), "aria-required": "true", ref: firstInputRef, value: form.host, onChange: (e) => patch({ host: e.target.value }) }),
+							React.createElement("input", { placeholder: t("fieldsPort"), "aria-label": t("fieldsPort"), value: form.port, onChange: (e) => patch({ port: e.target.value }) }),
+							React.createElement("input", { placeholder: t("fieldsDatabase"), "aria-label": t("fieldsDatabase"), value: form.database, onChange: (e) => patch({ database: e.target.value }) })),
 						React.createElement("div", { className: "dbt-row" },
-							React.createElement("input", { placeholder: t("fieldsUser"), value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
-							React.createElement("input", { type: "password", placeholder: props.initial && props.initial.hasPassword ? t("passwordSaved") : t("fieldsPassword"), value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
+							React.createElement("input", { placeholder: t("fieldsUser"), "aria-label": t("fieldsUser") + t("requiredMark"), "aria-required": "true", value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
+							React.createElement("input", { type: "password", placeholder: pwLabel, "aria-label": pwLabel, value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
 					),
 				// 分组 3：操作
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
-					React.createElement("button", { className: "dbt-btn primary", disabled: props.busy, onClick: submit }, props.busy ? t("saving") : t("save")),
-					React.createElement("button", { className: "dbt-btn", disabled: draftTest && draftTest.ok === null, onClick: testDraft },
+					React.createElement("button", { className: "dbt-btn primary", disabled: props.busy, onClick: submit, ...focusRingProps() }, props.busy ? t("saving") : t("save")),
+					React.createElement("button", { className: "dbt-btn", disabled: draftTest && draftTest.ok === null, onClick: testDraft, ...focusRingProps() },
 						draftTest && draftTest.ok === null ? t("testing") : t("test")),
-					React.createElement("button", { className: "dbt-btn", onClick: props.onCancel }, t("cancel")),
+					React.createElement("button", { className: "dbt-btn", onClick: props.onCancel, ...focusRingProps() }, t("cancel")),
 					draftTest && draftTest.ok !== null
-						? React.createElement("span", { className: draftTest.ok ? "dbt-msg" : "dbt-err" }, draftTest.msg)
+						? React.createElement("span", { className: draftTest.ok ? "dbt-msg" : "dbt-err", role: draftTest.ok ? "status" : "alert" }, draftTest.msg)
 						: null,
 				),
 			);
@@ -894,6 +1107,7 @@ window.__ModuleLoader__.load({
 			const [auditOpen, setAuditOpen] = React.useState(false);
 			const [audit, setAudit] = React.useState(null);
 			const [testInfo, setTestInfo] = React.useState({}); // connId -> "ok" | "fail: msg"
+			// 键盘焦点态：统一走模块级 focusRingProps()（描边同 DESIGN.md focus 规范，accent 2px 内缩）
 
 			async function saveConn(body, reset) {
 				await props.run("save", async () => {
@@ -957,12 +1171,19 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-row", style: { justifyContent: "space-between" } },
-					React.createElement("button", { className: "dbt-btn", onClick: loadAudit }, t("auditShort")),
-					React.createElement("button", { className: "dbt-btn primary", onClick: () => setEditing("new") }, t("newConn")),
+					React.createElement("button", { className: "dbt-btn", "aria-expanded": auditOpen, ...focusRingProps(), onClick: loadAudit }, t("auditShort")),
+					React.createElement("button", { className: "dbt-btn primary", ...focusRingProps(), onClick: () => setEditing("new") }, t("newConn")),
 				),
-				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
-					// iOS inset grouped：一张卡装全部连接，行间 hairline 分隔
-					React.createElement(
+				conns.length === 0
+					? // 空状态引导：一句引导 + 主按钮直达新增表单（state 切换在 ManageView 内）
+						React.createElement(
+							"div",
+							{ className: "dbt-card", style: { alignItems: "center", textAlign: "center" } },
+							React.createElement("div", { className: "dbt-muted" }, t("noConnsGuide")),
+							React.createElement("button", { className: "dbt-btn primary", ...focusRingProps(), onClick: () => setEditing("new") }, t("addConn")),
+						)
+					: // iOS inset grouped：一张卡装全部连接，行间 hairline 分隔
+						React.createElement(
 						"div",
 						{ className: "dbt-group" },
 						conns.map((c) =>
@@ -976,7 +1197,8 @@ window.__ModuleLoader__.load({
 									React.createElement(
 										"div",
 										{ className: "dbt-row" },
-										React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: MONO_FONT, fontSize: "var(--dbt-caption, 11px)", lineHeight: 1.45 } }, c.kind),
+										// kind 为技术元数据，降次级色避免与名称主级争夺权重（DESIGN.md 次级文字语义）
+										React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", color: "var(--dbt-text-secondary, rgba(235,235,245,.6))", borderRadius: "6px", padding: "2px 6px", fontFamily: MONO_FONT, fontSize: "var(--dbt-caption, 11px)", lineHeight: 1.45 } }, c.kind),
 										React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
 									),
 									(c.safeUrl || c.host) ? React.createElement(
@@ -984,15 +1206,16 @@ window.__ModuleLoader__.load({
 										{ className: "dbt-muted", style: { fontFamily: MONO_FONT, fontSize: 11, wordBreak: "break-all" } },
 										c.safeUrl || (c.host + ":" + (c.port || "")),
 									) : null,
-									testInfo[c.id] ? React.createElement("div", { className: testInfo[c.id].startsWith("✓") ? "dbt-msg" : "dbt-err" }, testInfo[c.id]) : null,
+									// 测试反馈三态：✓ 绿=成功 / ✗ 红=失败 / 其余（测试中…）中性灰；DESIGN.md 语义色 红=失败 绿=成功，role=status 供读屏播报
+									testInfo[c.id] ? React.createElement("div", { role: "status", className: testInfo[c.id].startsWith("✓") ? "dbt-msg" : testInfo[c.id].startsWith("✗") ? "dbt-err" : "dbt-muted" }, testInfo[c.id]) : null,
 								),
 								// 右列：动作按钮（次要语义，danger 仅删除）
 								React.createElement(
 									"div",
 									{ className: "dbt-row", style: { flex: "none" } },
-									React.createElement("button", { className: "dbt-btn", disabled: busy === "test", onClick: () => testConn(c.id) }, t("test")),
-									React.createElement("button", { className: "dbt-btn", onClick: () => setEditing(c) }, t("edit")),
-									React.createElement("button", { className: "dbt-btn danger", disabled: busy === "del", onClick: () => delConn(c) }, t("delete")),
+									React.createElement("button", { className: "dbt-btn", disabled: busy === "test", ...focusRingProps(), onClick: () => testConn(c.id) }, t("test")),
+									React.createElement("button", { className: "dbt-btn", ...focusRingProps(), onClick: () => setEditing(c) }, t("edit")),
+									React.createElement("button", { className: "dbt-btn danger", disabled: busy === "del", ...focusRingProps(), onClick: () => delConn(c) }, t("delete")),
 								),
 							),
 						),
@@ -1000,7 +1223,8 @@ window.__ModuleLoader__.load({
 				auditOpen
 					? React.createElement(
 						"div",
-						{ className: "dbt-card" },
+						// 展开入场复用既有 dbt-in（仅 opacity/transform、.22s、var(--dbt-ease)；reduced-motion 全局已关），与视图切换语言一致
+						{ className: "dbt-card", style: { animation: "dbt-in .22s var(--dbt-ease)" } },
 						React.createElement("strong", null, t("auditTitle", { n: 50 })),
 						!props.projectPath ? React.createElement("div", { className: "dbt-muted" }, t("projectUnbound")) :
 							!audit || audit.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("auditEmpty")) :
@@ -1013,6 +1237,7 @@ window.__ModuleLoader__.load({
 		/* ---------------- 项目授权 ---------------- */
 		function GrantsView(props) {
 			const { conns, grants, projectPath } = props;
+			const grantedCount = (grants || []).length;
 			function modeOf(connId) {
 				const g = (grants || []).find((x) => x.connId === connId);
 				return g ? g.mode : "";
@@ -1024,11 +1249,36 @@ window.__ModuleLoader__.load({
 					await props.reload();
 				});
 			}
+			// 模式徽标：语义色描边胶囊（rw=系统绿成功语义、ro=次级灰中性），颜色+文字双编码；
+			// 描边胶囊复用 NULL chip 语言（11px/600、1px 8px、999px），light 模式自动跟 token 反转
+			function modeBadge(m) {
+				if (m !== "ro" && m !== "rw") return null;
+				const color = m === "rw" ? "var(--dbt-success, #30d158)" : "var(--dbt-text-secondary, rgba(235,235,245,.6))";
+				return React.createElement("span", {
+					"aria-hidden": "true",
+					style: {
+						flex: "none",
+						border: "1px solid " + color,
+						color: color,
+						borderRadius: "999px",
+						padding: "1px 8px",
+						fontSize: "var(--dbt-caption, 11px)",
+						fontWeight: 600,
+						lineHeight: 1.45,
+					},
+				}, m === "rw" ? t("modeBadgeRw") : t("modeBadgeRo"));
+			}
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
 				React.createElement("div", { className: "dbt-muted" }, t("grantsHint")),
 				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
+					// 状态行：空授权引导 / 已授权计数摘要共用一槽（授权变更后 reload 触发重渲染，polite 播报）
+					React.createElement(
+						"div",
+						{ className: "dbt-muted", "aria-live": "polite" },
+						grantedCount === 0 ? t("grantsEmptyHint") : t("grantsSummary", { granted: grantedCount, total: conns.length }),
+					),
 					// iOS inset grouped：授权行装一张卡，行间 hairline（授权链路：seg 点击 → PUT/DELETE /grants）
 					React.createElement(
 						"div",
@@ -1038,12 +1288,13 @@ window.__ModuleLoader__.load({
 							return React.createElement(
 								"div",
 								{ className: "dbt-listrow", key: c.id },
-								// 列表行式：名称 13px semibold 主行 + kind muted 副行，右侧 mini segmented
+								// 主行对齐连接管理：kind 填充 pill + 名称 13px semibold + 模式徽标（seg 为权威状态源，徽标 aria-hidden 免重复播报）
 								React.createElement(
 									"div",
-									{ style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 } },
-									React.createElement("span", { style: { fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
-									React.createElement("span", { className: "dbt-muted" }, c.kind),
+									{ className: "dbt-row", style: { flex: 1, minWidth: 0 } },
+									React.createElement("span", { style: { background: "var(--dbt-surface-strong, rgba(120,120,128,.18))", borderRadius: "6px", padding: "2px 6px", fontFamily: MONO_FONT, fontSize: "var(--dbt-caption, 11px)", lineHeight: 1.45 } }, c.kind),
+									React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
+									modeBadge(m),
 								),
 								React.createElement(
 									"div",
@@ -1134,19 +1385,61 @@ window.__ModuleLoader__.load({
 						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + d + "/" + s]: list || [] }));
 					}));
 			}
-			// 树行：chevron（▸ 展开旋转 90°）+ 名称 + 可选右侧标注
-			// ponytail: 交互行全量 tabIndex=0 使 Tab 循环较长，升级路径为 APG roving tabindex + 方向键导航
+			// 树键盘导航（WAI-ARIA treeview / roving tabindex）：Tab 仅进停靠行，方向键在可见行间移动；
+			// 右箭头展开、左箭头收起或回到父级（父级 = DOM 序向上第一个更浅层级行），Home/End 跳首尾
+			const treeRef = React.useRef(null);
+			const [rovingKey, setRovingKey] = React.useState(null); // roving 停靠行 key；null 时兜底首行
+			const liveKeysRef = React.useRef(null); // 上一轮渲染的交互行 key 集：停靠行被折叠/清缓存后失效时回退首行
+			const roving = rovingKey && liveKeysRef.current && liveKeysRef.current.has(rovingKey) ? rovingKey : null;
+			const firstKey = conns.length ? "c:" + conns[0].id : null; // 树首行恒为第一个连接行
+			const liveKeys = new Set(); // 本轮渲染收集，循环结束后写回 liveKeysRef
+			function moveFocus(rows, i) {
+				const row = rows[i];
+				if (!row) return;
+				row.focus();
+				setRovingKey(row.getAttribute("data-treekey"));
+			}
+			function onTreeKeyDown(e) {
+				const row = e.target && e.target.closest ? e.target.closest('[role="treeitem"]') : null;
+				if (!row || !treeRef.current) return;
+				const rows = Array.prototype.slice.call(treeRef.current.querySelectorAll('[role="treeitem"]'));
+				const i = rows.indexOf(row);
+				const exp = row.getAttribute("aria-expanded");
+				if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+					e.preventDefault();
+					const j = e.key === "ArrowDown" ? i + 1 : i - 1;
+					if (j >= 0 && j < rows.length) moveFocus(rows, j);
+				} else if (e.key === "Home" || e.key === "End") {
+					e.preventDefault();
+					moveFocus(rows, e.key === "Home" ? 0 : rows.length - 1);
+				} else if (e.key === "ArrowRight") {
+					if (exp === "false") { e.preventDefault(); row.click(); } // 展开当前节点（复用点击行为）
+				} else if (e.key === "ArrowLeft") {
+					if (exp === "true") { e.preventDefault(); row.click(); return; } // 收起当前节点
+					const lv = Number(row.getAttribute("data-level")) || 1;
+					for (let j = i - 1; j >= 0; j--) {
+						if ((Number(rows[j].getAttribute("data-level")) || 1) < lv) { e.preventDefault(); moveFocus(rows, j); break; }
+					}
+				}
+			}
+			// 树行：chevron（▸ 展开旋转 90°）+ 名称 + 可选右侧标注；交互行为 treeitem（roving tabindex 见上）
 			function treerow(key, level, isOpen, leaf, label, onClick, active, extra) {
+				if (onClick) liveKeys.add(key);
 				return React.createElement(
 					"div",
 					{
 						className: "dbt-treerow" + (active ? " active" : ""), key,
 						role: onClick ? "treeitem" : undefined,
 						"aria-expanded": onClick && !leaf ? isOpen : undefined, // 可展开节点披露展开态（叶/占位行不适用）
-						tabIndex: onClick ? 0 : undefined,
-						onClick: onClick || undefined,
+						"aria-level": onClick ? level + 1 : undefined, // 平铺树以 level 标注层级（WAI-ARIA treeview）
+						"aria-selected": onClick && active ? true : undefined, // 选中表行的可访问标注（对应 .active 视觉态）
+						"data-level": onClick ? level + 1 : undefined, // 左箭头父级查找依赖
+						"data-treekey": key,
+						tabIndex: onClick ? ((roving || firstKey) === key ? 0 : -1) : undefined,
+						onClick: onClick ? (e) => { setRovingKey(key); onClick(e); } : undefined,
+						...(onClick ? focusRingProps() : null), // 焦点描边统一走模块级 helper
 						onKeyDown: onClick ? (e) => {
-							if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick({ currentTarget: e.currentTarget }); }
+							if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRovingKey(key); onClick({ currentTarget: e.currentTarget }); }
 						} : undefined,
 						style: { paddingLeft: 12 + level * 16 },
 					},
@@ -1213,13 +1506,15 @@ window.__ModuleLoader__.load({
 				}
 			}
 
+			// 停靠行失效检测以下一轮渲染的可见集合为准（commit 后写回，不污染渲染期）
+			React.useLayoutEffect(() => { liveKeysRef.current = liveKeys; });
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
 				// Navicat 式对象树：点击展开连接/库，点击表上报选中（由父组件就地预览）
 				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
 					React.createElement("div", { className: "dbt-group" },
-						React.createElement("div", { className: "dbt-tree", role: "tree" }, treeRows)),
+						React.createElement("div", { className: "dbt-tree", role: "tree", ref: treeRef, onKeyDown: onTreeKeyDown }, treeRows)),
 			);
 		}
 
@@ -1339,8 +1634,8 @@ window.__ModuleLoader__.load({
 			return React.createElement(
 				"div",
 				{ className: "dbt-browse-root", style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } },
-				// 顶层只读提示：授权为 ro 时整格只读，单元格仍可点开底栏查看完整值
-				!editable ? React.createElement("div", { className: "dbt-readhint" }, t("readOnlyRo")) : null,
+				// 顶层只读提示：授权为 ro 时整格只读，单元格仍可点开底栏查看完整值；10px 分区 gap
+				!editable ? React.createElement("div", { className: "dbt-readhint", style: { marginBottom: 10 } }, t("readOnlyRo")) : null,
 				// 预览表格区（flex:1 撑满剩余空间；底部详情栏在表格之后、面板流内）
 				React.createElement(
 					"div",
@@ -1360,7 +1655,16 @@ window.__ModuleLoader__.load({
 								"tbody",
 								null,
 								(preview.rows || []).map((row, i) =>
-									React.createElement("tr", { key: i },
+									// 行级键盘可达：Tab 聚焦行、Enter 打开该行首格详情（与单击同走 toggleCell，同格再按收起）；
+									// 焦点在行内 button 上时 Enter 已由 button 处理，target!==currentTarget 直接放行防双重触发
+									React.createElement("tr", {
+										key: i, tabIndex: 0,
+										onKeyDown: (e) => {
+											if (e.key !== "Enter" || e.target !== e.currentTarget || !(preview.columns || []).length) return;
+											toggleCell(i, preview.columns[0], row[0]);
+										},
+										...focusRingProps(true), // 行容器：忽略子元素聚焦冒泡，仅行自身键盘聚焦描边
+									},
 										(preview.columns || []).map((colName, j) =>
 											React.createElement("td", { key: j, title: row[j] === null ? "NULL" : String(row[j]) },
 												React.createElement("button", {
@@ -1371,16 +1675,18 @@ window.__ModuleLoader__.load({
 						),
 					),
 				),
-				// 分页条（BrowsePane 传入）在详情栏之上，详情栏钉在面板最底部
-				props.children,
+				// 分页条（BrowsePane 传入）在详情栏之上，详情栏钉在面板最底部；
+				// 包裹层 flex:none 承接钉底语义并补 10px 分区 gap（footer 自身无 margin，与底栏 10px 节奏对齐）
+				props.children ? React.createElement("div", { style: { flex: "none", marginTop: 10 } }, props.children) : null,
 				// 底部详情栏（Navicat/检查器式）：预览表格下方一栏，textarea 直接可编辑，点保存写回
 				sel ? React.createElement(
 					"div",
 					{ className: "dbt-celldetail" },
 					// 标题行：完整值 · 列名；null 单元格带 NULL 芯片；只读原因随之展示
 					React.createElement(
+						// 标题行 flex + 8px 控件 gap：值/列名、NULL 芯片、只读原因不再挤作一团；长列名 wrap 兜底
 						"div",
-						null,
+						{ style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
 						React.createElement("strong", null, t("cellValue") + " · " + sel.colName),
 						sel.cell === null ? React.createElement("span", { className: "dbt-nullchip" }, "NULL") : null,
 						selReason ? React.createElement("span", { className: "dbt-readhint" }, t(selReason)) : null,
@@ -1404,7 +1710,11 @@ window.__ModuleLoader__.load({
 					React.createElement(
 						"div",
 						{ className: "dbt-row" },
-						React.createElement("button", { className: "dbt-btn", onClick: copyCell }, copied === "ok" ? t("copied") : copied === "fail" ? t("copyFailed") : t("copyBtn")),
+						// 复制反馈三态附语义色（DESIGN.md：绿=成功、红=错误），静态内联色值走 --dbt-* token + 回退
+						React.createElement("button", {
+							className: "dbt-btn", onClick: copyCell,
+							style: copied === "ok" ? { color: "var(--dbt-success,#30d158)" } : copied === "fail" ? { color: "var(--dbt-danger,#ff453a)" } : undefined,
+						}, copied === "ok" ? t("copied") : copied === "fail" ? t("copyFailed") : t("copyBtn")),
 						selReason === null ? React.createElement("button", { className: "dbt-btn primary", disabled: busy, onClick: saveCell }, busy ? t("cellSaving") : t("save")) : null,
 						React.createElement("button", { className: "dbt-btn", onClick: () => setSel(null) }, t("close")),
 					),
@@ -1450,8 +1760,8 @@ window.__ModuleLoader__.load({
 			// 内容区互斥状态：未选中引导 / 加载骨架 / 错误重试 / 空态 / 表格
 			function rightPane() {
 				if (!sel && busy !== "open" && !loadErr) {
-					// 未选表：显示引导空态（内嵌面板可直接浏览，不强制先选表）
-					return React.createElement("div", { className: "dbt-browse-empty" }, t("selectTableHint"));
+					// 未选表：显示引导空态（内嵌面板可直接浏览，不强制先选表）；flex:1 撑满内容区使类内居中生效
+					return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } }, t("selectTableHint"));
 				}
 				if (busy === "open") {
 					// 表形状骨架：6 行 6 列静态色块（不引入新动画，reduced-motion 天然安全）
@@ -1460,20 +1770,20 @@ window.__ModuleLoader__.load({
 							[0, 1, 2, 3, 4, 5].map((c) => React.createElement("div", { className: "dbt-browse-skelcell", key: c })))));
 				}
 				if (loadErr) {
-					// 错误就地显示 + 重试（内嵌面板保持就地呈现，不走 props.onError）
-					return React.createElement("div", { className: "dbt-browse-errorbox" },
+					// 错误就地显示 + 重试（内嵌面板保持就地呈现，不走 props.onError）；role=alert 使异步失败被读屏播报（对齐 Panel 顶层 aria-live）
+					return React.createElement("div", { className: "dbt-browse-errorbox", role: "alert" },
 						React.createElement("div", { className: "dbt-err" }, t("error") + ": " + loadErr),
 						React.createElement("button", { className: "dbt-btn", onClick: () => openTable(sel, 1) }, t("retry")));
 				}
 				if (view === "structure") {
-					if (!schema.length) return React.createElement("div", { className: "dbt-browse-empty" }, t("emptyStructure"));
+					if (!schema.length) return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } }, t("emptyStructure"));
 					return resultTable(
 						[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],
 						schema.map((col) => [col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || ""]),
 						undefined, "dbt-browse-tablewrap");
 				}
 				if (!preview || !preview.rows || preview.rows.length === 0) {
-					return React.createElement("div", { className: "dbt-browse-empty" }, t("emptyData"));
+					return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } }, t("emptyData"));
 				}
 				// Navicat 式单元格网格：kind/可编辑性由当前连接与授权决定（rw=可编辑），保存后重拉当前页
 				const conn = conns.find((c) => c.id === sel.connId);
@@ -1505,13 +1815,16 @@ window.__ModuleLoader__.load({
 			}
 
 			// 内嵌面板纵向布局：撑满面板高度（.dbt-panel 为 height:100% 的 flex column），
-			// 树限高 / main flex:1 内滚 / 分页与详情栏依次钉底
+			// 树限高 / main flex:1 内滚 / 分页与详情栏依次钉底。
+			// 根不再挂 .dbt-view：该类自带 dbt-in 入场动画，会与 Panel browse 容器同类叠加双播（4px+4px 位移），
+			// 与 Panel 层「入场动画只在面板首次打开播一次」意图相悖；布局职责（flex column + 10px 分区 gap）内联承担
 			return React.createElement(
 				"div",
-				{ className: "dbt-view", style: { flex: "1 1 auto", minHeight: 0 } },
+				{ style: { display: "flex", flexDirection: "column", gap: 10, flex: "1 1 auto", minHeight: 0 } },
 				React.createElement(
 					"div",
-					{ style: { maxHeight: 280, overflowY: "auto" } },
+					// flex:none：树卡固定限高不被压缩（面板过矮时收缩的是主区），对齐 DESIGN.md 分区规格
+					{ style: { flex: "none", maxHeight: 280, overflowY: "auto" } },
 					React.createElement(BrowseTree, {
 						conns, projectPath, sel,
 						autoExpand: !!active, // 首次激活才自动展开连接层级（常驻挂载下隐藏不发请求）
@@ -1527,9 +1840,10 @@ window.__ModuleLoader__.load({
 						{ className: "dbt-browse-tabs" },
 						React.createElement(
 							"div",
-							{ className: "dbt-seg" },
+							// role 模式对齐 Panel 全局 tabs（tablist/tab/aria-selected），seg 交互语义一致
+							{ className: "dbt-seg", role: "tablist" },
 							["structure", "preview"].map((v) =>
-								React.createElement("button", { key: v, className: view === v ? "active" : "", onClick: () => setView(v) },
+								React.createElement("button", { key: v, className: view === v ? "active" : "", role: "tab", "aria-selected": view === v, onClick: () => setView(v) },
 									v === "structure" ? t("structure") : t("preview"))),
 						),
 					),
@@ -1539,134 +1853,600 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		/* ---------------- SQL 控制台 ---------------- */
+		/* ---------------- 结果网格（SQL 控制台查询结果：客户端分页/排序/复制/导出） ---------------- */
+		// 单元格 → 数值：number 直接用；非空数字字符串可转；NaN/Infinity/其余 → null（走字符串比较）
+		function gridNum(v) {
+			if (typeof v === "number") return isFinite(v) ? v : null;
+			if (typeof v === "string" && v.trim() !== "") { const n = Number(v); if (isFinite(n)) return n; }
+			return null;
+		}
+		// 排序：dir="none" 或 colIndex<0 原样返回；null/undefined 恒最大（SQL NULL 语义：asc 尾部/desc 头部）；
+		// 两值均可转有限数字时按数值比较（防 "9">"10" 字典序），否则字符串比较；相等按原序（稳定）
+		function sortRows(rows, colIndex, dir) {
+			if (!Array.isArray(rows) || (dir !== "asc" && dir !== "desc")) return rows;
+			if (!Number.isInteger(colIndex) || colIndex < 0) return rows;
+			const pairs = rows.map((row, i) => ({ row, i }));
+			pairs.sort((a, b) => {
+				const va = Array.isArray(a.row) ? a.row[colIndex] : undefined;
+				const vb = Array.isArray(b.row) ? b.row[colIndex] : undefined;
+				let c;
+				const na = va === null || va === undefined, nb = vb === null || vb === undefined;
+				if (na || nb) c = na && nb ? 0 : na ? 1 : -1;
+				else {
+					const fa = gridNum(va), fb = gridNum(vb);
+					if (fa !== null && fb !== null) c = fa === fb ? 0 : fa < fb ? -1 : 1;
+					else { const sa = String(va), sb = String(vb); c = sa < sb ? -1 : sa > sb ? 1 : 0; }
+				}
+				return c !== 0 ? (dir === "desc" ? -c : c) : a.i - b.i;
+			});
+			return pairs.map((p) => p.row);
+		}
+		// 分页切片：page 从 1 起；page≤0/NaN 返回空页（不触发 slice 负索引从尾部计数）
+		function slicePage(rows, page, pageSize) {
+			if (!Array.isArray(rows) || !(page >= 1)) return [];
+			const size = pageSize || PAGE_SIZE;
+			const start = (page - 1) * size;
+			return rows.slice(start, start + size);
+		}
+		// 结果网格组件：exportHandlers { toCsv, toJson, download } 由集成层注入，缺省隐藏导出按钮
+		function ResultSetGrid(props) {
+			const { columns, rows, truncated, elapsedMs, exportHandlers } = props;
+			const [sortCol, setSortCol] = React.useState(-1);
+			const [dir, setDir] = React.useState("none");
+			const [page, setPage] = React.useState(1);
+			const [copyState, setCopyState] = React.useState(""); // ""|"ok"|"fail"（复制反馈 1.5s 还原，对齐 PreviewGrid）
+			const allRows = rows || [];
+			const sorted = sortRows(allRows, sortCol, dir);
+			const pageCount = Math.max(1, Math.ceil(allRows.length / PAGE_SIZE));
+			const curPage = Math.min(page, pageCount); // 数据重查变短时钳制显示页
+			const pageRows = slicePage(sorted, curPage);
+			// 表头三态轮换：none→asc→desc→none；换列直接 asc；重排后回第一页
+			function toggleSort(i) {
+				setPage(1);
+				if (sortCol !== i) { setSortCol(i); setDir("asc"); return; }
+				setDir(dir === "asc" ? "desc" : dir === "desc" ? "none" : "asc");
+			}
+			// 单元格点击复制：null 复制空串；反馈样式对齐 PreviewGrid（成功/失败各 1.5s 后还原）
+			function copyCell(cell) {
+				navigator.clipboard.writeText(cell === null ? "" : String(cell)).then(() => {
+					setCopyState("ok");
+					window.setTimeout(() => setCopyState(""), 1500);
+				}, () => {
+					setCopyState("fail");
+					window.setTimeout(() => setCopyState(""), 1500);
+				});
+			}
+			function exportAs(ext, pack) {
+				if (!exportHandlers) return;
+				exportHandlers.download("result." + ext, pack(columns, sorted));
+			}
+			const arrow = dir === "asc" ? " ↑" : dir === "desc" ? " ↓" : "";
+			return React.createElement(
+				"div",
+				{ className: "dbt-col" },
+				allRows.length === 0 ? React.createElement("div", { className: "dbt-browse-empty" }, t("emptyData")) : React.createElement(
+					"div",
+					{ className: "dbt-tablewrap" },
+					React.createElement(
+						"table",
+						{ className: "dbt-table" },
+						React.createElement("thead", null,
+							React.createElement("tr", null, (columns || []).map((c, i) =>
+								React.createElement("th", { key: i },
+									React.createElement("button", { className: "dbt-grid-sort", onClick: () => toggleSort(i), title: String(c) },
+										String(c) + (sortCol === i ? arrow : "")))))),
+						React.createElement("tbody", null, pageRows.map((row, ri) =>
+							React.createElement("tr", { key: ri }, (row || []).map((cell, ci) =>
+								React.createElement("td", { key: ci },
+									React.createElement("button", {
+										className: "dbt-cellbtn",
+										title: cell === null ? "NULL" : String(cell),
+										onClick: () => copyCell(cell),
+									}, cell === null ? React.createElement("span", { className: "dbt-muted" }, "NULL") : String(cell))))))),
+					),
+				),
+				// 状态条 + 导出 + 分页条（复用 BrowsePane footer 模式）
+				React.createElement(
+					"div",
+					{ className: "dbt-browse-footer" },
+					React.createElement("span", { className: "dbt-muted" },
+						t("rowsResult", { n: allRows.length })
+						+ (truncated ? " · " + t("previewTruncated") : "")
+						+ (typeof elapsedMs === "number" && isFinite(elapsedMs) ? " · " + fmtMs(elapsedMs) : "")),
+					copyState ? React.createElement("span", {
+						className: "dbt-muted",
+						style: { color: copyState === "ok" ? "var(--dbt-success,#30d158)" : "var(--dbt-danger,#ff453a)" },
+					}, copyState === "ok" ? t("copied") : t("copyFailed")) : null,
+					React.createElement("span", { style: { flex: 1 } }),
+					exportHandlers ? React.createElement("button", { className: "dbt-btn", onClick: () => exportAs("csv", exportHandlers.toCsv) }, "CSV") : null,
+					exportHandlers ? React.createElement("button", { className: "dbt-btn", onClick: () => exportAs("json", exportHandlers.toJson) }, "JSON") : null,
+					React.createElement("button", { className: "dbt-btn", disabled: curPage <= 1, onClick: () => setPage(curPage - 1) }, "‹ " + t("prevPage")),
+					React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page: curPage })),
+					React.createElement("button", { className: "dbt-btn", disabled: curPage >= pageCount, onClick: () => setPage(curPage + 1) }, t("nextPage") + " ›"),
+				),
+			);
+		}
+
+		/* ---------------- SQL 控制台（多标签 + CodeMirror + 逐条预分类 + 事务会话） ---------------- */
 		// Apple 等宽字体栈（规范 §1）：优先样式层 --dbt-mono token，fallback 内联栈
 		const MONO_FONT = "var(--dbt-mono, ui-monospace, \"SF Mono\", Menlo, Consolas, monospace)";
+
+		// 逐条预分类（纯函数，挂 __testables）：SQL 读首词为契约清单（SELECT/WITH/SHOW/
+		// EXPLAIN/DESC/DESCRIBE → /api/query，其余 → /api/execute）；redis/mongo 语句为 JSON
+		// 命令形态（数组首元素 / 对象唯一键），比对客户端读命令表——完全镜像服务端
+		// READ_COMMANDS（lib/adapters/redis/index.ts:34）与 READ_OPS（lib/adapters/mongodb/
+		// index.ts:76）单一事实来源，避免客户端放行服务端拒绝（或反之）的读命令。
+		const CONSOLE_SQL_READ_HEADS = new Set(["SELECT", "WITH", "SHOW", "EXPLAIN", "DESC", "DESCRIBE"]);
+		const CONSOLE_REDIS_READ = new Set([
+			"GET", "MGET", "EXISTS", "TYPE", "HGET", "HGETALL", "HKEYS", "HVALS", "HLEN", "LRANGE",
+			"LLEN", "SMEMBERS", "SCARD", "SISMEMBER", "ZRANGE", "ZSCORE", "ZCARD", "ZRANK", "XLEN",
+			"XRANGE", "SCAN", "DBSIZE", "INFO", "SELECT", "TTL", "PTTL", "GETRANGE", "STRLEN", "OBJECT", "MEMORY",
+		]);
+		const CONSOLE_MONGO_READ = new Set([
+			"find", "aggregate", "count", "countDocuments", "estimatedDocumentCount",
+			"distinct", "listCollections", "dbStats", "collStats", "indexes",
+		]);
+		function classifyHead(kind, statement) {
+			const s = String(statement == null ? "" : statement).trim();
+			if (kind === "redis" || kind === "mongodb") {
+				let head = null;
+				try {
+					const v = JSON.parse(s);
+					if (Array.isArray(v)) head = v[0];
+					else if (v && typeof v === "object") head = Object.keys(v)[0];
+				} catch (e) { /* 非 JSON 命令落回首词分类 */ }
+				if (typeof head === "string") {
+					return (kind === "redis" ? CONSOLE_REDIS_READ : CONSOLE_MONGO_READ).has(head) ? "query" : "execute";
+				}
+			}
+			const head = (s.match(/^[A-Za-z]+/) || [""])[0].toUpperCase();
+			return CONSOLE_SQL_READ_HEADS.has(head) ? "query" : "execute";
+		}
+
+		// vendor bundle 加载（单例 promise）：宿主 require 相对文件路径（Node/e2e 语境，与
+		// vendor/mongodb-driver.cjs 同款通道）。require 失败（web 宿主 require 无文件模块）即
+		// reject，调用方降级 textarea（失败后置空单例允许重试，如宿主后续就绪）。
+		// 不做同源 fetch bundle + Function 动态执行：生产无 /vendor 静态路由（lib/http 仅 JSON
+		// API），该分支必死；且 Function 构造器等价 eval，fetched 文本响应投毒即代码注入。
+		let cmModulePromise = null;
+		function loadConsoleEditorModule() {
+			if (cmModulePromise) return cmModulePromise;
+			cmModulePromise = (async () => {
+				const m = require("../vendor/codemirror-sql.cjs");
+				if (!(m && typeof m.createConsoleEditor === "function")) throw new Error("bundle 缺 createConsoleEditor");
+				return m;
+			})();
+			cmModulePromise.catch(() => { cmModulePromise = null; });
+			return cmModulePromise;
+		}
+
+		// 结果导出 download：Blob + a.download（点击后延时 revoke，防过早回收）；渲染期只建闭包不触 DOM
+		function makeExportHandlers() {
+			return {
+				toCsv, toJson,
+				download(name, text) {
+					const blob = new Blob([String(text == null ? "" : text)], { type: "text/plain;charset=utf-8" });
+					const url = URL.createObjectURL(blob);
+					const a = document.createElement("a");
+					a.href = url;
+					a.download = name || "result.txt";
+					document.body.appendChild(a);
+					a.click();
+					a.remove();
+					window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+				},
+			};
+		}
+
+		const CONSOLE_SQL_KINDS = { mysql: true, postgresql: true, gaussdb: true, sqlite: true, oracle: true, dmdb: true };
+
 		function ConsoleView(props) {
-			const { conns, grants, projectPath, askConfirm } = props;
+			const { conns, grants, projectPath, askConfirm, onError } = props;
 			const [connId, setConnId] = React.useState("");
-			const [mode, setMode] = React.useState("query"); // query | execute | script
-			const [sql, setSql] = React.useState("");
+			const [mode, setMode] = React.useState("sql"); // sql（逐条预分类）| script（整段 /api/script）
 			const [params, setParams] = React.useState("");
-			const [result, setResult] = React.useState(null); // {kind:'query',...}|{kind:'exec',...}
 			const [busy, setBusy] = React.useState(false);
 			// Navicat 式跨库操控：当前库下拉（""=连接默认库），查询/执行路由到所选库
 			const [dbList, setDbList] = React.useState([]);
 			const [db, setDb] = React.useState("");
+			// 多标签（内存态，不落盘）：tabs[{id,title,sql,result,history}]
+			const tabSeq = React.useRef(1);
+			const [tabs, setTabs] = React.useState(() => [{ id: "t1", title: t("queryTab", { n: 1 }), sql: "", result: null, history: [] }]);
+			const [activeIdx, setActiveIdx] = React.useState(0);
+			// CodeMirror 模块与事务会话状态
+			const [cm, setCm] = React.useState(null); // null（加载中）| module | "failed"（降级 textarea）
+			const [txToken, setTxToken] = React.useState(null);
+			const [txBusy, setTxBusy] = React.useState(false);
+			const [historyOpen, setHistoryOpen] = React.useState(false);
+
+			const editorHostRef = React.useRef(null);
+			const editorRef = React.useRef(null); // { ed, kind }
+			const schemaRef = React.useRef({}); // 最近一次拉取的 SQLNamespace（表 → 列名数组）
+			const activeIdxRef = React.useRef(0);
+			React.useLayoutEffect(() => { activeIdxRef.current = activeIdx; }); // commit 后写回，不污染渲染期
+			const exportRef = React.useRef(null);
+			if (!exportRef.current) exportRef.current = makeExportHandlers();
+
+			const conn = conns.find((c) => c.id === connId);
+			const kind = conn ? conn.kind : "";
+			const grant = (grants || []).find((g) => g.connId === connId);
+			const rw = !!grant && grant.mode === "rw";
+			const activeTab = tabs[activeIdx] || tabs[0];
+			const activeTabId = activeTab ? activeTab.id : "";
+
+			// 跨库下拉（保留既有行为：换连接重置）
 			React.useEffect(() => {
 				setDbList([]); setDb("");
 				if (!connId || !projectPath) return;
 				api("databases" + qs({ project: projectPath, connId })).then((l) => setDbList(l || []), () => setDbList([]));
 			}, [connId, projectPath]);
 
-			// 确认对话框目标信息：连接名 / kind / 当前库（空=默认库）/ 该连接的授权模式（无授权留空）
-			function confirmTarget() {
-				const c = conns.find((x) => x.id === connId);
-				const g = (grants || []).find((x) => x.connId === connId);
-				return { conn: c ? (c.name || connId) : connId, kind: c ? c.kind : "", db: db || "", mode: g ? g.mode : "" };
+			// vendor bundle 异步加载（失败降级 textarea，静默）
+			React.useEffect(() => {
+				let dead = false;
+				loadConsoleEditorModule().then(
+					(m) => { if (!dead) setCm(m); },
+					() => { if (!dead) setCm("failed"); },
+				);
+				return () => { dead = true; };
+			}, []);
+
+			// 编辑器挂载（CM6 生命周期：cleanup 调 destroy）；kind 变化（换连接）整体重建以切方言
+			React.useEffect(() => {
+				if (!cm || cm === "failed" || !editorHostRef.current) return undefined;
+				let ed = null;
+				try {
+					ed = cm.createConsoleEditor(editorHostRef.current, {
+						kind,
+						onRunAll: () => runRef.current("all"),
+						onRunSelection: () => runRef.current("selection"),
+						onChange: (text) => patchActive({ sql: text }),
+					});
+				} catch (e) {
+					setCm("failed");
+					return undefined;
+				}
+				editorRef.current = { ed, kind };
+				ed.setDoc((tabs[activeIdxRef.current] && tabs[activeIdxRef.current].sql) || "");
+				if (Object.keys(schemaRef.current).length) ed.setSchema(schemaRef.current);
+				return () => {
+					ed.destroy();
+					editorRef.current = null;
+				};
+			}, [cm, kind]);
+
+			// 切换标签：编辑器文档同步到目标标签（不重建，保 undo 历史）
+			React.useEffect(() => {
+				const rec = editorRef.current;
+				if (rec && rec.ed) rec.ed.setDoc((tabs[activeIdx] && tabs[activeIdx].sql) || "");
+			}, [activeTabId]);
+
+			// 表/列元数据异步拉取（tables + 逐表 schema → SQLNamespace）供编辑器 setSchema；
+			// 失败静默降级（无补全但不影响编辑），单表失败跳过该表
+			React.useEffect(() => {
+				let dead = false;
+				schemaRef.current = {};
+				const rec = editorRef.current;
+				if (rec && rec.ed) rec.ed.setSchema({});
+				if (!connId || !projectPath || !CONSOLE_SQL_KINDS[kind]) return undefined;
+				const dbRef = db || undefined;
+				api("tables" + qs({ project: projectPath, connId, database: dbRef }))
+					.then(async (list) => {
+						const names = (Array.isArray(list) ? list : []).map((x) => x && x.name).filter(Boolean).slice(0, 50);
+						const entries = await Promise.all(names.map((name) =>
+							api("schema" + qs({ project: projectPath, connId, table: name, database: dbRef }))
+								.then((cols) => [name, (Array.isArray(cols) ? cols : []).map((c) => c && c.name).filter(Boolean)])
+								.catch(() => [name, []])));
+						if (dead) return undefined;
+						const ns = {};
+						for (const [name, cols] of entries) ns[name] = cols;
+						schemaRef.current = ns;
+						const rec2 = editorRef.current;
+						if (rec2 && rec2.ed) rec2.ed.setSchema(ns);
+						return undefined;
+					})
+					.catch(() => { /* 静默降级 */ });
+				return () => { dead = true; };
+			}, [connId, db, projectPath, kind]);
+
+			function patchActive(patch) {
+				setTabs((prev) => prev.map((tb, i) => (i === activeIdxRef.current ? Object.assign({}, tb, patch) : tb)));
 			}
 
-			async function run() {
+			// 确认对话框目标信息：连接名 / kind / 当前库（空=默认库）/ 该连接的授权模式（无授权留空）
+			function confirmTarget() {
+				return { conn: conn ? (conn.name || connId) : connId, kind, db: db || "", mode: grant ? grant.mode : "" };
+			}
+
+			// 执行入口（scope："all" 全量 | "selection" 选中，无选区回退全量）。逐条分割后按
+			// classifyHead 预分类路由；事务会话存在时全部语句走 /api/console/exec（粘性连接，
+			// 能看到未提交数据）；ro 授权下写类语句跳过并标注。结果逐条就地渲染，错误带
+			// start 偏移可定位光标。
+			async function runBatch(scope) {
+				if (busy || !connId) return;
+				const rec = editorRef.current;
+				let text = rec && rec.ed ? rec.ed.getDoc() : (activeTab ? activeTab.sql : "");
+				if (scope === "selection") {
+					const sel = rec && rec.ed ? rec.ed.getSelection() : textareaSelection();
+					if (String(sel || "").trim()) text = sel;
+				}
+				if (!String(text || "").trim()) return;
+				const tIdx = activeIdxRef.current; // 执行期间切标签不串写结果：锁定目标标签
+				const targetTab = tabs[tIdx];
+				let parsedParams;
+				if (params.trim()) {
+					try { parsedParams = JSON.parse(params); } catch (e) { onError(new Error(t("paramsJson") + ": " + e.message)); return; }
+				}
 				setBusy(true);
-				setResult(null);
+				const started = Date.now();
+				const items = [];
 				try {
 					if (mode === "script") {
-						const data = await runGuarded(
-							(challengeId) => api("script", { method: "POST", body: { projectPath, connId, code: sql, challengeId } }),
-							(info) => askConfirm(Object.assign({}, info, { target: confirmTarget() })),
-						);
-						setResult({ kind: "exec", message: (data && data.message) || "", affectedRows: data && data.affectedRows });
-					} else if (mode === "execute") {
-						let parsedParams;
-						if (params.trim()) { try { parsedParams = JSON.parse(params); } catch (e) { throw new Error(t("paramsJson") + ": " + e.message); } }
-						const data = await runGuarded(
-							(challengeId) => api("execute", { method: "POST", body: { projectPath, connId, statement: sql, params: parsedParams, database: db || undefined, challengeId } }),
-							(info) => askConfirm(Object.assign({}, info, { target: confirmTarget(), params: parsedParams })),
-						);
-						setResult({ kind: "exec", message: (data && data.message) || "", affectedRows: data && data.affectedRows });
+						const st = Date.now();
+						try {
+							const data = await runGuarded(
+								(challengeId) => api("script", { method: "POST", body: { projectPath, connId, code: text, challengeId } }),
+								(info) => askConfirm(Object.assign({}, info, { target: confirmTarget() })),
+							);
+							items.push({ text, start: 0, route: "script", status: "ok", elapsedMs: Date.now() - st, message: (data && data.message) || "", affectedRows: data && data.affectedRows });
+						} catch (e) {
+							if (!e.cancelled) onError(e);
+							items.push({ text, start: 0, route: "script", status: e.cancelled ? "cancelled" : "error", error: String(e && e.message ? e.message : e), elapsedMs: Date.now() - st });
+						}
 					} else {
-						let parsedParams;
-						if (params.trim()) { try { parsedParams = JSON.parse(params); } catch (e) { throw new Error(t("paramsJson") + ": " + e.message); } }
-						const data = await runGuarded(
-							(challengeId) => api("query", { method: "POST", body: { projectPath, connId, sql, params: parsedParams, database: db || undefined, challengeId } }),
-							askConfirm,
-						);
-						setResult({ kind: "query", data });
+						const stmts = CONSOLE_SQL_KINDS[kind] ? splitSqlStatements(text, kind) : [{ text: String(text).trim(), start: 0 }];
+						for (const s of stmts) {
+							if (!String(s.text).trim()) continue;
+							const route = classifyHead(kind, s.text);
+							// ro 授权：写类语句（execute 路由）跳过并标注；事务会话仅 rw 可开，无需复查
+							if (!rw && !txToken && route === "execute") {
+								items.push({ text: s.text, start: s.start, route, status: "skipped" });
+								continue;
+							}
+							const st = Date.now();
+							try {
+								let data;
+								if (txToken) {
+									data = await runGuarded(
+										(challengeId) => api("console/exec", { method: "POST", body: { sessionToken: txToken, statement: s.text, params: parsedParams, challengeId } }),
+										(info) => askConfirm(Object.assign({}, info, { target: confirmTarget(), params: parsedParams })),
+									);
+								} else if (route === "query") {
+									data = await runGuarded(
+										(challengeId) => api("query", { method: "POST", body: { projectPath, connId, sql: s.text, params: parsedParams, database: db || undefined, challengeId } }),
+										(info) => askConfirm(Object.assign({}, info, { target: confirmTarget(), params: parsedParams })),
+									);
+								} else {
+									data = await runGuarded(
+										(challengeId) => api("execute", { method: "POST", body: { projectPath, connId, statement: s.text, params: parsedParams, database: db || undefined, challengeId } }),
+										(info) => askConfirm(Object.assign({}, info, { target: confirmTarget(), params: parsedParams })),
+									);
+								}
+								const item = { text: s.text, start: s.start, route, status: "ok", elapsedMs: Date.now() - st, inTx: !!txToken };
+								if (data && Array.isArray(data.columns)) item.data = data; // QueryResult（结果集）
+								else { item.message = (data && data.message) || ""; item.affectedRows = data && data.affectedRows; }
+								items.push(item);
+							} catch (e) {
+								if (e.cancelled) items.push({ text: s.text, start: s.start, route, status: "cancelled" });
+								else items.push({ text: s.text, start: s.start, route, status: "error", error: String(e && e.message ? e.message : e), elapsedMs: Date.now() - st });
+							}
+						}
 					}
-				} catch (e) {
-					if (!e.cancelled) props.onError(e);
 				} finally {
 					setBusy(false);
 				}
+				const elapsedMs = Date.now() - started;
+				const ok = items.length > 0 && items.every((it) => it.status === "ok");
+				setTabs((prev) => prev.map((tb, i) => (i === tIdx ? Object.assign({}, tb, {
+					result: { items, elapsedMs },
+					history: [{ sql: text, ts: started, elapsedMs, ok }].concat(targetTab ? targetTab.history : []).slice(0, 50),
+				}) : tb)));
 			}
-			function renderResult() {
-				if (!result) return null;
-				if (result.kind === "exec") {
-					return React.createElement("div", { className: "dbt-msg" },
-						result.message + (result.affectedRows !== undefined ? " · " + t("execResult", { n: result.affectedRows }) : ""));
+			const runRef = React.useRef(() => {});
+			// 每轮 commit 后刷新闭包，按钮/编辑器回调恒拿最新 state（回调仅在 commit 后触发，时序不变）
+			React.useLayoutEffect(() => { runRef.current = runBatch; });
+
+			function textareaSelection() {
+				const ta = editorHostRef.current && editorHostRef.current.querySelector("textarea");
+				if (!ta || ta.selectionStart === ta.selectionEnd) return "";
+				return ta.value.slice(ta.selectionStart, ta.selectionEnd);
+			}
+
+			// 错误定位：按语句 start 偏移移动编辑器光标（CM dispatch / textarea setSelectionRange）
+			function locateOffset(start) {
+				const rec = editorRef.current;
+				if (rec && rec.ed && rec.ed.view && rec.ed.view.state) {
+					try {
+						rec.ed.view.dispatch({ selection: { anchor: Math.max(0, Math.min(start || 0, rec.ed.view.state.doc.length)) }, scrollIntoView: true });
+						rec.ed.view.focus();
+						return;
+					} catch (e) { /* 落 textarea 降级 */ }
 				}
-				const r = result.data;
-				return React.createElement(
-					React.Fragment,
-					null,
-					React.createElement("span", { className: "dbt-muted" }, t("rowsResult", { n: r.rowCount }) + (r.truncated ? " · " + t("previewTruncated") : "")),
-					// 公共 resultTable：新 table 契约（hairline 行/sticky 表头/等宽数据列）由样式层承担
-					resultTable(r.columns || [], r.rows || []),
-				);
+				const ta = editorHostRef.current && editorHostRef.current.querySelector("textarea");
+				if (ta) { ta.focus(); ta.setSelectionRange(start || 0, start || 0); }
 			}
+
+			function formatSql() {
+				const rec = editorRef.current;
+				if (rec && rec.ed && typeof rec.ed.format === "function") rec.ed.format();
+			}
+
+			async function txBegin() {
+				// 服务端对非默认库 begin 显式拒绝（粘性事务无法跨库），客户端同等守卫避免无效请求
+				if (!rw || txBusy || txToken || !connId || db) return;
+				setTxBusy(true);
+				try {
+					const r = await api("console/begin", { method: "POST", body: { projectPath, connId, database: db || undefined } });
+					setTxToken((r && r.sessionToken) || "");
+				} catch (e) { onError(e); } finally { setTxBusy(false); }
+			}
+			async function txEnd(commit) {
+				if (!txToken || txBusy) return;
+				setTxBusy(true);
+				try {
+					const r = await api(commit ? "console/commit" : "console/rollback", { method: "POST", body: { sessionToken: txToken } });
+					setTxToken(null);
+					patchActive({
+						result: { items: [{ text: commit ? "COMMIT" : "ROLLBACK", start: 0, route: "script", status: "ok", message: (r && r.message) || t("ok") }], elapsedMs: 0 },
+					});
+				} catch (e) { onError(e); } finally { setTxBusy(false); }
+			}
+
+			function addTab() {
+				tabSeq.current += 1;
+				const n = tabSeq.current;
+				setTabs((prev) => prev.concat([{ id: "t" + n, title: t("queryTab", { n }), sql: "", result: null, history: [] }]));
+				setActiveIdx(tabs.length);
+			}
+			function closeTab(i) {
+				if (tabs.length <= 1) return;
+				setTabs((prev) => prev.filter((_, k) => k !== i));
+				setActiveIdx((cur) => (i < cur ? cur - 1 : Math.min(cur, tabs.length - 2)));
+			}
+			function restoreHistory(h) {
+				const rec = editorRef.current;
+				if (rec && rec.ed) rec.ed.setDoc(h.sql);
+				patchActive({ sql: h.sql });
+			}
+
+			// 单条结果行：路由徽标 + 语句摘要 + 耗时 + 行数/状态；查询结果接 ResultSetGrid
+			//（exportHandlers 由组件注入：toCsv/toJson 纯函数 + Blob download）
+			function renderResultItem(it, i) {
+				const routeLabel = it.route === "query" ? t("routeQuery") : it.route === "script" ? t("routeScript") : t("routeExec");
+				const head = React.createElement(
+					"div",
+					{ className: "dbt-listrow", key: "h" + i },
+					React.createElement("span", { className: "dbt-routechip" }, routeLabel),
+					// 事务内执行的查询语句加「事务内」徽标；写语句维持路由徽标不变
+					it.inTx && it.route === "query" ? React.createElement("span", { className: "dbt-routechip" }, t("txInline")) : null,
+					React.createElement("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: MONO_FONT, fontSize: 12 }, title: it.text }, String(it.text || "").replace(/\s+/g, " ").trim().slice(0, 120)),
+					it.elapsedMs != null ? React.createElement("span", { className: "dbt-muted", style: { flex: "none" } }, fmtMs(it.elapsedMs)) : null,
+					it.status === "ok" && it.data ? React.createElement("span", { className: "dbt-muted", style: { flex: "none" } }, t("rowsResult", { n: it.data.rowCount })) : null,
+					it.status === "ok" && !it.data ? React.createElement("span", { className: "dbt-msg", style: { flex: "none" } }, it.message + (it.affectedRows !== undefined ? " · " + t("execResult", { n: it.affectedRows }) : "")) : null,
+					it.status === "skipped" ? React.createElement("span", { className: "dbt-readhint", style: { flex: "none" } }, t("skippedRo")) : null,
+					it.status === "cancelled" ? React.createElement("span", { className: "dbt-muted", style: { flex: "none" } }, t("cancelled")) : null,
+					it.status === "error" ? React.createElement("span", { className: "dbt-err", style: { flex: "none", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" } }, t("error") + ": " + it.error) : null,
+					it.status === "error" ? React.createElement("button", { className: "dbt-btn", style: { flex: "none" }, "aria-label": t("locate"), onClick: () => locateOffset(it.start) }, t("locate")) : null,
+				);
+				const grid = it.status === "ok" && it.data ? React.createElement(ResultSetGrid, {
+					key: "g" + i,
+					columns: it.data.columns || [],
+					rows: it.data.rows || [],
+					truncated: it.data.truncated,
+					elapsedMs: it.elapsedMs,
+					exportHandlers: exportRef.current,
+				}) : null;
+				return grid ? [head, grid] : head;
+			}
+
+			const segBtn = (m, label) => React.createElement("button", { key: m, className: mode === m ? "active" : "", onClick: () => setMode(m) }, label);
 			return React.createElement(
 				"div",
 				{ className: "dbt-card" },
-				// 选择器：inset grouped 每行一个控件（连接 / 模式）
+				// 选择器：连接（事务进行中锁定，防语句写到另一连接）+ 跨库下拉
 				React.createElement(
 					"div",
 					{ className: "dbt-group" },
 					React.createElement(
 						"div",
 						{ className: "dbt-listrow" },
-						React.createElement("select", { value: connId, onChange: (e) => setConnId(e.target.value) },
+						React.createElement("select", { value: connId, disabled: !!txToken, onChange: (e) => setConnId(e.target.value) },
 							React.createElement("option", { value: "" }, t("selectConn")),
 							conns.map((c) => {
-								// 授权后缀：option 文本标注该连接的项目授权模式（无授权留空）
 								const g = (grants || []).find((x) => x.connId === c.id);
 								const suffix = g && g.mode ? " · " + g.mode : "";
 								return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + suffix + ")");
 							})),
-						// 当前库（Navicat 式跨库：选中非默认库后 SQL 在该库执行，pg/gaussdb 按库路由）
-						dbList.length > 1 ? React.createElement("select", { value: db, onChange: (e) => setDb(e.target.value) },
+						dbList.length > 1 ? React.createElement("select", { value: db, disabled: !!txToken, onChange: (e) => setDb(e.target.value) },
 							React.createElement("option", { value: "" }, t("defaultDb")),
 							dbList.map((d) => React.createElement("option", { key: d, value: d }, d))) : null,
 					),
-					React.createElement(
-						"div",
-						{ className: "dbt-listrow" },
-						// 模式切换 mini seg（复用 dbt-seg 既有类）：execute/script 属风险写入，切到后输入框与按钮同步风险提示
-						React.createElement(
-							"div",
-							{ className: "dbt-seg" },
-							[["query", t("modeQuery")], ["execute", t("modeExecute")], ["script", t("modeScript")]].map(([m, label]) =>
-								React.createElement("button", { key: m, className: mode === m ? "active" : "", onClick: () => setMode(m) }, label)),
-						),
-					),
 				),
-				// SQL 输入：等宽字体 + 填充式输入（背景/focus ring 由样式层承担），min-height 加大；
-				// execute/script 为写语义：danger 色描边提示当前输入会改动数据
-				React.createElement("textarea", {
-					placeholder: mode === "script" ? t("scriptPlaceholder") : t("sqlPlaceholder"),
-					value: sql, onChange: (e) => setSql(e.target.value),
-					style: Object.assign({ fontFamily: MONO_FONT, minHeight: mode === "script" ? 160 : 96 },
-						mode !== "query" ? { outline: "1px solid var(--dbt-danger, #ff453a)" } : null),
-				}),
-				mode !== "script"
-					? React.createElement("input", { placeholder: t("paramsJson"), value: params, onChange: (e) => setParams(e.target.value), style: { fontFamily: MONO_FONT } })
-					: null,
+				// 多标签条（内存态）：标签 + 关闭 + 新建
+				React.createElement(
+					"div",
+					{ className: "dbt-cm-tabbar" },
+					tabs.map((tb, i) => React.createElement(
+						"button",
+						{
+							key: tb.id, className: "dbt-cm-tab" + (i === activeIdx ? " active" : ""),
+							onClick: () => setActiveIdx(i),
+						},
+						tb.title,
+						tabs.length > 1 ? React.createElement("span", {
+							className: "dbt-cm-tabclose", role: "button", "aria-label": t("closeTab"), tabIndex: 0,
+							onClick: (e) => { e.stopPropagation(); closeTab(i); },
+						}, "×") : null,
+					)),
+					React.createElement("button", { className: "dbt-cm-tab", "aria-label": t("newTab"), title: t("newTab"), onClick: addTab }, "+"),
+				),
+				// 工具行 1：SQL/脚本 seg + 格式化 + 事务按钮组（仅 rw 授权显示）
 				React.createElement(
 					"div",
 					{ className: "dbt-row" },
-					// 风险语义：query 保持 primary；execute/script 降为 danger 按钮
-					React.createElement("button", { className: mode === "query" ? "dbt-btn primary" : "dbt-btn danger", disabled: busy || !connId || !sql.trim(), onClick: run }, busy ? t("running") : t("run")),
+					React.createElement("div", { className: "dbt-seg" }, [segBtn("sql", t("modeSql")), segBtn("script", t("modeScript"))]),
+					mode === "sql" ? React.createElement("button", { className: "dbt-btn", disabled: !connId, onClick: formatSql }, t("formatSql")) : null,
+					React.createElement("span", { style: { flex: 1 } }),
+					rw ? React.createElement(
+						"div",
+						{ className: "dbt-row", style: { flex: "none" } },
+						txToken
+							? [
+								React.createElement("span", { className: "dbt-muted", key: "txs" }, t("txActive")),
+								React.createElement("button", { className: "dbt-btn primary", key: "c", disabled: txBusy, onClick: () => txEnd(true) }, t("txCommit")),
+								React.createElement("button", { className: "dbt-btn danger", key: "r", disabled: txBusy, onClick: () => txEnd(false) }, t("txRollback")),
+							]
+							: React.createElement("button", { className: "dbt-btn", disabled: txBusy || !connId || !!db, title: db ? t("txDefaultDbOnly") : undefined, onClick: txBegin }, t("txBegin")),
+					) : null,
 				),
-				renderResult(),
+				// 工具行 2：执行（全量）/ 执行选中 + params（script 模式无绑定参数）
+				React.createElement(
+					"div",
+					{ className: "dbt-row" },
+					React.createElement("button", { className: "dbt-btn primary", disabled: busy || !connId, onClick: () => runRef.current("all") }, busy ? t("running") : t("run")),
+					mode === "sql" ? React.createElement("button", { className: "dbt-btn", disabled: busy || !connId, onClick: () => runRef.current("selection") }, t("runSelection")) : null,
+					mode !== "script" ? React.createElement("input", { placeholder: t("paramsJson"), value: params, onChange: (e) => setParams(e.target.value), style: { fontFamily: MONO_FONT } }) : null,
+				),
+				// 编辑器：CM 挂载（div ref）或降级 textarea（bundle 加载中/失败）；脚本模式提示 JS 占位
+				React.createElement(
+					"div",
+					{ className: "dbt-editor-host", ref: editorHostRef },
+					cm && cm !== "failed"
+						? null // CM 自建 .cm-editor 填充宿主（bundle 主题 height:100%）
+						: React.createElement("textarea", {
+							placeholder: mode === "script" ? t("scriptPlaceholder") : t("sqlPlaceholder"),
+							value: (activeTab && activeTab.sql) || "",
+							onChange: (e) => patchActive({ sql: e.target.value }),
+							style: Object.assign({ fontFamily: MONO_FONT },
+								mode !== "sql" ? { outline: "1px solid var(--dbt-danger, #ff453a)" } : null),
+						}),
+				),
+				// 结果区：逐条结果行 + 查询结果网格
+				activeTab && activeTab.result && Array.isArray(activeTab.result.items)
+					? React.createElement("div", { className: "dbt-col" }, activeTab.result.items.map(renderResultItem))
+					: null,
+				// 历史卡（每 tab 内存态）：可展开、点击回填，不落盘
+				React.createElement(
+					"div",
+					{ className: "dbt-row" },
+					React.createElement("button", { className: "dbt-btn", "aria-expanded": !!historyOpen, onClick: () => setHistoryOpen(!historyOpen) }, t("historyTitle")),
+				),
+				historyOpen ? (
+					!activeTab || activeTab.history.length === 0
+						? React.createElement("div", { className: "dbt-muted" }, t("historyEmpty"))
+						: React.createElement(
+							"div",
+							{ className: "dbt-group" },
+							activeTab.history.map((h, i) => React.createElement(
+								"div",
+								{ className: "dbt-listrow", key: i },
+								React.createElement("span", { className: h.ok ? "dbt-msg" : "dbt-err", style: { flex: "none" } }, h.ok ? "✓" : "✗"),
+								React.createElement("button", { className: "dbt-cellbtn", style: { flex: 1, fontFamily: MONO_FONT, fontSize: 12 }, title: h.sql, onClick: () => restoreHistory(h) }, String(h.sql).replace(/\s+/g, " ").trim().slice(0, 120)),
+								React.createElement("span", { className: "dbt-muted", style: { flex: "none" } },
+									new Date(h.ts).toLocaleTimeString() + (typeof h.elapsedMs === "number" ? " · " + fmtMs(h.elapsedMs) : "")),
+							)),
+						)
+				) : null,
 			);
 		}
 
@@ -1854,10 +2634,13 @@ window.__ModuleLoader__.load({
 		}
 		exports.apply = apply;
 		exports.inject = inject;
-		// 测试面：单元格写回纯函数（单测直接断言命令构造，无需起 React/HTTP）
+		// 测试面：单元格写回 + 控制台工具纯函数 + ConsoleView（集成测试浅渲染元素树）
 		exports.__testables = {
 			dialectOf, quoteIdent, parseCellText, isTruncatedCell, isBlobCell,
 			buildUpdate, buildRedisOp, buildMongoOp, renderStatementWithParams,
+			splitSqlStatements, fmtDialectOf, toCsv, toJson, fmtMs,
+			sortRows, slicePage, ResultSetGrid,
+			classifyHead, ConsoleView,
 		};
 		return module.exports;
 	},

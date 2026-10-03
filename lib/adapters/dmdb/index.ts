@@ -16,6 +16,7 @@
  *  - 返回 { metaData, rows, rowsAffected } 与 oracledb 兼容。
  */
 import db from 'dmdb';
+import { sqlHead, SQL_READ_HEADS } from '../../guard/index.js';
 import type {
   AccessMode,
   AdapterFactory,
@@ -205,9 +206,12 @@ export async function createDmAdapter(
   /**
    * tx 为可选扩展成员：契约 DatabaseAdapter 尚未声明 tx（types.ts 为共享文件，本阶段不改），
    * 用交叉类型承载，运行时存在于返回对象上；注册/服务层可按需取用。
+   * exec 回调按语句头分流：读语句返回 QueryResult，其余返回 ExecResult。
    */
   type AdapterWithTx = DatabaseAdapter & {
-    tx?: <T>(fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult>) => Promise<T>) => Promise<T>;
+    tx?: <T>(
+      fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult | QueryResult>) => Promise<T>,
+    ) => Promise<T>;
   };
   const adapter: AdapterWithTx = {
     kind: 'dmdb',
@@ -255,14 +259,21 @@ export async function createDmAdapter(
       }
     },
 
-    /** 事务：专用连接多条语句，成功 commit、异常 rollback。DM 事务隐式开始，无需 SET TRANSACTION。 */
-    async tx<T>(fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult>) => Promise<T>): Promise<T> {
+    /**
+     * 事务：专用连接多条语句，成功 commit、异常 rollback。DM 事务隐式开始，无需 SET TRANSACTION。
+     * exec 回调按语句头分流：读语句（SQL_READ_HEADS 命中首词，如 SELECT/WITH）在
+     * 本事务连接上执行并返回结果集（事务内读未提交数据是官方标准用法）；
+     * 其余语句返回执行回执。所有语句同处一个事务，随 commit/rollback 收口。
+     */
+    async tx<T>(
+      fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult | QueryResult>) => Promise<T>,
+    ): Promise<T> {
       requireRw('事务(tx)');
       const c = await pool.getConnection();
       try {
-        const exec = async (sql: string, binds?: unknown[]): Promise<ExecResult> => {
+        const exec = async (sql: string, binds?: unknown[]): Promise<ExecResult | QueryResult> => {
           const r = await c.execute(sql, binds ?? [], execOptsTx);
-          return toExecResult(sql, r);
+          return SQL_READ_HEADS.has(sqlHead(sql)) ? rowsToQueryResult(r) : toExecResult(sql, r);
         };
         const out = await fn(exec);
         await c.commit();

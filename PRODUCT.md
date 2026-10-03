@@ -24,14 +24,15 @@ web
 - 宿主能力硬边界：`window.open` 与 Document PiP 被 deny，UI 方案不得依赖。
 - 数据落 `$DSH_HOME/db-tool/`（0700）：connections.json / secrets.json（0600）/ grants.json / audit.jsonl。
 - 8 库驱动全部随 npm 包分发，安装零构建步骤；mongodb 驱动 bundle 进发布包以绕过桌面端 app.asar 无法打补丁的限制。
-- 近期开发重心在数据浏览面板的内嵌化与布局重排（1.5.6 起的事实记录，非视觉规范）。
+- 近期开发重心：数据浏览面板的内嵌化与布局重排（1.5.6 起的事实记录，非视觉规范）、SQL 控制台多标签升级（CodeMirror 6 编辑器 bundle、服务端事务会话、结果网格，1.5.9 后的工作区改动，尚未发布）。
 
 ## Capabilities and Constraints
 
 - DatabaseManager 单工具多 action：list_connections / query / execute / schema / preview / run_script；run_script 在 node:vm 沙箱执行，60s 超时，仅注入受限 `db.{query,execute}`。
+- SQL 控制台面板：多标签 CodeMirror 6 编辑器（按方言高亮/补全/格式化，`vendor/codemirror-sql.cjs` bundle，加载失败降级 textarea）、逐条预分类执行（读语句走 /api/query、写语句走 /api/execute，ro 授权跳过写语句）、事务会话（rw 授权，服务端粘性连接，空闲 5 分钟自动回滚并审计）、结果网格（排序/分页/复制/CSV/JSON 导出）。
 - GaussDB 认证支持 sha256 与 md5；md5-sha256 混合与 SM3 暂不支持。
 - zh/en 双语界面文案；MIT 许可。
-- 用户确认的未来方向：打磨现有 4 面板体验 + 扩展能力（更多数据库类型、数据导出等）。
+- 用户确认的未来方向：打磨现有 4 面板体验 + 扩展能力（更多数据库类型等）；其中数据导出已落地（结果网格 CSV/JSON 导出），面板打磨已落地浏览面板重排与 SQL 控制台升级。
 
 ## Brand Commitments
 

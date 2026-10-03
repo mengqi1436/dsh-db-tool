@@ -26,8 +26,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist/script',{recursive:true}); fs.copyFileSync('lib/script/worker.cjs','dist/script/worker.cjs'); console.log('build OK')\" && node scripts/build-mongodb.mjs",
+    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist/script',{recursive:true}); fs.copyFileSync('lib/script/worker.cjs','dist/script/worker.cjs'); console.log('build OK')\" && node scripts/build-mongodb.mjs && node scripts/build-codemirror.mjs",
     "build:mongodb": "node scripts/build-mongodb.mjs",
+    "build:codemirror": "node scripts/build-codemirror.mjs",
     "prepack": "npm run build",
     "patch:dsh": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/apply-dsh-hotfix.ps1",
     "patch:dsh:sh": "bash scripts/apply-dsh-hotfix.sh"
@@ -56,7 +57,14 @@
     "better-sqlite3": "^13.0.3"
   },
   "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "@deepseek-ai/cordis": "^4.0.4",
+    "@lezer/highlight": "^1.2.4",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/better-sqlite3": "latest",
@@ -64,6 +72,7 @@
     "dsh-better-sidebar": "^0.24.1",
     "esbuild": "^0.28.0",
     "mongodb": "^7.6.0",
+    "sql-formatter": "^15.9.0",
     "stryker-cli": "^1.1.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
@@ -81,6 +90,7 @@
     "patches",
     "scripts",
     "vendor/mongodb-driver.cjs",
+    "vendor/codemirror-sql.cjs",
     "README.md",
     "README_EN.md"
   ]

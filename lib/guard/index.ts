@@ -18,8 +18,10 @@ export interface GuardVerdict {
   reason?: string;
 }
 
-/** SQL 读取类首词白名单（大小写不敏感；首词必须命中，否则视为非读） */
-const SQL_READ_HEADS = new Set([
+/** SQL 读取类首词白名单（大小写不敏感；首词必须命中，否则视为非读）。
+ *  导出供控制台事务会话 exec 通道复用：读语句走 query 通道保留结果集。
+ *  类型收紧为 ReadonlySet——security 原语不允许调用方增删条目（编译期保证，运行时不变）。 */
+export const SQL_READ_HEADS: ReadonlySet<string> = new Set([
   'select', 'with', 'show', 'describe', 'desc', 'explain', 'use', 'set', 'help', 'table',
 ]);
 

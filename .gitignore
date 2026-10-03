@@ -17,3 +17,5 @@ dsh-boot-diag*.txt
 .planning/
 .tmp-verify/
 .zcode/
+out/
+.tmp-*

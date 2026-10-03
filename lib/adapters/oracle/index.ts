@@ -13,6 +13,7 @@
  *  - 锁号/密码验证器等常见连接错误转人类可读提示（见 ORA_HINTS）。
  */
 import oracledb from 'oracledb';
+import { sqlHead, SQL_READ_HEADS } from '../../guard/index.js';
 import type {
   AccessMode,
   AdapterFactory,
@@ -185,6 +186,18 @@ export async function createOracleAdapter(
     };
   }
 
+  /** 执行结果 → QueryResult（行值规范化 + 超限截断）；query 与事务内读语句共用 */
+  async function rowsToQueryResult(r: oracledb.ExecuteResult): Promise<QueryResult> {
+    const allRows = (r.rows as Record<string, unknown>[] | undefined) ?? [];
+    const truncated = allRows.length > ROWS_MAX;
+    const columns = (r.metaData ?? []).map((m) => m.name);
+    const rows: NormalizedCell[][] = [];
+    for (const row of allRows.slice(0, ROWS_MAX)) {
+      rows.push(await Promise.all(Object.values(row).map(normalizeCell)));
+    }
+    return { columns, rows, rowCount: rows.length, truncated: truncated || undefined };
+  }
+
   // autoCommit 默认 true：query/元数据 SELECT 结束隐式事务避免 ro 事务悬挂；tx 专用连接显式 autoCommit:false 覆盖
   const execOpts: oracledb.ExecuteOptions = { outFormat: oracledb.OBJECT, maxRows: ROWS_MAX + 1, autoCommit: true, ...BLOB_FETCH };
 
@@ -222,9 +235,12 @@ export async function createOracleAdapter(
   /**
    * tx 为可选扩展成员：契约 DatabaseAdapter 尚未声明 tx（types.ts 为共享文件，本阶段不改），
    * 用交叉类型承载，运行时存在于返回对象上；注册/服务层可按需取用。
+   * exec 回调按语句头分流：读语句返回 QueryResult，其余返回 ExecResult。
    */
   type AdapterWithTx = DatabaseAdapter & {
-    tx?: <T>(fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult>) => Promise<T>) => Promise<T>;
+    tx?: <T>(
+      fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult | QueryResult>) => Promise<T>,
+    ) => Promise<T>;
   };
   const adapter: AdapterWithTx = {
     kind: 'oracle',
@@ -255,15 +271,7 @@ export async function createOracleAdapter(
       }
       try {
         const r = await withConn((c) => c.execute(sql, params ?? [], execOpts));
-        const allRows = (r.rows as Record<string, unknown>[] | undefined) ?? [];
-        const truncated = allRows.length > ROWS_MAX;
-        const rows = allRows.slice(0, ROWS_MAX);
-        const columns = (r.metaData ?? []).map((m) => m.name);
-        const normRows: NormalizedCell[][] = [];
-        for (const row of rows) {
-          normRows.push(await Promise.all(Object.values(row).map(normalizeCell)));
-        }
-        return { columns, rows: normRows, rowCount: normRows.length, truncated: truncated || undefined };
+        return await rowsToQueryResult(r);
       } catch (e) {
         throw humanizeOraError(e);
       }
@@ -282,15 +290,20 @@ export async function createOracleAdapter(
     /**
      * 事务：从池取专用连接执行多条语句，成功 commit、异常 rollback。
      * Oracle 无 BEGIN，用 SET TRANSACTION READ WRITE 开始显式事务。
+     * exec 回调按语句头分流：读语句（SQL_READ_HEADS 命中首词，如 SELECT/WITH）在
+     * 本事务连接上执行并返回结果集（事务内读未提交数据是官方标准用法）；
+     * 其余语句返回执行回执。所有语句同处一个事务，随 commit/rollback 收口。
      */
-    async tx<T>(fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult>) => Promise<T>): Promise<T> {
+    async tx<T>(
+      fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult | QueryResult>) => Promise<T>,
+    ): Promise<T> {
       requireRw('事务(tx)');
       const c = await pool.getConnection();
       try {
         await c.execute('SET TRANSACTION READ WRITE');
-        const exec = async (sql: string, binds?: unknown[]): Promise<ExecResult> => {
+        const exec = async (sql: string, binds?: unknown[]): Promise<ExecResult | QueryResult> => {
           const r = await c.execute(sql, binds ?? [], { ...execOpts, autoCommit: false });
-          return toExecResult(sql, r);
+          return SQL_READ_HEADS.has(sqlHead(sql)) ? rowsToQueryResult(r) : toExecResult(sql, r);
         };
         const out = await fn(exec);
         await c.commit();

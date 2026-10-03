@@ -8,13 +8,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
-let T; // exports.__testables
+let T: any; // exports.__testables
 
 beforeAll(() => {
 	// stub 宿主：window.__ModuleLoader__ 捕获 load 定义；react 仅需对象占位（纯函数不触渲染）
-	const fakeWindow = {
+	const fakeWindow: any = {
 		__ModuleLoader__: {
-			load(def) {
+			load(def: any) {
 				fakeWindow.__DEF__ = def;
 			},
 		},
@@ -23,7 +23,7 @@ beforeAll(() => {
 	// client.js 是纯脚本（无 import/export），用 Function 包装执行
 	const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
 	new Function('window', 'console', src)(sandbox.window, console);
-	const mod = fakeWindow.__DEF__.factory((name) => {
+	const mod = fakeWindow.__DEF__.factory((name: string) => {
 		if (name === 'react') return {};
 		throw new Error('未预期的依赖: ' + name);
 	});
@@ -180,7 +180,7 @@ describe('buildRedisOp', () => {
 		expect(s.ops[0]!.statement).toBe(JSON.stringify(['ZADD', 'rank', 99, 'alice']));
 		const m = T.buildRedisOp('rank', 'zset', zc, zr, 'member', 'bob', false);
 		expect(m.ok).toBe(true);
-		expect(m.ops.map((o) => o.statement)).toEqual([
+		expect(m.ops.map((o: any) => o.statement)).toEqual([
 			JSON.stringify(['ZREM', 'rank', 'alice']),
 			JSON.stringify(['ZADD', 'rank', '96.5', 'bob']),
 		]);
@@ -188,7 +188,7 @@ describe('buildRedisOp', () => {
 	it('set member：SREM+SADD 两步', () => {
 		const r = T.buildRedisOp('tags', 'set', ['member'], ['a'], 'member', 'b', false);
 		expect(r.ok).toBe(true);
-		expect(r.ops.map((o) => o.statement)).toEqual([
+		expect(r.ops.map((o: any) => o.statement)).toEqual([
 			JSON.stringify(['SREM', 'tags', 'a']),
 			JSON.stringify(['SADD', 'tags', 'b']),
 		]);

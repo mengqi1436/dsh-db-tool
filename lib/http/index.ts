@@ -279,6 +279,29 @@ async function route(
     ));
   }
 
+  // 控制台事务会话（粘性连接）：begin 发 token；exec 语义等同 execute（可能
+  // NEEDS_CONFIRMATION）；commit/rollback 提交/回滚后销毁会话。trust 与 body
+  // 校验复用入口层既有链路。
+  if (path === '/api/console/begin' && req.method === 'POST') {
+    const b = await readBody(req);
+    return sendOk(res, await service.consoleBegin(projectOfBody(b), str(b['connId']), optStr(b['database'])));
+  }
+  if (path === '/api/console/exec' && req.method === 'POST') {
+    const b = await readBody(req);
+    return await sendMaybeConfirm(res, service.consoleExec(
+      str(b['sessionToken']), str(b['statement']),
+      b['params'] as unknown[] | undefined, optStr(b['challengeId']),
+    ));
+  }
+  if (path === '/api/console/commit' && req.method === 'POST') {
+    const b = await readBody(req);
+    return await sendMaybeConfirm(res, service.consoleCommit(str(b['sessionToken'])));
+  }
+  if (path === '/api/console/rollback' && req.method === 'POST') {
+    const b = await readBody(req);
+    return await sendMaybeConfirm(res, service.consoleRollback(str(b['sessionToken'])));
+  }
+
   if (path === '/api/audit' && req.method === 'GET') {
     const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
     return sendOk(res, service.auditTail(q.get('project') ?? undefined, limit));

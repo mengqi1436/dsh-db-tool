@@ -19,10 +19,13 @@ import type {
   TestConnectResult,
   ResolvedConnection,
 } from './adapters/types.js';
+import { randomBytes } from 'node:crypto';
 import { getAdapter, type ServiceAdapterFactory } from './adapters/index.js';
 import {
   ChallengeStore,
   classifyStatement,
+  sqlHead,
+  SQL_READ_HEADS,
   type ChallengeScope,
   type GuardVerdict,
 } from './guard/index.js';
@@ -65,10 +68,45 @@ export interface NeedConfirm {
   reason: string;
 }
 
+/**
+ * 控制台事务会话：会话专用适配器（仿 runScript，独立于 adapterCache，回收时可
+ * close 中断在途查询）+ 粘性事务通道。官方事务铁律（node-postgres）：事务绑定
+ * 单一连接，禁止在 pool.query 上做事务。粘性语义完全复用仓库既有事务原子实现
+ * （lib/adapters/types.ts 的 tx 可选成员，两种运行时形态）：
+ *  - {begin,commit,rollback}（mysql/pg 系）：begin 后适配器把 query/execute 路由到
+ *    同一粘性连接（checkout 的专用 client/connection），exec 直接走适配器即可；
+ *  - tx(fn)（oracle/dmdb，隐式开始 + connection.commit()/rollback()）：一次 tx()
+ *    调用挂起等待用户 commit/rollback——fn 内保留 exec 通道供逐条执行（读语句
+ *    返回结果集、其余返回回执，分流在适配器 exec 回调内完成），
+ *    commit 以 resolve 结束、rollback 以 reject 结束，提交/回滚与异常回滚
+ *    全部由适配器 tx 原子实现完成（对应官方 try/commit、catch/rollback、finally release）。
+ */
+interface ConsoleTxSession {
+  token: string;
+  projectKey: string;
+  connId: string;
+  adapter: DatabaseAdapter;
+  /** 空闲 TTL 触达时间（begin/exec/commit/rollback 均刷新） */
+  lastAccess: number;
+  /** 在粘性通道上串行执行一条语句（粘性连接上并发查询无定义行为，必须排队） */
+  run(statement: string, params?: unknown[]): Promise<QueryResult | ExecResult>;
+  /** 结束会话：粘性连接 COMMIT/ROLLBACK 后 close 适配器（无论成败都销毁） */
+  finish(how: 'commit' | 'rollback'): Promise<void>;
+}
+
+/** 粘性通道的语句串行队列：前序失败不阻塞后续，但执行严格按到达顺序 */
+function enqueue<T>(chain: { p: Promise<unknown> }, task: () => Promise<T>): Promise<T> {
+  const next = chain.p.then(task, task);
+  chain.p = next.catch(() => {});
+  return next;
+}
+
 export interface DbToolServiceOptions {
   /** 覆盖适配器工厂来源（测试注入假适配器；缺省用注册表 getAdapter） */
   adapterResolver?: (kind: DbKind) => Promise<ServiceAdapterFactory>;
   challenges?: ChallengeStore;
+  /** 控制台事务会话参数：空闲 TTL（默认 5 分钟）与回收扫描周期（默认 30s，0 禁用定时器） */
+  consoleTx?: { ttlMs?: number; sweepIntervalMs?: number };
 }
 
 function assertNonEmpty(v: string | undefined, label: string): string {
@@ -77,10 +115,17 @@ function assertNonEmpty(v: string | undefined, label: string): string {
   return s;
 }
 
+/** 单连接并发控制台事务会话上限（每会话独占驱动池 + checkout 连接，防连接耗尽） */
+const MAX_CONSOLE_SESSIONS_PER_CONN = 4;
+
 /* ---------------- 服务核心 ---------------- */
 
 export class DbToolService {
   private readonly adapterCache = new Map<string, Promise<DatabaseAdapter>>();
+  /** 控制台事务会话注册表（token → 会话） */
+  private readonly consoleSessions = new Map<string, ConsoleTxSession>();
+  private readonly consoleTtlMs: number;
+  private consoleSweepTimer: NodeJS.Timeout | undefined;
   readonly challenges: ChallengeStore;
   private readonly resolver: (kind: DbKind) => Promise<ServiceAdapterFactory>;
   private disposed = false;
@@ -88,6 +133,12 @@ export class DbToolService {
   constructor(readonly store: DbToolStore, opts?: DbToolServiceOptions) {
     this.resolver = opts?.adapterResolver ?? getAdapter;
     this.challenges = opts?.challenges ?? new ChallengeStore();
+    this.consoleTtlMs = opts?.consoleTx?.ttlMs ?? 5 * 60 * 1000;
+    const sweep = opts?.consoleTx?.sweepIntervalMs ?? 30 * 1000;
+    if (sweep > 0) {
+      this.consoleSweepTimer = setInterval(() => this.consoleSweep(), sweep);
+      this.consoleSweepTimer.unref?.();
+    }
   }
 
   /* -- 连接管理（无需授权） -- */
@@ -105,8 +156,10 @@ export class DbToolService {
   updateConnection(id: string, patch: Parameters<DbToolStore['connections']['update']>[1]): ConnectionMeta {
     const meta = this.store.connections.update(id, patch);
     if (!meta) throw new DbToolError('NOT_FOUND', `连接不存在: ${id}`);
-    // url/凭证/ssl 变更后旧适配器仍持旧连接串，必须作废重建
+    // url/凭证/ssl 变更后旧适配器仍持旧连接串，必须作废重建；
+    // 控制台事务会话的专用适配器不在缓存里，单独回收（否则旧凭据最长存活到空闲 TTL）
     void this.dropAdapters(id);
+    void this.dropConsoleSessions(id);
     this.audit('', id, 'update_connection', id, 'none', false, true);
     return meta;
   }
@@ -115,6 +168,7 @@ export class DbToolService {
     const ok = this.store.connections.remove(id);
     if (!ok) throw new DbToolError('NOT_FOUND', `连接不存在: ${id}`);
     void this.dropAdapters(id);
+    void this.dropConsoleSessions(id);
     this.audit('', id, 'remove_connection', id, 'none', false, true);
     return ok;
   }
@@ -202,8 +256,10 @@ export class DbToolService {
   grant(projectPath: string, connId: string, mode: 'ro' | 'rw'): void {
     const key = normalizeProjectKey(projectPath);
     this.store.grants.grant(key, connId, mode);
-    // 授权模式变更（含 rw→ro 降级）必须作废旧会话适配器，否则降级不生效
+    // 授权模式变更（含 rw→ro 降级）必须作废旧会话适配器，否则降级不生效；
+    // 控制台事务会话的粘性适配器不在缓存里，单独回收（回滚未提交事务并 close）
     void this.dropAdapters(connId);
+    void this.dropConsoleSessions(connId);
     this.audit(key, connId, 'grant', `${connId} -> ${mode}`, 'none', false, true);
   }
 
@@ -211,6 +267,7 @@ export class DbToolService {
     const key = normalizeProjectKey(projectPath);
     this.store.grants.revoke(key, connId);
     void this.dropAdapters(connId);
+    void this.dropConsoleSessions(connId);
     this.audit(key, connId, 'revoke', connId, 'none', false, true);
   }
 
@@ -382,6 +439,130 @@ export class DbToolService {
     }
   }
 
+  /* -- 控制台事务会话（粘性连接；语义对齐 runGuarded） -- */
+
+  /**
+   * 开始控制台事务：authorize(needWrite=true)（ro 直接 READ_ONLY 拒）→ 创建会话专用
+   * 适配器并打开粘性事务通道 → 返回 sessionToken。database 入参显式拒绝：粘性事务
+   * 绑定连接默认库、无法跨库，客户端切了非默认库时静默跑错库比报错更危险。
+   */
+  async consoleBegin(
+    projectPath: string | undefined,
+    connId: string,
+    database?: string,
+  ): Promise<{ sessionToken: string }> {
+    if (database !== undefined) {
+      throw new DbToolError('INVALID_ARGUMENT', '事务会话暂不支持指定数据库（粘性事务绑定连接默认库），请清空库选择后再开始事务');
+    }
+    // authorize(needWrite=true) 已拒绝 ro 授权（与 runScript 同构；顺带建立缓存适配器）
+    const { key, mode } = await this.authorize(projectPath, connId, true);
+    const rc = this.requireConn(connId);
+    // 每会话独占一个驱动池 + checkout 连接，放任创建会耗尽数据库连接（ponytail: 固定上限，不做 LRU）
+    const live = [...this.consoleSessions.values()].filter((s) => s.connId === connId).length;
+    if (live >= MAX_CONSOLE_SESSIONS_PER_CONN) {
+      throw new DbToolError('INVALID_ARGUMENT', `该连接并发事务会话已达上限（${MAX_CONSOLE_SESSIONS_PER_CONN}），请先提交或回滚既有事务`);
+    }
+    const factory = await this.resolver(rc.meta.kind);
+    const sessionAdapter = await factory(rc, { mode }).catch((e: unknown) => {
+      throw e instanceof DbToolError ? e : this.toDriverError(e);
+    });
+    try {
+      const session = await this.openConsoleSession(key, connId, sessionAdapter);
+      try {
+        // 注册前复核授权：authorize → 注册之间有多次 await，窗口内 revoke/降级触发的
+        // dropConsoleSessions 扫不到本会话（TOCTOU）；授权已变更则回滚并经外层审计后抛
+        this.recheckConsoleAuth(session);
+      } catch (e) {
+        await session.finish('rollback').catch(() => {});
+        throw e;
+      }
+      this.consoleSessions.set(session.token, session);
+      this.audit(key, connId, 'console_begin', 'BEGIN', 'none', false, true);
+      return { sessionToken: session.token };
+    } catch (e) {
+      await sessionAdapter.close().catch(() => {});
+      this.audit(key, connId, 'console_begin', 'BEGIN', 'none', false, false, this.errText(e));
+      throw this.toDriverError(e);
+    }
+  }
+
+  /**
+   * 会话内执行一条语句：语义等同 execute——classifyStatement + challenge + 审计，
+   * 在粘性通道串行执行。读语句走适配器 query 通道保留结果集（事务内 SELECT 看
+   * 未提交数据是核心场景）；写/管理语句走 execute 通道。
+   */
+  async consoleExec(
+    sessionToken: string,
+    statement: string,
+    params?: unknown[],
+    challengeId?: string,
+  ): Promise<QueryResult | ExecResult | NeedConfirm> {
+    const stmt = assertNonEmpty(statement, 'statement');
+    if (params !== undefined && !Array.isArray(params)) {
+      throw new DbToolError('INVALID_ARGUMENT', 'params 必须是数组（绑定参数）');
+    }
+    const s = this.requireConsoleSession(sessionToken);
+    s.lastAccess = Date.now();
+    // 授权复核：会话适配器不在 adapterCache，dropAdapters 管不到——revoke/rw→ro 降级必须即时生效
+    this.recheckConsoleAuth(s);
+
+    const kind = s.adapter.kind;
+    const verdict = classifyStatement(kind, stmt, 'execute');
+    if (verdict.level === 'danger') {
+      const scope: ChallengeScope = { connId: s.connId, projectKey: s.projectKey };
+      if (!challengeId) {
+        const { id: cid } = this.challenges.create(stmt, scope);
+        this.audit(s.projectKey, s.connId, 'console_exec', stmt, 'danger', false, false, 'NEEDS_CONFIRMATION');
+        return { needConfirmation: true, challengeId: cid, statement: stmt, danger: 'danger', reason: verdict.reason ?? '危险操作，需要用户确认' };
+      }
+      if (!this.challenges.consume(challengeId, stmt, scope)) {
+        this.audit(s.projectKey, s.connId, 'console_exec', stmt, 'danger', false, false, 'INVALID_CHALLENGE');
+        throw new DbToolError('INVALID_CHALLENGE', '确认凭据无效（不存在、已使用、已过期或语句已变更），请重新发起');
+      }
+    }
+
+    try {
+      const result = await s.run(stmt, params);
+      this.audit(
+        s.projectKey, s.connId, 'console_exec', stmt, verdict.level as DangerLevel, verdict.level === 'danger',
+        true, undefined, 'rowCount' in result ? result.rowCount : result.affectedRows,
+      );
+      return result;
+    } catch (e) {
+      this.audit(s.projectKey, s.connId, 'console_exec', stmt, verdict.level as DangerLevel, verdict.level === 'danger', false, this.errText(e));
+      throw this.toDriverError(e);
+    }
+  }
+
+  /** 粘性连接提交 → 销毁会话并 close 适配器（对应官方 finally release 语义）；审计照落 */
+  consoleCommit(sessionToken: string): Promise<ExecResult> {
+    return this.consoleTeardown(sessionToken, 'commit');
+  }
+
+  /** 粘性连接回滚 → 销毁会话并 close 适配器；审计照落 */
+  consoleRollback(sessionToken: string): Promise<ExecResult> {
+    return this.consoleTeardown(sessionToken, 'rollback');
+  }
+
+  /** commit/rollback 共用结算：授权复核 → 摘除会话 → finish → 审计（verb 参数化，两路镜像合一） */
+  private async consoleTeardown(sessionToken: string, how: 'commit' | 'rollback'): Promise<ExecResult> {
+    const s = this.requireConsoleSession(sessionToken);
+    s.lastAccess = Date.now();
+    this.recheckConsoleAuth(s);
+    this.consoleSessions.delete(sessionToken); // 先摘除防并发重入；成败都销毁
+    const action = how === 'commit' ? 'console_commit' : 'console_rollback';
+    const verb = how.toUpperCase();
+    try {
+      await s.finish(how);
+      this.audit(s.projectKey, s.connId, action, verb, 'none', false, true);
+      return { message: how === 'commit' ? '事务已提交' : '事务已回滚' };
+    } catch (e) {
+      this.audit(s.projectKey, s.connId, action, verb, 'none', false, false, this.errText(e));
+      throw this.toDriverError(e);
+    }
+  }
+
+
   /* -- 审计与状态 -- */
 
   auditTail(projectPath: string | undefined, limit?: number): AuditEntry[] {
@@ -404,10 +585,23 @@ export class DbToolService {
     };
   }
 
-  /** 关闭缓存的适配器并停止 challenge 清理 */
+  /** 关闭缓存的适配器、回收控制台事务会话并停止 challenge/TTL 清理 */
   async dispose(): Promise<void> {
     this.disposed = true;
     this.challenges.dispose();
+    if (this.consoleSweepTimer) {
+      clearInterval(this.consoleSweepTimer);
+      this.consoleSweepTimer = undefined;
+    }
+    const sessions = [...this.consoleSessions.values()];
+    this.consoleSessions.clear();
+    for (const s of sessions) {
+      try {
+        await s.finish('rollback'); // 服务关闭：未提交事务一律回滚，不留悬挂连接
+      } catch {
+        // 已断开等场景忽略
+      }
+    }
     const pending = [...this.adapterCache.values()];
     this.adapterCache.clear();
     for (const p of pending) {
@@ -465,6 +659,175 @@ export class DbToolService {
       }
     }
   }
+
+  /* -- 控制台事务会话内部 -- */
+
+  private requireConsoleSession(token: string): ConsoleTxSession {
+    const s = this.consoleSessions.get(token);
+    if (!s) throw new DbToolError('NOT_FOUND', '事务会话不存在（已提交/回滚或空闲超时回收）');
+    return s;
+  }
+
+  /** 会话存活期间的授权复核（语义与 authorize 一致，但不取适配器） */
+  private recheckConsoleAuth(s: ConsoleTxSession): void {
+    const mode = this.store.grants.check(s.projectKey, s.connId);
+    if (!mode) throw new DbToolError('UNAUTHORIZED_PROJECT', `项目未授权该连接: ${s.connId}`);
+    if (mode === 'ro') throw new DbToolError('READ_ONLY', '该连接对本项目为只读授权（ro），拒绝写操作');
+  }
+
+  /**
+   * 打开粘性事务通道。按适配器 tx 可选成员的两种运行时形态分派
+   * （见 ConsoleTxSession 注释）。不支持事务的 kind（无 tx）报 INVALID_ARGUMENT。
+   */
+  private async openConsoleSession(
+    key: string,
+    connId: string,
+    adapter: DatabaseAdapter,
+  ): Promise<ConsoleTxSession> {
+    const token = 't_' + randomBytes(12).toString('hex');
+    const tx = adapter.tx;
+    if (!tx) {
+      throw new DbToolError('INVALID_ARGUMENT', `连接类型 ${adapter.kind} 不支持控制台事务会话`);
+    }
+    const chain: { p: Promise<unknown> } = { p: Promise.resolve() };
+    // 结算标志：commit/rollback/sweep/drop/dispose 并发到达时首个 finisher 生效，后续 no-op
+    // （finish 一律经 enqueue 排到链尾，等在途语句完成再提交/回滚，避免 exec 跑在事务外）
+    let settled = false;
+    const lastAccess = Date.now();
+
+    if (typeof tx === 'function') {
+      // —— tx(fn) 形态（oracle/dmdb）：挂起 fn 模式。fn 第一段同步登记 exec 通道并
+      //    触发 ready；commit 以 resolve 结束 fn、rollback 以 reject 结束 fn，提交/
+      //    回滚与异常回滚由适配器 tx 原子实现完成。opened 已把 reject 归一为
+      //    { txError }（rollback 属正常路径，不算失败）。exec 通道按语句头返回
+      //    双形状（读语句 QueryResult / 其余 ExecResult，分流在适配器内完成）；
+      //    契约侧（types.ts）exec 返回 unknown，落地形状在 run 处收窄断言。
+      let channel: ((sql: string, binds?: unknown[]) => Promise<unknown>) | null = null;
+      let settle!: { resolve: () => void; reject: (e: unknown) => void };
+      const done = new Promise<void>((resolve, reject) => {
+        settle = { resolve, reject };
+      });
+      let ready!: () => void;
+      const readyP = new Promise<void>((r) => {
+        ready = r;
+      });
+      const opened: Promise<{ txError?: unknown }> = tx(
+        async (exec) => {
+          channel = exec;
+          ready();
+          await done;
+          return null;
+        },
+      )
+        .then(
+          () => ({}),
+          (e: unknown) => ({ txError: e }),
+        );
+      // begin 等待：fn 被调用（通道就绪）或 tx 开启失败（getConnection/SET TRANSACTION 失败）
+      const outcome = await Promise.race([
+        readyP.then(() => ({ ok: true as const })),
+        opened.then((v) => ({ ok: false as const, err: v.txError })),
+      ]);
+      if (!outcome.ok) throw this.toDriverError(outcome.err);
+      return {
+        token,
+        projectKey: key,
+        connId,
+        adapter,
+        lastAccess,
+        run: (stmt, params) =>
+          enqueue(chain, async () => {
+            if (!channel) throw new DbToolError('DRIVER_ERROR', '事务通道已关闭');
+            return (await channel(stmt, params)) as QueryResult | ExecResult;
+          }),
+        finish: (how) => {
+          // 首个 finisher 生效；任务排到链尾等在途语句完成后才提交/回滚
+          if (settled) return Promise.resolve();
+          settled = true;
+          return enqueue(chain, async () => {
+            try {
+              if (how === 'commit') {
+                settle.resolve();
+                const v = await opened;
+                // commit 路径的 txError 是真实提交失败，必须上抛供审计
+                if (v.txError !== undefined) throw v.txError;
+              } else {
+                // rollback 以 reject 结束 fn：tx 原子实现执行 ROLLBACK 并吞掉回滚自身的
+                // 次生错误（适配器语义），占位 reject 原因不是真实故障，不上抛
+                settle.reject(new Error('控制台事务回滚'));
+                await opened;
+              }
+            } finally {
+              await adapter.close().catch(() => {});
+            }
+          });
+        },
+      };
+    }
+
+    // —— TxHandle 形态（mysql/pg 系）：begin 即 checkout 粘性连接并执行 BEGIN；
+    //    之后适配器把 query/execute 路由到同一连接，exec 直接透传即可。
+    await tx.begin();
+    return {
+      token,
+      projectKey: key,
+      connId,
+      adapter,
+      lastAccess,
+      run: (stmt, params) =>
+        enqueue<QueryResult | ExecResult>(chain, () =>
+          SQL_READ_HEADS.has(sqlHead(stmt)) ? adapter.query(stmt, params) : adapter.execute(stmt, params),
+        ),
+      finish: (how) => {
+        // 首个 finisher 生效；任务排到链尾等在途语句完成后才提交/回滚
+        if (settled) return Promise.resolve();
+        settled = true;
+        return enqueue(chain, async () => {
+          try {
+            if (how === 'commit') await tx.commit();
+            else await tx.rollback();
+          } finally {
+            await adapter.close().catch(() => {});
+          }
+        });
+      },
+    };
+  }
+
+  /** 空闲 TTL 扫描：超时会话强制回滚（close 适配器）并审计一条超时回滚 */
+  private consoleSweep(): void {
+    const now = Date.now();
+    for (const [token, s] of this.consoleSessions) {
+      if (now - s.lastAccess <= this.consoleTtlMs) continue;
+      this.consoleSessions.delete(token);
+      void s
+        .finish('rollback')
+        // 回收原因放 statement 说明槽：ok:true 的记录不得带 error 槽（矛盾审计）
+        .then(() =>
+          this.audit(s.projectKey, s.connId, 'console_rollback', 'ROLLBACK（空闲超时自动回收）', 'none', false, true),
+        )
+        .catch((e: unknown) =>
+          this.audit(
+            s.projectKey, s.connId, 'console_rollback', 'ROLLBACK', 'none', false, false,
+            `空闲超时自动回滚失败: ${this.errText(e)}`,
+          ),
+        );
+    }
+  }
+
+  /** 授权变更时回收指定连接的全部控制台事务会话（回滚并 close，不审计——非业务事件） */
+  private async dropConsoleSessions(connId: string): Promise<void> {
+    for (const [token, s] of this.consoleSessions) {
+      if (s.connId !== connId) continue;
+      this.consoleSessions.delete(token);
+      try {
+        await s.finish('rollback');
+      } catch {
+        // 已断开等场景忽略
+      }
+    }
+  }
+
 
   private adapterFor(connId: string, mode: 'ro' | 'rw'): Promise<DatabaseAdapter> {
     const cacheKey = `${connId}@mode=${mode}`;

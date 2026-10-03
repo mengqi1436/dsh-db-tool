@@ -14,6 +14,18 @@ A DSH community plugin for operating databases safely from chat, with a sidebar 
 - **Sidebar with 4 panels** (dsh-better-sidebar, zh/en): connections, project grants, data browser, SQL console
 - **db-admin skill**: shipped with the plugin, covering dialect cheat sheets for all 8 databases, safety rules, and the confirmation flow
 
+### SQL Console
+
+The sidebar SQL console panel has been upgraded to a Navicat-style multi-tab editor (CodeMirror 6):
+
+- **Multi-tab**: create/close/switch query tabs; each tab keeps its own SQL, result, and history (capped at 50 entries, expandable and click-to-refill)
+- **Syntax highlighting & completion**: switches with the dialect — mysql→MySQL, postgresql/gaussdb→PostgreSQL, sqlite→SQLite, oracle/dmdb→PL/SQL; Redis/Mongo get keyword/method completion over plain text; table/column metadata is fetched to feed completion (up to 50 tables). If the editor bundle (`vendor/codemirror-sql.cjs`, built by `npm run build:codemirror`, chained after `npm run build`) fails to load, it silently falls back to a textarea
+- **Shortcuts**: `Ctrl/Cmd+Enter` runs everything, `Ctrl/Cmd+Shift+Enter` runs the selection
+- **Formatting**: dialect-aware formatting via sql-formatter, falling back to the original text on parse failure
+- **Per-statement execution**: statements are pre-classified client-side as read/write and routed to `/api/query` vs `/api/execute`; write statements are skipped and flagged under read-only grants; errors can jump to the offending statement
+- **Transactions**: begin/commit/rollback under rw grants (server-side sticky-connection session; idle sessions roll back after a 5-minute TTL and are audited; grant revocation takes effect immediately)
+- **Result grid**: tri-state column sorting, pagination at 50 rows/page, click-to-copy cells, CSV/JSON export
+
 ## Data Layout
 
 `$DSH_HOME/db-tool/` (0700):
@@ -74,11 +86,11 @@ Live-database smoke tests (run only when set): `DBT_TEST_MYSQL_URL / DBT_TEST_PG
 lib/        host plugin (store / adapters×8 / guard / manager / http / index)
 client/     sidebar single-file artifact (client.js — this is the source)
 skills/     db-admin skill
-scripts/    build & tooling scripts (MongoDB driver bundle, DSH host hotfix patch:dsh, etc.)
+scripts/    build & tooling scripts (MongoDB driver / CodeMirror editor bundles, DSH host hotfix patch:dsh, etc.)
 patches/    DSH host dsh-app-boot hotfix patches (selected by host version for patch:dsh)
 docs/       reserved (currently empty)
 tests/      vitest (offline mocks + DBT_TEST_*-gated live runs)
-vendor/     mongodb-driver.cjs bundle (gitignored; shipped via the files whitelist)
+vendor/     mongodb-driver.cjs and codemirror-sql.cjs bundles (gitignored; shipped via the files whitelist)
 ```
 
 ## License
