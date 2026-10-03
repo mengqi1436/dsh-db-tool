@@ -189,3 +189,132 @@ describe('ConnectionStore', () => {
     expect(redactUrl('random text no url')).toBe('random text no url'); // 非 URL 原样返回不抛错
   });
 });
+
+describe('连接导出/导入', () => {
+  let home: string;
+  let store: DbToolStore;
+
+  beforeEach(() => {
+    home = makeTempHome();
+    store = new DbToolStore(home);
+  });
+
+  afterEach(() => cleanupDir(home));
+
+  it('exportBundle 包含全部连接记录与对应机密（含明文密码）', () => {
+    store.connections.create({
+      id: 'a',
+      kind: 'mysql',
+      name: '主库',
+      url: URL_WITH_SECRET,
+      fields: { host: 'localhost', password: 'FIELDSECRET' },
+      ssl: true,
+    });
+    store.connections.create({ id: 'b', kind: 'sqlite' }); // 无机密
+
+    const bundle = store.connections.exportBundle();
+    expect(bundle.connections).toHaveLength(2);
+    const recA = bundle.connections.find((c) => c.id === 'a')!;
+    expect(recA.urlSafe).toBe('mysql://root:***@localhost:3306/shop'); // 记录侧仍脱敏
+    expect(bundle.secrets['a']).toEqual({ url: URL_WITH_SECRET, password: 'FIELDSECRET' });
+    expect(bundle.secrets['b']).toBeUndefined();
+  });
+
+  it('importBundle 跳过冲突 id（skipped），不覆盖已有数据；重复导入幂等', () => {
+    store.connections.create({ id: 'a', kind: 'mysql', url: URL_WITH_SECRET });
+
+    // 构造目标库：a 已存在（不同内容），b 为新连接
+    const home2 = makeTempHome();
+    const target = new DbToolStore(home2);
+    try {
+      target.connections.create({ id: 'a', kind: 'redis', url: 'redis://:OLDPW@h:6379' });
+      const bundle = store.connections.exportBundle();
+      // 补充一条新连接 b
+      bundle.connections.push({ id: 'b', kind: 'postgresql', urlSafe: 'postgresql://u:***@h:5432/db' });
+      bundle.secrets['b'] = { url: 'postgresql://u:BPASS@h:5432/db' };
+
+      const res = target.connections.importBundle(bundle);
+      expect(res.imported).toBe(1);
+      expect(res.skipped).toEqual(['a']);
+      expect(res.errors).toEqual([]);
+      // 冲突的 a 未被覆盖
+      expect(target.connections.testTarget('a').url).toBe('redis://:OLDPW@h:6379');
+      // b 正常导入
+      expect(target.connections.testTarget('b').url).toBe('postgresql://u:BPASS@h:5432/db');
+
+      // 幂等重入：重复导入全部落入 skipped
+      const res2 = target.connections.importBundle(bundle);
+      expect(res2.imported).toBe(0);
+      expect(res2.skipped.sort()).toEqual(['a', 'b']);
+      expect(res2.errors).toEqual([]);
+    } finally {
+      cleanupDir(home2);
+    }
+  });
+
+  it('importBundle 单条异常记入 errors 并继续后续条目', () => {
+    const bundle = {
+      connections: [
+        { id: 'bad', kind: 'mysql' as const, fields: { host: 'h' } },
+        { id: 'ok', kind: 'redis' as const },
+      ],
+      secrets: { bad: { password: 'X' } },
+    };
+    // 模拟单条写入机密时 I/O 故障：create 内 secrets.set 抛错 → 记入 errors，不阻塞后续
+    const origSet = store.secrets.set.bind(store.secrets);
+    store.secrets.set = (connId: string, patch: never) => {
+      if (connId === 'bad') throw new Error('模拟写入失败');
+      origSet(connId, patch);
+    };
+    try {
+      const res = store.connections.importBundle(bundle);
+      expect(res.imported).toBe(1);
+      expect(res.skipped).toEqual([]);
+      expect(res.errors).toEqual([{ id: 'bad', message: '模拟写入失败' }]);
+      expect(store.connections.get('ok')).toBeDefined(); // 后续条目不受影响
+    } finally {
+      store.secrets.set = origSet;
+    }
+  });
+
+  it('导出→导入 round-trip 后 testTarget 密码/URL 与源库一致', () => {
+    store.connections.create({
+      id: 'a',
+      kind: 'mysql',
+      name: '主库',
+      url: URL_WITH_SECRET,
+      fields: { host: 'localhost', port: 3306, database: 'shop', password: 'FIELDSECRET' },
+      ssl: true,
+    });
+    store.connections.create({
+      id: 'f',
+      kind: 'postgresql',
+      fields: { host: 'h2', port: 5432, user: 'app', password: 'FPASS' },
+    });
+
+    const home2 = makeTempHome();
+    const target = new DbToolStore(home2);
+    try {
+      const res = target.connections.importBundle(store.connections.exportBundle());
+      expect(res).toEqual({ imported: 2, skipped: [], errors: [] });
+
+      const srcA = store.connections.testTarget('a');
+      const dstA = target.connections.testTarget('a');
+      expect(dstA.url).toBe(srcA.url); // 完整 URL 一致（含密码 TOPSECRET）
+      expect(dstA.fields).toEqual(srcA.fields); // 含 password: FIELDSECRET
+      expect(dstA.ssl).toBe(true);
+      expect(dstA.meta.name).toBe('主库');
+
+      const srcF = store.connections.testTarget('f');
+      const dstF = target.connections.testTarget('f');
+      expect(dstF.fields).toEqual(srcF.fields); // 含 password: FPASS
+      // 目标库落盘检查：密码只在 secrets.json，connections.json 无明文
+      const connsJson = readStoreFile(home2, 'connections.json');
+      expect(connsJson).not.toContain('TOPSECRET');
+      expect(connsJson).not.toContain('FIELDSECRET');
+      expect(connsJson).not.toContain('FPASS');
+    } finally {
+      cleanupDir(home2);
+    }
+  });
+});

@@ -455,3 +455,68 @@ describe('业务路由与确认流程', () => {
     expect(((await bad.json()) as any).code).toBe('INVALID_ARGUMENT');
   });
 });
+
+describe('连接导出/导入路由', () => {
+  it('happy path：建连接 → 导出 → 删除 → 导入恢复', async () => {
+    const { fx } = await ensureStarted();
+    // 经 HTTP 建一个一次性连接
+    const created = await post('/api/connections', {
+      id: 'c-exp', kind: 'sqlite', url: 'sqlite://./exp.db',
+    });
+    expect(created.json.ok).toBe(true);
+    const before = fx.service.listConnections().map((m) => m.id).sort();
+
+    // 导出
+    const exp = await post('/api/connections/export', { passphrase: 'p@ss-短语12' });
+    expect(exp.json.ok).toBe(true);
+    const enc = exp.json.data.json as string;
+    expect(typeof enc).toBe('string');
+    expect(enc.length).toBeGreaterThan(0);
+    // 密文不得含明文连接串
+    expect(enc).not.toContain('sqlite://./exp.db');
+
+    // 全部删除后导入恢复
+    for (const id of before) {
+      await fetch(`${(await ensureStarted()).base}/api/connections/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    }
+    expect(fx.service.listConnections()).toHaveLength(0);
+
+    const imp = await post('/api/connections/import', { json: enc, passphrase: 'p@ss-短语12' });
+    expect(imp.json.ok).toBe(true);
+    expect(imp.json.data.imported).toBe(before.length);
+    const after = fx.service.listConnections().map((m) => m.id).sort();
+    expect(after).toEqual(before);
+
+    // 清理一次性连接，恢复基线（c1 是 fixture 基线连接，保留）
+    if (after.includes('c-exp')) {
+      await fetch(`${(await ensureStarted()).base}/api/connections/c-exp`, { method: 'DELETE' });
+    }
+  });
+
+  it('缺/空 passphrase → 400 INVALID_ARGUMENT', async () => {
+    const missing = await post('/api/connections/export', {});
+    expect(missing.status).toBe(400);
+    expect(missing.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+
+    const empty = await post('/api/connections/export', { passphrase: '' });
+    expect(empty.status).toBe(400);
+    expect(empty.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+
+    const impMissing = await post('/api/connections/import', { json: 'x' });
+    expect(impMissing.status).toBe(400);
+    expect(impMissing.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+
+    const impNoJson = await post('/api/connections/import', { passphrase: 'p' });
+    expect(impNoJson.status).toBe(400);
+    expect(impNoJson.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+  });
+
+  it('坏密文导入 → INVALID_ARGUMENT（口令错误或文件已损坏）', async () => {
+    const bad = await post('/api/connections/import', { json: 'not-a-valid-payload', passphrase: 'valid-pass' });
+    expect(bad.json).toMatchObject({
+      ok: false,
+      code: 'INVALID_ARGUMENT',
+      error: '口令错误或文件已损坏',
+    });
+  });
+});

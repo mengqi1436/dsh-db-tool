@@ -1,5 +1,25 @@
 # Changelog — dsh-db-tool
 
+## 1.6.0
+
+新增连接管理「导出 / 导入」：一键导出全部连接（含密码）为口令加密文件，跨机器迁移；导入按口令解密，冲突连接跳过不覆盖。
+
+### 新增
+
+- **连接导出**：侧边栏「连接管理 → 导出」，输入口令后下载 `dsh-db-connections-YYYYMMDD.enc.json`。整个 payload（全部连接元数据 + 明文密码/完整 URL）经口令派生密钥整体加密，文件打开无明文。
+- **连接导入**：选文件 + 输入同一口令即可恢复。已存在的连接 id 一律跳过（不覆盖），返回「已导入 n 条，跳过 m 条，失败 f 条」摘要；重复导入幂等。
+- **加密方案**（Node stdlib `crypto`，零新增依赖）：scrypt 派生 AES-256 密钥 + AES-256-GCM。salt 随机 16 字节、IV 随机 12 字节、auth tag 默认 16 字节；scrypt 成本参数显式固定（N=16384, r=8, p=1），跨 Node 版本/运行时不会因默认值漂移而解密失败。
+- **安全边界在服务端**：口令最短 8 位由 `DbToolService` 强制（UI 仅对齐提示）；口令错 / 密文篡改 / 结构非法统一报「口令错误或文件已损坏」，不泄露失败原因防探测。
+- **冲突识别用哨兵类型**：新增 `DuplicateConnectionError`，`create()` 抛它、`importBundle` 用 `instanceof` 识别跳过，不再依赖中文错误文案匹配。
+
+### 修复（OCR 审查 18 条处置）
+
+- 清掉仓库根部的 `nul` Windows 保留名残留文件（会导致 Windows 用户 `git checkout` 失败）。
+- 结构校验补 per-element：解密包元素必须是含非空 string `id`/`kind` 的对象，堵 `null` 元素 TypeError 与 `id:undefined` 幽灵落库。
+- `importBundle` 机密写回改覆盖式（先 `secrets.delete(id)` 再写），防止旧 url 嫁接到 fields 模式连接被静默错连；写回失败 best-effort 回滚连接行，消除半导入态。
+- 导入审计补「失败 N 个」；导出响应回传权威 `count`，前端不再用可能过期的本地列表计数。
+- client：导入部分失败显示错误（不再渲染为全成功）；`revokeObjectURL` 延时 1s（对齐 MDN 防过早回收）；`pendingJson` 在弹窗关闭/完成后清除；`doExport/doImport` 去掉错误吞噬，消除「红错误 + 绿完成」矛盾反馈。
+
 ## 1.5.91
 
 新增 Navicat 17 级 SQL 控制台：8 类数据库统一的多标签控制台，含 CodeMirror 6 编辑器、多语句分割执行、事务粘性会话与事务内查询、结果网格。

@@ -10,10 +10,19 @@ import * as path from 'node:path';
 import type { ConnectionMeta, DbKind, ResolvedConnection } from '../adapters/types.js';
 import { readJson, writeJsonAtomic } from './io.js';
 import type { GrantStore } from './grants.js';
-import type { SecretsBox } from './secrets.js';
+import type { SecretEntry, SecretsBox } from './secrets.js';
 
 /** fields 中被视为机密的键，落盘前拆出到 secrets.json */
 const PASSWORD_KEY = 'password';
+
+/** id 冲突哨兵错误：importBundle 以此 instanceof 识别跳过项，
+ *  替代对 create() 中文错误文案的字符串匹配（文案改动不破坏幂等契约） */
+export class DuplicateConnectionError extends Error {
+  constructor(readonly connId: string) {
+    super(`连接已存在: ${connId}`);
+    this.name = 'DuplicateConnectionError';
+  }
+}
 
 export interface ConnectionCreateInput {
   id: string;
@@ -41,8 +50,8 @@ export interface ConnectionUpdateInput {
   clearUrl?: boolean;
 }
 
-/** connections.json 单条记录（无任何机密） */
-interface ConnRecord {
+/** connections.json 单条记录（无任何机密）；导出给 exportBundle/importBundle 用 */
+export interface ConnRecord {
   id: string;
   kind: DbKind;
   name?: string;
@@ -228,11 +237,11 @@ export class ConnectionStore {
     return rec ? toMeta(rec, this.hasPassword(id)) : undefined;
   }
 
-  /** 新建连接；id 已存在时抛错 */
+  /** 新建连接；id 已存在时抛 DuplicateConnectionError */
   create(input: ConnectionCreateInput): ConnectionMeta {
     const data = this.load();
     if (this.findRec(data, input.id)) {
-      throw new Error(`连接已存在: ${input.id}`);
+      throw new DuplicateConnectionError(input.id);
     }
     const rec: ConnRecord = { id: input.id, kind: input.kind };
     if (input.name !== undefined) rec.name = input.name;
@@ -336,5 +345,78 @@ export class ConnectionStore {
     if (fields !== undefined) rc.fields = fields;
     if (rec.ssl !== undefined) rc.ssl = rec.ssl;
     return rc;
+  }
+
+  /** 导出连接迁移包：全部连接记录 + 对应机密（含明文密码）。
+   *  调用方必须将整个返回值经 export-crypto 加密后方可落盘/传输，
+   *  本方法本身不加密（加密口令属于 HTTP 层入参，不应侵入存储层）。 */
+  exportBundle(): { connections: ConnRecord[]; secrets: Record<string, SecretEntry> } {
+    const connections = this.load().connections;
+    const secrets: Record<string, SecretEntry> = {};
+    for (const rec of connections) {
+      const sec = this.secrets.get(rec.id);
+      if (sec !== undefined) secrets[rec.id] = sec;
+    }
+    return { connections, secrets };
+  }
+
+  /** 导入连接迁移包：逐条走既有 create()（机密拆分/脱敏逻辑全复用）。
+   *  - id 冲突（「连接已存在」）→ 记入 skipped，不覆盖已有数据；
+   *  - 其他异常 → 记入 errors 并继续处理后续条目；
+   *  - 幂等可重入：重复导入同一 bundle，已存在的全部落入 skipped。 */
+  importBundle(bundle: { connections: ConnRecord[]; secrets?: Record<string, SecretEntry> }): {
+    imported: number;
+    skipped: string[];
+    errors: { id: string; message: string }[];
+  } {
+    const result = { imported: 0, skipped: [] as string[], errors: [] as { id: string; message: string }[] };
+    for (const rec of bundle.connections) {
+      // per-record 校验：解密成功的包也可能内容畸形（schema 漂移/手工构造），
+      // 缺 id/kind 的记录不落库，计入 errors
+      if (
+        rec === null ||
+        typeof rec !== 'object' ||
+        typeof rec.id !== 'string' ||
+        rec.id === '' ||
+        typeof rec.kind !== 'string' ||
+        (rec.kind as string) === ''
+      ) {
+        result.errors.push({ id: String((rec as { id?: unknown } | null)?.id ?? ''), message: '记录结构非法（缺少 id/kind）' });
+        continue;
+      }
+      const sec = bundle.secrets?.[rec.id];
+      try {
+        // 重建 create 入参：脱敏 URL 回换完整 URL（机密在 sec.url 中）；
+        // fields 模式密码经 fields.password 传入由 create 自动拆分到 secrets
+        this.create({
+          id: rec.id,
+          kind: rec.kind,
+          name: rec.name,
+          url: sec?.url,
+          fields: sec?.password !== undefined ? { ...(rec.fields ?? {}), password: sec.password } : rec.fields,
+          ssl: rec.ssl,
+        });
+        // 覆盖式写回：create 成功后该 id 必无冲突，先清掉既有/孤儿机密
+        // （create 崩溃窗口可能残留旧条目），再整体重写，确保导入后机密与包一致。
+        // 合并写会残留旧键（如旧 url），适配器优先用 rc.url，会被静默错连旧主机。
+        this.secrets.delete(rec.id);
+        try {
+          if (sec !== undefined) this.secrets.set(rec.id, sec);
+        } catch (secErr) {
+          // 写回机密失败：连接行已落盘，回滚避免「errors 里却已存在」的半导入门状态
+          try { this.remove(rec.id); } catch { /* 尽力而为 */ }
+          throw secErr;
+        }
+        result.imported += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof DuplicateConnectionError) {
+          result.skipped.push(rec.id);
+        } else {
+          result.errors.push({ id: rec.id, message });
+        }
+      }
+    }
+    return result;
   }
 }

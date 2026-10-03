@@ -72,6 +72,16 @@ window.__ModuleLoader__.load({
 			auditDetail: "详情",
 			auditDenied: "拒绝",
 			auditConfirmed: "已确认",
+			// 连接导出/导入（口令加密备份）
+			exportConns: "导出",
+			importConns: "导入",
+			passphrase: "口令",
+			passphraseHint: "8 位以上，仅本次导出/导入使用",
+			exportDone: "已导出 {n} 条连接",
+			importResult: "已导入 {i} 条，跳过 {s} 条",
+			importPartialFail: "部分失败：成功 {i} 条，跳过 {s} 条，失败 {f} 条",
+			importDecryptFail: "口令错误或文件已损坏",
+			pickFile: "选择文件",
 			// 授权
 			grantsHint: "为当前项目授权连接。只读=仅查询/浏览，读写=允许执行语句与脚本。未授权的连接在业务操作中一律拒绝。",
 			grantsEmptyHint: "当前项目尚未授权任何连接，在下方每行选择「只读」或「读写」即可完成授权。",
@@ -213,6 +223,15 @@ window.__ModuleLoader__.load({
 			auditDetail: "Detail",
 			auditDenied: "denied",
 			auditConfirmed: "confirmed",
+			exportConns: "Export",
+			importConns: "Import",
+			passphrase: "Passphrase",
+			passphraseHint: "8+ characters, used only for this export/import",
+			exportDone: "Exported {n} connection(s)",
+			importResult: "Imported {i}, skipped {s}",
+			importPartialFail: "Partial failure: {i} imported, {s} skipped, {f} failed",
+			importDecryptFail: "Wrong passphrase or corrupted file",
+			pickFile: "Pick file",
 			grantsHint: "Grant connections to the current project. ro = read-only (query/browse), rw = read-write (execute/script allowed). Unauthorized connections are always rejected.",
 			grantsEmptyHint: "No connections granted to this project yet. Pick read-only or read-write on a row below to grant.",
 			grantsSummary: "{granted}/{total} connections granted",
@@ -596,6 +615,74 @@ window.__ModuleLoader__.load({
 		/* ---------------- 连接管理 ---------------- */
 		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", ssl: false };
 
+		// 口令弹窗（ManageView 局部复用，导出/导入共用）：键盘契约对齐 DangerDialog
+		// （Escape=取消、Tab 在对话框内循环锁定）；差异：初始焦点在口令输入框，确认按钮主色。
+		// ponytail: 仅两处使用，故为 ManageView 内部局部组件，不抽通用模块。
+		function PassphraseDialog(props) {
+			const [value, setValue] = React.useState("");
+			const [err, setErr] = React.useState(""); // 就地错误（如口令过短）；读屏经 role=alert 播报
+			const inputRef = React.useRef(null);
+			const dialogRef = React.useRef(null);
+			const titleId = "dbt-pass-title";
+			function done(v) { props.onClose(v); }
+			function submit() {
+				const v = value.trim();
+				if (v.length < 8) { setErr(t("passphraseHint")); return; } // 与服务端 PASSPHRASE_MIN=8 对齐（服务端为权威边界）
+				done(v);
+			}
+			function onKeyDown(e) {
+				if (e.key === "Escape") { e.preventDefault(); done(null); return; }
+				if (e.key === "Enter" && e.target === inputRef.current) { e.preventDefault(); submit(); return; }
+				if (e.key !== "Tab") return;
+				const dialog = dialogRef.current;
+				if (!dialog) return;
+				const els = dialog.querySelectorAll("input,button");
+				if (els.length === 0) return;
+				const first = els[0];
+				const last = els[els.length - 1];
+				const doc = dialog.ownerDocument || document;
+				if (!dialog.contains(doc.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); return; }
+				if (!e.shiftKey && doc.activeElement === last) { e.preventDefault(); first.focus(); }
+				else if (e.shiftKey && doc.activeElement === first) { e.preventDefault(); last.focus(); }
+			}
+			// 挂载后焦点落口令输入框（与 DangerDialog 落「取消」不同：本弹窗无危险语义，输入即主路径）
+			React.useEffect(() => {
+				if (inputRef.current && typeof inputRef.current.focus === "function") inputRef.current.focus();
+			}, []);
+			return React.createElement(
+				"div",
+				{ className: "dbt-overlay", onClick: () => done(null), onKeyDown },
+				React.createElement(
+					"div",
+					{
+						className: "dbt-dialog",
+						onClick: (e) => e.stopPropagation(),
+						role: "dialog",
+						"aria-modal": "true",
+						"aria-labelledby": titleId,
+						ref: dialogRef,
+					},
+					React.createElement("strong", { id: titleId }, props.title),
+					React.createElement("input", {
+						type: "password",
+						"aria-label": t("passphrase"),
+						placeholder: t("passphrase"),
+						autoComplete: "off",
+						value,
+						ref: inputRef,
+						onChange: (e) => { setValue(e.target.value); if (err) setErr(""); },
+					}),
+					React.createElement("div", { className: "dbt-muted" }, t("passphraseHint")),
+					err ? React.createElement("div", { className: "dbt-err", role: "alert" }, err) : null,
+					React.createElement(
+						"div",
+						{ className: "dbt-row" },
+						React.createElement("button", { className: "dbt-btn primary", onClick: submit }, props.confirmLabel),
+						React.createElement("button", { className: "dbt-btn", onClick: () => done(null) }, t("cancel")),
+					),
+				),
+			);
+		}
 		// 通用表格渲染：columns + rows（审计列表与查询结果共用）；wrapClass 可选（浏览弹窗用自适应高度容器）
 		function resultTable(columns, rows, cellTitles, wrapClass) {
 			return React.createElement(
@@ -1107,6 +1194,11 @@ window.__ModuleLoader__.load({
 			const [auditOpen, setAuditOpen] = React.useState(false);
 			const [audit, setAudit] = React.useState(null);
 			const [testInfo, setTestInfo] = React.useState({}); // connId -> "ok" | "fail: msg"
+			// 导出/导入流程态：passReq 非空即弹口令窗（"export" | "import"）；fileRef 承载隐藏文件选择器
+			const [passReq, setPassReq] = React.useState(null);
+			const [pendingJson, setPendingJson] = React.useState(null); // 待导入的密文文本（选文件后暂存，口令确认后发送）
+			const [ioInfo, setIoInfo] = React.useState(null); // null | {kind: "ok"|"err", text}
+			const fileRef = React.useRef(null);
 			// 键盘焦点态：统一走模块级 focusRingProps()（描边同 DESIGN.md focus 规范，accent 2px 内缩）
 
 			async function saveConn(body, reset) {
@@ -1156,6 +1248,64 @@ window.__ModuleLoader__.load({
 				}
 			}
 
+			// 口令弹窗确认回调：按 passReq 分流导出/导入；value 为 null 即取消
+			async function onPassphrase(value) {
+				const mode = passReq;
+				setPassReq(null);
+				if (value === null || value === undefined) { setPendingJson(null); return; } // 取消即清密文
+				if (mode === "export") await doExport(value);
+				else if (mode === "import") await doImport(value);
+				setPendingJson(null); // 完成即清密文，避免敏感数据滞留组件状态
+			}
+			// 导出：POST /connections/export 拿密文 json → Blob + a[download] 落盘（文件名带日期戳）
+			async function doExport(passphrase) {
+				await props.run("export", async () => {
+					const data = await api("connections/export", { method: "POST", body: { passphrase } });
+					const json = data && data.json;
+					const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
+					const blob = new Blob([typeof json === "string" ? json : JSON.stringify(json, null, 2)], { type: "application/json" });
+					const url = URL.createObjectURL(blob);
+					const a = document.createElement("a");
+					a.href = url;
+					a.download = "dsh-db-connections-" + stamp + ".enc.json";
+					document.body.appendChild(a);
+					a.click();
+					a.remove();
+					// 延迟回收：部分浏览器在 click 后才异步 fetch blob，同步 revoke 可能中断下载（与结果导出 download 同模式）
+					window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+					// 服务端回传权威条数 count；缺失时回退本地列表（不声称精确数字）
+					const n = (data && typeof data.count === "number") ? data.count : conns.length;
+					setIoInfo({ kind: "ok", text: t("exportDone", { n }) });
+				});
+			}
+			// 导入：密文已在 pendingJson；口令错（INVALID_ARGUMENT + 解密失败文案）给专用提示，其余透传后端 message
+			async function doImport(passphrase) {
+				const json = pendingJson;
+				await props.run("import", async () => {
+					const data = await api("connections/import", { method: "POST", body: { json, passphrase } });
+					await reload();
+					const failed = (data && data.errors ? data.errors.length : 0);
+					const i = (data && data.imported) || 0;
+					const s = (data && data.skipped ? data.skipped.length : 0);
+					setIoInfo(failed > 0
+						? { kind: "err", text: t("importPartialFail", { i, s, f: failed }) }
+						: { kind: "ok", text: t("importResult", { i, s }) });
+				});
+			}
+			// 隐藏文件选择器回调：FileReader 读文本后暂存，再弹口令窗；读失败走通用错误通道
+			function onPickFile(e) {
+				const file = e.target.files && e.target.files[0];
+				e.target.value = ""; // 允许重复选同一文件
+				if (!file) return;
+				const reader = new FileReader();
+				reader.onload = () => {
+					setPendingJson(String(reader.result || ""));
+					setPassReq("import");
+				};
+				reader.onerror = () => props.onError(reader.error || new Error(t("loadFailed")));
+				reader.readAsText(file);
+			}
+
 			if (editing) {
 				return React.createElement(ConnForm, {
 					initial: editing === "new" ? null : buildEditForm(editing),
@@ -1167,13 +1317,23 @@ window.__ModuleLoader__.load({
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
-				// 顶部操作行：审计在左，「新建连接」主按钮置右侧
+				// 顶部操作行：审计 + 导出/导入在左，「新建连接」主按钮置右侧
 				React.createElement(
 					"div",
 					{ className: "dbt-row", style: { justifyContent: "space-between" } },
-					React.createElement("button", { className: "dbt-btn", "aria-expanded": auditOpen, ...focusRingProps(), onClick: loadAudit }, t("auditShort")),
+					React.createElement(
+						"div",
+						{ className: "dbt-row" },
+						React.createElement("button", { className: "dbt-btn", "aria-expanded": auditOpen, ...focusRingProps(), onClick: loadAudit }, t("auditShort")),
+						React.createElement("button", { className: "dbt-btn", disabled: busy === "export", ...focusRingProps(), onClick: () => setPassReq("export") }, t("exportConns")),
+						React.createElement("button", { className: "dbt-btn", disabled: busy === "import", ...focusRingProps(), onClick: () => { if (fileRef.current) fileRef.current.click(); } }, t("importConns")),
+					),
 					React.createElement("button", { className: "dbt-btn primary", ...focusRingProps(), onClick: () => setEditing("new") }, t("newConn")),
 				),
+				// 隐藏文件选择器：仅导入用，accept 限定 .json
+				React.createElement("input", { type: "file", accept: ".json", "aria-label": t("pickFile"), style: { display: "none" }, ref: fileRef, onChange: onPickFile }),
+				// 导出/导入就地反馈（与测试反馈同语言：dbt-msg 绿 / dbt-err 红）
+				ioInfo ? React.createElement("div", { role: ioInfo.kind === "ok" ? "status" : "alert", className: ioInfo.kind === "ok" ? "dbt-msg" : "dbt-err" }, ioInfo.text) : null,
 				conns.length === 0
 					? // 空状态引导：一句引导 + 主按钮直达新增表单（state 切换在 ManageView 内）
 						React.createElement(
@@ -1231,6 +1391,12 @@ window.__ModuleLoader__.load({
 								auditTable(audit),
 					)
 					: null,
+				// 口令弹窗：导出/导入共用；取消（null）不动作
+				passReq ? React.createElement(PassphraseDialog, {
+					title: passReq === "export" ? t("exportConns") : t("importConns"),
+					confirmLabel: passReq === "export" ? t("exportConns") : t("importConns"),
+					onClose: onPassphrase,
+				}) : null,
 			);
 		}
 

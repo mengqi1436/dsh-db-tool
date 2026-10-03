@@ -130,3 +130,93 @@ describe('DbToolService: 构造与错误契约', () => {
     }
   });
 });
+
+describe('DbToolService: 连接导出/导入', () => {
+  it('round-trip：导出 → 删除 → 导入恢复（含机密）', async () => {
+    const fx = await makeFixture('rw');
+    try {
+      const json = fx.service.exportConnections('口令-12345');
+      expect(typeof json).toBe('string');
+      // 密文不得含明文机密
+      expect(json).not.toContain('s3cret');
+      expect(json).not.toContain(CONN_URL);
+
+      // 删除连接后导入恢复
+      expect(fx.service.removeConnection(CONN_ID)).toBe(true);
+      expect(fx.service.listConnections()).toHaveLength(0);
+
+      const summary = fx.service.importConnections(json, '口令-12345');
+      expect(summary.imported).toBe(1);
+      expect(summary.errors).toEqual([]);
+      const restored = fx.service.listConnections();
+      expect(restored).toHaveLength(1);
+      expect(restored[0]?.id).toBe(CONN_ID);
+      // 机密一并恢复（testTarget 能拼回真实 URL）
+      expect(fx.store.connections.testTarget(CONN_ID).url).toBe(CONN_URL);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('错口令导入 → INVALID_ARGUMENT（口令错误或文件已损坏）', async () => {
+    const fx = await makeFixture('rw');
+    try {
+      const json = fx.service.exportConnections('正确口令-abc');
+      expect(() => fx.service.importConnections(json, '错误口令-abc')).toThrowError(
+        expect.objectContaining({
+          code: 'INVALID_ARGUMENT',
+          message: '口令错误或文件已损坏',
+        }) as Error,
+      );
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('空口令导出/空参数导入 → INVALID_ARGUMENT', async () => {
+    const fx = await makeFixture('rw');
+    try {
+      expect(() => fx.service.exportConnections('')).toThrowError(
+        expect.objectContaining({ code: 'INVALID_ARGUMENT' }) as Error,
+      );
+      expect(() => fx.service.importConnections('', 'pass-1234')).toThrowError(
+        expect.objectContaining({ code: 'INVALID_ARGUMENT' }) as Error,
+      );
+      expect(() => fx.service.importConnections('{}', '')).toThrowError(
+        expect.objectContaining({ code: 'INVALID_ARGUMENT' }) as Error,
+      );
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('导出与导入均写审计（记条数，不落口令）', async () => {
+    const fx = await makeFixture('rw');
+    try {
+      const json = fx.service.exportConnections('秘密口令-abc');
+      let last = fx.store.audit.tail(1)[0];
+      expect(last).toMatchObject({
+        projectPathKey: '',
+        action: 'export_connections',
+        danger: 'none',
+        ok: true,
+      });
+      expect(last?.statement).toContain('1');
+      expect(last?.statement).not.toContain('秘密口令');
+
+      fx.service.removeConnection(CONN_ID);
+      fx.service.importConnections(json, '秘密口令-abc');
+      last = fx.store.audit.tail(1)[0];
+      expect(last).toMatchObject({
+        projectPathKey: '',
+        action: 'import_connections',
+        danger: 'none',
+        ok: true,
+      });
+      expect(last?.statement).toContain('1');
+      expect(last?.statement).not.toContain('秘密口令');
+    } finally {
+      await fx.dispose();
+    }
+  });
+});

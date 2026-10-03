@@ -177,6 +177,25 @@ async function route(
     }
   }
 
+  // 连接导出/导入（口令加密包）。必须置于 connMatch 之前：
+  // /api/connections/export 与 /api/connections/import 都是单层路径，
+  // 若落到 connMatch 会被当作连接 id 匹配（DELETE 无分支静默 404、PUT 误更新）。
+  if (path === '/api/connections/export' && req.method === 'POST') {
+    const b = await readBody(req);
+    const passphrase = str(b['passphrase']);
+    if (!passphrase) return send(res, 400, { ok: false, error: '缺少 passphrase', code: 'INVALID_ARGUMENT' });
+    const count = service.listConnections().length; // 权威条数，前端不再用可能过期的本地列表
+    return sendOk(res, { json: service.exportConnections(passphrase), count });
+  }
+  if (path === '/api/connections/import' && req.method === 'POST') {
+    const b = await readBody(req);
+    const json = str(b['json']);
+    const passphrase = str(b['passphrase']);
+    if (!json) return send(res, 400, { ok: false, error: '缺少 json', code: 'INVALID_ARGUMENT' });
+    if (!passphrase) return send(res, 400, { ok: false, error: '缺少 passphrase', code: 'INVALID_ARGUMENT' });
+    return sendOk(res, service.importConnections(json, passphrase));
+  }
+
   // 测试未保存的连接草稿（保存前测试；不落库）
   if (path === '/api/test-draft' && req.method === 'POST') {
     const b = await readBody(req);

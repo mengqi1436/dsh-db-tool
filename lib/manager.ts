@@ -33,10 +33,12 @@ import {
   DbToolStore,
   mergeUrlCredentials,
   normalizeProjectKey,
+  DECRYPT_FAIL_MESSAGE,
   type AuditEntry,
   type DangerLevel,
 } from './store/index.js';
 import { runScriptInChild } from './script/runner.js';
+import { decryptPayload, encryptPayload } from './store/export-crypto.js';
 
 /* ---------------- 错误与结果类型 ---------------- */
 
@@ -240,6 +242,68 @@ export class DbToolService {
     } catch (e) {
       throw this.toDriverError(e);
     }
+  }
+
+  /* -- 连接导出/导入（口令加密，无需授权；口令不落审计） -- */
+
+  /** 口令下限：导出包含全部连接机密（明文密码/完整 URL），安全边界在服务端而非 UI */
+  private static readonly PASSPHRASE_MIN = 8;
+
+  /**
+   * 导出全部连接（含机密）为口令加密的 JSON 密文。
+   * 审计只记连接条数，绝不落口令与密文内容。
+   */
+  exportConnections(passphrase: string): string {
+    const pp = assertNonEmpty(passphrase, 'passphrase');
+    if (pp.length < DbToolService.PASSPHRASE_MIN) {
+      throw new DbToolError('INVALID_ARGUMENT', `口令长度至少 ${DbToolService.PASSPHRASE_MIN} 位`);
+    }
+    const bundle = this.store.connections.exportBundle();
+    const json = encryptPayload(bundle, pp);
+    this.audit('', '', 'export_connections', `导出 ${bundle.connections.length} 个连接`, 'none', false, true);
+    return json;
+  }
+
+  /**
+   * 从口令加密的 JSON 密文导入连接。口令错误或密文损坏统一报
+   * INVALID_ARGUMENT(DECRYPT_FAIL_MESSAGE)（不区分原因，防口令探测）。
+   */
+  importConnections(encryptedJson: string, passphrase: string): { imported: number; skipped: string[]; errors: { id: string; message: string }[] } {
+    const enc = assertNonEmpty(encryptedJson, 'json');
+    const pp = assertNonEmpty(passphrase, 'passphrase');
+    if (pp.length < DbToolService.PASSPHRASE_MIN) {
+      throw new DbToolError('INVALID_ARGUMENT', `口令长度至少 ${DbToolService.PASSPHRASE_MIN} 位`);
+    }
+    let bundle: unknown;
+    try {
+      bundle = decryptPayload(enc, pp);
+    } catch {
+      // 口令错误/密文损坏/非合法 JSON 统一归一（decryptPayload 已统一文案，这里兜底）
+      throw new DbToolError('INVALID_ARGUMENT', DECRYPT_FAIL_MESSAGE);
+    }
+    // 结构校验：必须是含 connections 数组的对象，且每个元素为带非空 string id/kind 的对象。
+    // 畸形元素会让 importBundle 在 try 之外抛 TypeError（绕开统一文案），
+    // 或以 undefined id 静默落库成 UI 删不掉的幽灵记录
+    const conns = (bundle as { connections?: unknown } | null)?.connections;
+    if (
+      !bundle ||
+      typeof bundle !== 'object' ||
+      !Array.isArray(conns) ||
+      conns.some(
+        (c) =>
+          c === null ||
+          typeof c !== 'object' ||
+          typeof (c as { id?: unknown }).id !== 'string' ||
+          (c as { id: string }).id === '' ||
+          typeof (c as { kind?: unknown }).kind !== 'string' ||
+          (c as { kind: string }).kind === '',
+      )
+    ) {
+      throw new DbToolError('INVALID_ARGUMENT', DECRYPT_FAIL_MESSAGE);
+    }
+    const summary = this.store.connections.importBundle(bundle as Parameters<DbToolStore['connections']['importBundle']>[0]);
+    this.audit('', '', 'import_connections', `导入 ${summary.imported} 个连接，跳过 ${summary.skipped.length} 个，失败 ${summary.errors.length} 个`, 'none', false, true);
+    return summary;
   }
 
   /* -- 授权管理 -- */

@@ -19,11 +19,13 @@ import { chmodBestEffort } from './io.js';
 import { SecretsBox } from './secrets.js';
 
 export { normalizeProjectKey } from './normalize.js';
-export { mergeUrlCredentials, redactUrl } from './connections.js';
+export { mergeUrlCredentials, redactUrl, DuplicateConnectionError } from './connections.js';
+export { encryptPayload, decryptPayload, DECRYPT_FAIL_MESSAGE } from './export-crypto.js';
 export type { DangerLevel, AuditEntry, AuditEntryInput } from './audit.js';
 export type {
   ConnectionCreateInput,
   ConnectionUpdateInput,
+  ConnRecord,
 } from './connections.js';
 export type { GrantEntry } from './grants.js';
 export type { SecretEntry } from './secrets.js';
