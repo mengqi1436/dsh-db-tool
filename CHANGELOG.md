@@ -1,5 +1,21 @@
 # Changelog — dsh-db-tool
 
+## 1.5.91
+
+新增 Navicat 17 级 SQL 控制台：8 类数据库统一的多标签控制台，含 CodeMirror 6 编辑器、多语句分割执行、事务粘性会话与事务内查询、结果网格。
+
+### 新增
+
+- **SQL 控制台重构**：多标签（内存态）、CodeMirror 6 编辑器（esbuild 打包为 `vendor/codemirror-sql.cjs`，方言按连接类型映射 MySQL/PostgreSQL/SQLite/PLSQL，表列 schema 补全、SQL 格式化、Mod-Enter 全量执行 / Shift-Mod-Enter 选中执行、三途全败静默降级 textarea）。
+- **多语句分割执行**：`splitSqlStatements` 方言感知切分（引号转义、`--`/`/* */` 注释、PG `$$` dollar-quoting、MySQL `DELIMITER`、Oracle/达梦 `BEGIN..END` 与存储块），逐条按读头预分类走 query/execute，每条自带 guard/challenge/审计。
+- **事务粘性会话**：`POST /api/console/{begin,exec,commit,rollback}`——会话专用适配器 + 粘性连接（checkout 单一 client，对齐 oracledb/pg 官方单连接串行与事务随连接语义）、enqueue 串行化、空闲 TTL 5 分钟回收、TOCTOU 注册前复核、per-connId 会话上限、全链路审计；oracle/dmdb 事务通道按语句头分流，事务内 SELECT 返回结果集。
+- **结果网格 ResultSetGrid**：客户端分页 50/页、表头三态排序（数值/字符串感知、稳定）、单元格点击复制、CSV/JSON 导出（Blob + a.download）。
+- **执行历史**：每标签内存态历史面板（语句/耗时/成败），点击回填。
+
+### 修复
+
+- OCR 审查 17 条全部处置：事务 finish 并发竞态（enqueue 包裹 + 幂等结算）、`database` 入参显式拒绝（防静默写错库）、连接更新/删除即时清理事务会话、TOCTOU 授权复核、`@lezer/highlight` 幽灵依赖显式声明等；风格类两条按既有代码一致性反驳。
+
 ## 1.5.9
 
 修复 PostgreSQL/GaussDB 跨 schema 单元格保存报「数据库不存在」。
