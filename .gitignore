@@ -20,3 +20,4 @@ dsh-boot-diag*.txt
 out/
 .tmp-*
 .impeccable/
+docs/
