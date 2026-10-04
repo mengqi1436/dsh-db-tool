@@ -2843,6 +2843,7 @@ window.__ModuleLoader__.load({
 			const conns = props.conns || [];
 			const projectPath = props.projectPath;
 			const askConfirm = props.askConfirm;
+			const visible = props.visible; // Panel 传入：视图隐藏时停轮询
 			const [srcId, setSrcId] = React.useState("");
 			const [dstId, setDstId] = React.useState("");
 			// 层级状态（BrowsePane 同语义：database=对象树第一层，schema=第二层仅 pg 系；""=连接默认上下文）
@@ -3444,8 +3445,8 @@ window.__ModuleLoader__.load({
 				manage: React.createElement(ManageView, shared),
 				grants: React.createElement(GrantsView, shared),
 				console: React.createElement(ConsoleView, shared),
-				transfer: React.createElement(TransferView, shared),
-				tlog: React.createElement(TransferLogView, shared),
+				transfer: React.createElement(TransferView, Object.assign({}, shared, { visible })),
+				tlog: React.createElement(TransferLogView, Object.assign({}, shared, { visible })),
 			};
 			return React.createElement(
 				"div",
