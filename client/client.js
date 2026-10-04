@@ -2865,6 +2865,21 @@ window.__ModuleLoader__.load({
 			const [tableConcurrency, setTableConcurrency] = React.useState(4);
 			const [shardConcurrency, setShardConcurrency] = React.useState(4);
 			const [overwriteStructure, setOverwriteStructure] = React.useState(false);
+			const [subTab, setSubTab] = React.useState("live"); // live=实时进度 | history=传输历史
+			const [liveTasks, setLiveTasks] = React.useState(null); // 运行中任务快照（2s 轮询）
+			// 实时进度轮询：标签可见即轮（不依赖本视图发起的任务，重启/外部发起的传输也可见）
+			React.useEffect(() => {
+				const loadLive = () => {
+					api("transfer/live" + qs({ project: projectPath }))
+						.then((list) => setLiveTasks(Array.isArray(list) ? list : []))
+						.catch(() => setLiveTasks([]));
+				};
+				loadLive();
+				if (!visible) return undefined;
+				const timer = setInterval(loadLive, 2000);
+				return () => clearInterval(timer);
+			}, [visible, projectPath]);
+			const pct = (rows, total) => (total != null && total > 0 ? Math.min(100, Math.round((rows / total) * 100)) + "%" : "—");
 			const [task, setTask] = React.useState(null); // {id, snap}
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState("");
@@ -3250,7 +3265,7 @@ window.__ModuleLoader__.load({
 								React.createElement("tr", { key: tb.name },
 									React.createElement("td", null, tb.name),
 									React.createElement("td", { style: statusColor(tb.status) }, statusLabel(tb.status)),
-									React.createElement("td", null, String(tb.rows) + (tb.totalRows != null ? " / " + tb.totalRows : "")),
+									React.createElement("td", null, String(tb.rows) + (tb.totalRows != null ? " / " + tb.totalRows + "（" + pct(tb.rows, tb.totalRows) + "）" : "")),
 									React.createElement("td", null, tb.shardsDone + "/" + tb.shardsTotal + (tb.shardsFailed > 0 ? " (" + tb.shardsFailed + "×)" : "")))))),
 						(task.snap.failures || []).length > 0
 							? React.createElement("div", { className: "dbt-group" },
@@ -3286,7 +3301,6 @@ window.__ModuleLoader__.load({
 				),
 			);
 		}
-
 		/* ---------------- 传输日志（独立标签：实时事件流，5s 自动刷新） ---------------- */
 		function TransferLogView(props) {
 			const projectPath = props.projectPath;

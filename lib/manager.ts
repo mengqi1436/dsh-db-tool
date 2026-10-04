@@ -1089,6 +1089,14 @@ export class DbToolService {
       : this.store.transferLog.tail(n, undefined, 'finish');
   }
 
+  /** 实时进度：全部运行中任务的快照（可选按项目过滤），供「实时进度」子标签轮询 */
+  transferLive(projectPath: string | undefined): Array<{ taskId: string; snapshot: TransferSnapshot }> {
+    const key = projectPath && projectPath.trim() !== '' ? normalizeProjectKey(projectPath) : undefined;
+    return [...this.transferTasks.entries()]
+      .filter(([, e]) => e.task.snapshot().status === 'running' && (!key || e.projectKey === key))
+      .map(([taskId, e]) => ({ taskId, snapshot: e.task.snapshot() }));
+  }
+
   /** 传输日志：最近 n 条全事件行（start/表完成/进度/终态），供日志标签实时查看 */
   transferLogTail(projectPath: string | undefined, limit = 200): ReturnType<DbToolStore['transferLog']['tail']> {
     const n = Math.min(Math.max(1, Math.floor(limit) || 200), 2000);

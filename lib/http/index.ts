@@ -323,6 +323,10 @@ async function route(
     const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
     return sendOk(res, service.transferLogTail(projectOf(q), limit));
   }
+  // 实时进度：运行中任务快照（含百分比所需行数），前端 2s 轮询
+  if (path === '/api/transfer/live' && req.method === 'GET') {
+    return sendOk(res, service.transferLive(projectOf(q)));
+  }
   if (path === '/api/transfer-history' && req.method === 'GET') {
     const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
     return sendOk(res, service.transferHistory(projectOf(q), limit));
