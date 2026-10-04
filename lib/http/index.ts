@@ -298,6 +298,51 @@ async function route(
     ));
   }
 
+  // 数据传输（并行任务）：start 需危险确认（challenge 往返）；GET :taskId 轮询进度
+  //（快照 JSON-safe，bigint 键已转字符串）；POST :taskId/cancel 取消
+  if (path === '/api/transfer/start' && req.method === 'POST') {
+    const b = await readBody(req);
+    return await sendMaybeConfirm(res, service.transferStart(projectOfBody(b), {
+      sourceConnId: str(b['sourceConnId']),
+      targetConnId: str(b['targetConnId']),
+      tables: Array.isArray(b['tables']) ? (b['tables'] as unknown[]).map(String) : [],
+      writeMode: b['writeMode'] as 'insert' | 'ignore' | 'replace' | undefined,
+      batchSize: num(b['batchSize']),
+      tableConcurrency: num(b['tableConcurrency']),
+      shardConcurrency: num(b['shardConcurrency']),
+      overwriteStructure: b['overwriteStructure'] === true,
+      sourceDatabase: optStr(b['sourceDatabase']),
+      sourceSchema: optStr(b['sourceSchema']),
+      targetDatabase: optStr(b['targetDatabase']),
+      targetSchema: optStr(b['targetSchema']),
+    }, optStr(b['challengeId'])));
+  }
+  // 传输历史：终态持久化（任何时候可查已传输/失败结果），支持按项目清除防积累
+  // 传输日志：全事件行（start/表完成/进度/终态），日志标签页 5s 轮询实时查看
+  if (path === '/api/transfer-log' && req.method === 'GET') {
+    const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
+    return sendOk(res, service.transferLogTail(projectOf(q), limit));
+  }
+  if (path === '/api/transfer-history' && req.method === 'GET') {
+    const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
+    return sendOk(res, service.transferHistory(projectOf(q), limit));
+  }
+  if (path === '/api/transfer-history/clear' && req.method === 'POST') {
+    return sendOk(res, service.transferHistoryClear());
+  }
+  const transferMatch = /^\/api\/transfer\/([^/]+)(\/cancel)?$/.exec(path);
+  if (transferMatch) {
+    const id = decodeURIComponent(transferMatch[1] ?? '');
+    if (transferMatch[2] === '/cancel' && req.method === 'POST') {
+      const b = await readBody(req);
+      return sendOk(res, await service.transferCancel(projectOfBody(b), id));
+    }
+    if (req.method === 'GET') {
+      // 进度快照含表清单/行数/错误详情：与 cancel 同样要求项目授权（query 带 project）
+      return sendOk(res, await service.transferProgress(projectOf(q), id));
+    }
+  }
+
   // 控制台事务会话（粘性连接）：begin 发 token；exec 语义等同 execute（可能
   // NEEDS_CONFIRMATION）；commit/rollback 提交/回滚后销毁会话。trust 与 body
   // 校验复用入口层既有链路。
@@ -481,6 +526,12 @@ function parseSsl(v: unknown): boolean | undefined | 'invalid' {
 
 function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
+}
+
+/** 可选正整数字段：undefined/非法值返回 undefined（服务层兜底默认） */
+function num(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 }
 
 function projectOf(q: URLSearchParams): string | undefined {

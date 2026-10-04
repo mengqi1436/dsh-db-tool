@@ -7,6 +7,7 @@
  *  2. better-sqlite3（optionalDependency；预构建缺失或本地编译失败时 pnpm 会
  *     自动排除该包，不影响插件整体安装，动态加载失败时回退到明确报错）
  */
+import { basename } from 'node:path';
 import type {
   AccessMode,
   AdapterFactory,
@@ -21,10 +22,14 @@ import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIde
 
 /** 两驱动的最小公共面（本适配器只用这些能力）。 */
 interface SqliteStatement {
-  columns(): { name: string }[];
+  /** node:sqlite 需 Node ≥ 22.16.0 才有（22.13–22.15 可加载但无此方法），取列名走 stmtColumns */
+  columns?(): { name: string }[];
   all(...params: unknown[]): Record<string, unknown>[];
   get(...params: unknown[]): Record<string, unknown> | undefined;
   run(...params: unknown[]): { changes?: number | bigint };
+  /** bigint 读取开关：node:sqlite 为 setReadBigInts，better-sqlite3 为 safeIntegers（按驱动可选） */
+  setReadBigInts?(on: boolean): void;
+  safeIntegers?(on: boolean): void;
 }
 export interface SqliteDatabase {
   prepare(sql: string): SqliteStatement;
@@ -98,6 +103,32 @@ function resolveFile(conn: ResolvedConnection): string {
   throw new Error('sqlite 连接缺少文件路径（fields.database / fields.path 或 url）');
 }
 
+/**
+ * 打开原始数据库句柄（不包适配器规范化）。数据传输读写端用：
+ * 必须绕过 normalizeCell（BLOB 截断 / bigint 降位）保真搬运原始值。
+ */
+export async function openRaw(
+  conn: ResolvedConnection,
+  readOnly: boolean,
+): Promise<{ db: SqliteDatabase; driver: string }> {
+  const file = resolveFile(conn);
+  const { ctor, driver } = await loadDriver();
+  try {
+    // 选项名按驱动区分：node:sqlite 用 readOnly（打开不存在文件即报错；官方签名
+    // new DatabaseSync(location[, options])，options 为可选参数，空对象与不传/undefined
+    // 等价，open 默认 true —— https://nodejs.org/docs/latest-v24.x/api/sqlite.html）；
+    // better-sqlite3 用 readonly + fileMustExist。rw 模式两驱动均传空对象。
+    const db = driver === 'node:sqlite'
+      ? new ctor(file, readOnly ? { readOnly: true } : {})
+      : new ctor(file, readOnly ? { readonly: true, fileMustExist: true } : {});
+    return { db, driver };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // 只带文件名不带完整路径：错误会经驱动错误通道外发（传输失败快照等），避免内网路径泄露
+    throw new Error(`sqlite 打开失败 (${basename(file)}, 驱动 ${driver}): ${msg}`);
+  }
+}
+
 function toQueryResult(raw: Record<string, unknown>[], columns: string[]): QueryResult {
   return {
     columns,
@@ -106,25 +137,26 @@ function toQueryResult(raw: Record<string, unknown>[], columns: string[]): Query
   };
 }
 
+/**
+ * 取 SELECT 列名。stmt.columns() 在 node:sqlite 需 Node ≥ 22.16.0（官方文档
+ * "Added in: v22.16.0"，https://nodejs.org/docs/latest-v22.x/api/sqlite.html），
+ * 而本适配器放行的最低版本是 22.5——22.13.0–22.15.x 上 columns 为 undefined，
+ * 无条件调用即 TypeError（浏览主路径 query/previewRows 每次必崩）。旧版本回退
+ * 到结果首行的 keys（对象字符串键保序 = SELECT 列序；纯数字列名会被当作整数
+ * 索引键排前，属降级路径已知盲区）。空结果集无行可推，返回空列头。
+ */
+export function stmtColumns(stmt: SqliteStatement, raw: Record<string, unknown>[]): string[] {
+  if (typeof stmt.columns === 'function') return stmt.columns().map((c) => c.name);
+  const first = raw[0];
+  return first ? Object.keys(first) : [];
+}
+
 export async function createSqliteAdapter(
   conn: ResolvedConnection,
   opts?: { mode?: AccessMode },
 ): Promise<DatabaseAdapter> {
-  const file = resolveFile(conn);
   const readOnly = opts?.mode === 'ro';
-  const { ctor, driver } = await loadDriver();
-  let db: SqliteDatabase;
-  try {
-    // 选项名按驱动区分：node:sqlite 用 readOnly（打开不存在文件即报错）；
-    // better-sqlite3 用 readonly + fileMustExist。node:sqlite 不接受显式
-    // undefined 作 options，rw 模式统一传空对象。
-    db = driver === 'node:sqlite'
-      ? new ctor(file, readOnly ? { readOnly: true } : {})
-      : new ctor(file, readOnly ? { readonly: true, fileMustExist: true } : {});
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`sqlite 打开失败 (${file}, 驱动 ${driver}): ${msg}`);
-  }
+  const { db, driver } = await openRaw(conn, readOnly);
 
   return {
     kind: 'sqlite',
@@ -141,9 +173,8 @@ export async function createSqliteAdapter(
     query: (sql, params) =>
       humanize('sqlite 查询失败', async () => {
         const stmt = db.prepare(sql);
-        const columns = stmt.columns().map((c) => c.name);
         const raw = stmt.all(...(params ?? [])) as Record<string, unknown>[];
-        return toQueryResult(raw, columns);
+        return toQueryResult(raw, stmtColumns(stmt, raw));
       }),
 
     execute: (statement, params) =>
@@ -201,9 +232,8 @@ export async function createSqliteAdapter(
         const lim = clampLimit(limit);
         const off = clampOffset(offset);
         const stmt = db.prepare(`SELECT * FROM ${tbl} LIMIT ? OFFSET ?`);
-        const columns = stmt.columns().map((c) => c.name);
         const raw = stmt.all(lim, off) as Record<string, unknown>[];
-        return toQueryResult(raw, columns);
+        return toQueryResult(raw, stmtColumns(stmt, raw));
       }),
 
     close: () =>

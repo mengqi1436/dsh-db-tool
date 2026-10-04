@@ -50,7 +50,7 @@ function makeClient(docs: Record<string, unknown>[] = []) {
     replaceOne: vi.fn(async () => ({ matchedCount: 1, modifiedCount: 0 })),
     deleteOne: vi.fn(async () => ({ deletedCount: 1 })),
     deleteMany: vi.fn(async () => ({ deletedCount: 5 })),
-	createIndexes: vi.fn(async (_specs?: unknown) => ({ createdNewIndexes: 1 })),
+	createIndexes: vi.fn(async (_specs?: unknown) => ['a_1']),
     dropIndex: vi.fn(async () => undefined),
     rename: vi.fn(async () => undefined),
   };
@@ -59,7 +59,7 @@ function makeClient(docs: Record<string, unknown>[] = []) {
     listCollections: vi.fn(() => ({
       toArray: vi.fn(async () => [{ name: 'users', type: 'collection' }]),
     })),
-    command: vi.fn(async () => ({ db: 'testdb', objects: 10 })),
+    command: vi.fn(async (_cmd?: Record<string, unknown>): Promise<Record<string, unknown>> => ({ db: 'testdb', objects: 10 })),
   };
   const client = {
     connect: vi.fn(async () => undefined),
@@ -67,6 +67,36 @@ function makeClient(docs: Record<string, unknown>[] = []) {
   };
   return { client, dbObj, coll };
 }
+
+describe('testConnect（版本信息取 buildInfo，hello 响应无 version 字段）', () => {
+  it('buildInfo.version → serverInfo 展示软件版本', async () => {
+    const { client, dbObj } = makeClient();
+    dbObj.command.mockResolvedValue({ version: '7.0.14' });
+    const a = await createMongoAdapter(conn, { client });
+    const r = await a.testConnect();
+    expect(r.ok).toBe(true);
+    expect(r.serverInfo).toBe('MongoDB 7.0.14');
+    expect(dbObj.command).toHaveBeenCalledWith({ buildInfo: 1 });
+  });
+  it('buildInfo 权限不足等失败 → 回退 hello 仅判连通（不再读恒 undefined 的 hello.version）', async () => {
+    const { client, dbObj } = makeClient();
+    dbObj.command.mockRejectedValueOnce(new Error('command buildInfo requires auth'))
+      .mockResolvedValueOnce({ isWritablePrimary: true, maxWireVersion: 21 });
+    const a = await createMongoAdapter(conn, { client });
+    const r = await a.testConnect();
+    expect(r.ok).toBe(true);
+    expect(r.serverInfo).toContain('版本信息不可读');
+    expect(dbObj.command).toHaveBeenLastCalledWith({ hello: 1 });
+  });
+  it('hello 也失败 → ok:false（连通性判定不受兜底影响）', async () => {
+    const { client, dbObj } = makeClient();
+    dbObj.command.mockRejectedValue(new Error('connection refused'));
+    const a = await createMongoAdapter(conn, { client });
+    const r = await a.testConnect();
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('connection refused');
+  });
+});
 
 describe('DANGEROUS_OPS 常量完备性', () => {
   it('含全部 11 项（含复数别名与 renameCollection）', () => {
@@ -337,6 +367,14 @@ describe('execute 文档级 DML 的 Extended JSON 复活', () => {
     const specs = coll.createIndexes.mock.calls[0]![0] as { partialFilterExpression: { score: unknown } }[];
     // $oid 未被复活：仍是普通 EJSON 对象（非 ObjectId 实例），规格逐字原样
     expect(specs[0]!.partialFilterExpression.score).toEqual({ $oid: '507f1f77bcf86cd799439011' });
+  });
+  it('createIndexes 返回索引名数组（官方 Promise<string[]>，无 createdNewIndexes 字段）→ affectedRows=名字数', async () => {
+    const { client, coll } = makeClient();
+    coll.createIndexes.mockResolvedValue(['a_1', 'b_1']);
+    const a = await createMongoAdapter(conn, { client });
+    const r = await a.execute('{"createIndexes":"u","indexes":[{"key":{"a":1},"name":"a_1"},{"key":{"b":1},"name":"b_1"}]}');
+    expect(r.affectedRows).toBe(2);
+    expect(r.message).toContain('2 个');
   });
 });
 

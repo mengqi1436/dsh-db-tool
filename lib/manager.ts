@@ -39,6 +39,7 @@ import {
 } from './store/index.js';
 import { runScriptInChild } from './script/runner.js';
 import { decryptPayload, encryptPayload } from './store/export-crypto.js';
+import { startTransferTask, type TransferSnapshot, type TransferTask } from './transfer.js';
 
 /* ---------------- 错误与结果类型 ---------------- */
 
@@ -120,6 +121,15 @@ function assertNonEmpty(v: string | undefined, label: string): string {
 /** 单连接并发控制台事务会话上限（每会话独占驱动池 + checkout 连接，防连接耗尽） */
 const MAX_CONSOLE_SESSIONS_PER_CONN = 4;
 
+/** 全局并发传输任务上限（每任务独立 reader/writer 连接，防连接耗尽） */
+const MAX_TRANSFER_TASKS = 8;
+
+/** 终态快照保留窗口：前端轮询间隔 800ms + 慢网络余量；窗口后定时清除（不无限滞留） */
+const TRANSFER_SNAPSHOT_TTL_MS = 60_000;
+
+/** 单任务表清单上限：statement 进 challenge 响应与审计（表名全量 join），防兆级放大 */
+const MAX_TRANSFER_TABLES = 1000;
+
 /* ---------------- 服务核心 ---------------- */
 
 export class DbToolService {
@@ -159,9 +169,11 @@ export class DbToolService {
     const meta = this.store.connections.update(id, patch);
     if (!meta) throw new DbToolError('NOT_FOUND', `连接不存在: ${id}`);
     // url/凭证/ssl 变更后旧适配器仍持旧连接串，必须作废重建；
-    // 控制台事务会话的专用适配器不在缓存里，单独回收（否则旧凭据最长存活到空闲 TTL）
+    // 控制台事务会话的专用适配器不在缓存里，单独回收（否则旧凭据最长存活到空闲 TTL）；
+    // 传输任务持独立连接，同样回收（凭证变更后不得按旧凭据继续读写）
     void this.dropAdapters(id);
     void this.dropConsoleSessions(id);
+    this.cancelTransferTasksForConn(id);
     this.audit('', id, 'update_connection', id, 'none', false, true);
     return meta;
   }
@@ -171,6 +183,7 @@ export class DbToolService {
     if (!ok) throw new DbToolError('NOT_FOUND', `连接不存在: ${id}`);
     void this.dropAdapters(id);
     void this.dropConsoleSessions(id);
+    this.cancelTransferTasksForConn(id);
     this.audit('', id, 'remove_connection', id, 'none', false, true);
     return ok;
   }
@@ -332,6 +345,7 @@ export class DbToolService {
     this.store.grants.revoke(key, connId);
     void this.dropAdapters(connId);
     void this.dropConsoleSessions(connId);
+    this.cancelTransferTasksForConn(connId); // 撤销后任务立即止损（否则写端全速跑完，管理员无系统内手段）
     this.audit(key, connId, 'revoke', connId, 'none', false, true);
   }
 
@@ -859,8 +873,7 @@ export class DbToolService {
   }
 
   /** 空闲 TTL 扫描：超时会话强制回滚（close 适配器）并审计一条超时回滚 */
-  private consoleSweep(): void {
-    const now = Date.now();
+  private consoleSweep(): void {    const now = Date.now();
     for (const [token, s] of this.consoleSessions) {
       if (now - s.lastAccess <= this.consoleTtlMs) continue;
       this.consoleSessions.delete(token);
@@ -889,6 +902,212 @@ export class DbToolService {
       } catch {
         // 已断开等场景忽略
       }
+    }
+  }
+
+  /* -- 数据传输（并行任务） -- */
+
+  /** 运行中的传输任务（taskId → 条目）；终态后保留一个轮询窗口再清除（见 finished 回调） */
+  private readonly transferTasks = new Map<string, {
+    task: TransferTask;
+    sourceConnId: string;
+    targetConnId: string;
+    projectKey: string;
+    statement: string;
+  }>();
+
+  async transferStart(
+    projectPath: string | undefined,
+    input: {
+      sourceConnId: string;
+      targetConnId: string;
+      tables: string[];
+      writeMode?: 'insert' | 'ignore' | 'replace' | 'truncate';
+      overwriteStructure?: boolean;
+      batchSize?: number;
+      tableConcurrency?: number;
+      shardConcurrency?: number;
+      /** 源/目标库与模式定位（BrowsePane 语义；缺省 = 连接默认上下文） */
+      sourceDatabase?: string;
+      sourceSchema?: string;
+      targetDatabase?: string;
+      targetSchema?: string;
+    },
+    challengeId?: string,
+  ): Promise<{ taskId: string } | NeedConfirm> {
+    const tables = input.tables;
+    if (!Array.isArray(tables) || tables.length === 0) {
+      throw new DbToolError('INVALID_ARGUMENT', 'tables 必须是非空字符串数组');
+    }
+    // 编排层按表名反查进度条目：重复名会让两遍传输共享同一进度对象且第二条永久 pending
+    if (new Set(tables).size !== tables.length) {
+      throw new DbToolError('INVALID_ARGUMENT', 'tables 存在重复表名，请去重后重试');
+    }
+    if (tables.length > MAX_TRANSFER_TABLES) {
+      throw new DbToolError('INVALID_ARGUMENT', `单任务表数超上限（${tables.length} > ${MAX_TRANSFER_TABLES}），请分批传输`);
+    }
+    const writeMode = input.writeMode ?? 'insert';
+    if (writeMode !== 'insert' && writeMode !== 'ignore' && writeMode !== 'replace' && writeMode !== 'truncate') {
+      throw new DbToolError('INVALID_ARGUMENT', `writeMode 非法: ${String(writeMode)}（insert/ignore/replace/truncate）`);
+    }
+    // 源连接只读授权即可（传输读端自建专用连接）；目标连接需写
+    const { key: srcKey } = await this.authorize(projectPath, input.sourceConnId, false);
+    const { key: dstKey } = await this.authorize(projectPath, input.targetConnId, true);
+    const source = this.requireConn(input.sourceConnId);
+    const target = this.requireConn(input.targetConnId);
+    // 定位：optStr 语义（存在则 trim 非空才收，否则忽略）；缺省 = 连接默认上下文
+    const optLoc = (v: string | undefined): string | undefined => {
+      const s = typeof v === 'string' ? v.trim() : '';
+      return s !== '' ? s : undefined;
+    };
+    const srcDb = optLoc(input.sourceDatabase);
+    const srcSchema = optLoc(input.sourceSchema);
+    const dstDb = optLoc(input.targetDatabase);
+    const dstSchema = optLoc(input.targetSchema);
+    // 定位进 statement（start/finish/cancel 三链审计与 challenge 绑定共用一条），
+    // 首次生成与带 challengeId 重放同 input 必同值；schema 附着于库（前端联动恒先选库）
+    const locSeg = (db: string | undefined, schema: string | undefined): string =>
+      db ? (schema ? `${db}.${schema}` : db) : '';
+    const locPart = [
+      srcDb ? ` 源=${locSeg(srcDb, srcSchema)}` : '',
+      dstDb ? ` 目标=${locSeg(dstDb, dstSchema)}` : '',
+    ].join('');
+    const statement = `数据传输 ${source.meta.kind}(${source.meta.id}) → ${target.meta.kind}(${target.meta.id}) 表[${tables.join(', ')}] 模式=${writeMode}${locPart}`;
+
+    // 危险操作确认（批量建表+写入，对齐 runGuarded 的 danger 分支语义）
+    const scope: ChallengeScope = { connId: input.targetConnId, projectKey: dstKey };
+    if (!challengeId) {
+      const { id: cid } = this.challenges.create(statement, scope);
+      this.audit(dstKey, input.targetConnId, 'transfer', statement, 'danger', false, false, 'NEEDS_CONFIRMATION');
+      return {
+        needConfirmation: true,
+        challengeId: cid,
+        statement,
+        danger: 'danger',
+        reason: writeMode === 'truncate'
+          ? `【危险】将清空目标库 ${target.meta.kind}(${target.meta.id}) 中 ${tables.length} 张表的全部已有数据，随后重新写入，清空不可恢复，需要确认`
+          : `将向目标库 ${target.meta.kind}(${target.meta.id}) 建表并批量写入 ${tables.length} 张表，需要确认`,
+      };
+    }
+    if (!this.challenges.consume(challengeId, statement, scope)) {
+      this.audit(dstKey, input.targetConnId, 'transfer', statement, 'danger', false, false, 'INVALID_CHALLENGE');
+      throw new DbToolError('INVALID_CHALLENGE', '确认凭据无效（不存在、已使用、已过期或语句已变更），请重新发起');
+    }
+
+    // —— 同步段：预算检查 + 注册之间零 await，杜绝并发 start 双过检查（TOCTOU）——
+    this.sweepTransferTasks();
+    const running = [...this.transferTasks.values()].filter((e) => e.task.snapshot().status === 'running');
+    if (running.length >= MAX_TRANSFER_TASKS) {
+      throw new DbToolError('INVALID_ARGUMENT', `全局并发传输任务已达上限（${MAX_TRANSFER_TASKS}），请等待既有任务完成`);
+    }
+    if (running.some((e) => e.targetConnId === input.targetConnId)) {
+      throw new DbToolError('INVALID_ARGUMENT', '该目标连接已有传输任务在执行（同目标并发写入会互踩），请等待完成或先取消');
+    }
+    const task = startTransferTask(source, target, {
+      tables,
+      writeMode,
+      ...(input.batchSize !== undefined ? { batchSize: input.batchSize } : {}),
+      ...(input.tableConcurrency !== undefined ? { tableConcurrency: input.tableConcurrency } : {}),
+      ...(input.shardConcurrency !== undefined ? { shardConcurrency: input.shardConcurrency } : {}),
+      ...(input.overwriteStructure === true ? { overwriteStructure: true } : {}),
+      ...(srcDb !== undefined || srcSchema !== undefined ? { sourceDatabase: srcDb, sourceSchema: srcSchema } : {}),
+      ...(dstDb !== undefined || dstSchema !== undefined ? { targetDatabase: dstDb, targetSchema: dstSchema } : {}),
+      // 传输日志：任务开始/表完成/进度节流/终态逐行落 <我的文档>/DSH/transfer-log.jsonl
+      onLog: (ev: {
+        type: 'start' | 'table' | 'progress' | 'finish';
+        taskId: string;
+        status?: string;
+        table?: string;
+        rows?: number;
+        totalRows?: number | null;
+        tables?: TransferSnapshot['tables'];
+        failures?: TransferSnapshot['failures'];
+      }) => {
+        this.store.transferLog.append({
+          type: ev.type,
+          taskId: task.id,
+          projectPathKey: dstKey,
+          statement,
+          ...(ev.status !== undefined ? { status: ev.status } : {}),
+          ...(ev.table !== undefined ? { table: ev.table } : {}),
+          ...(ev.rows !== undefined ? { rows: ev.rows } : {}),
+          ...(ev.totalRows !== undefined ? { totalRows: ev.totalRows } : {}),
+          ...(ev.tables !== undefined ? { tables: ev.tables } : {}),
+          ...(ev.failures !== undefined ? { failures: ev.failures } : {}),
+        });
+      },
+    });
+    this.transferTasks.set(task.id, { task, sourceConnId: input.sourceConnId, targetConnId: input.targetConnId, projectKey: dstKey, statement });
+    this.audit(dstKey, input.targetConnId, 'transfer', statement, 'danger', true, true);
+    void task.finished.then((s: TransferSnapshot) => {
+      const failed = s.failures.length > 0;
+      this.audit(dstKey, input.targetConnId, 'transfer_finish', statement, 'danger', true, !failed, failed ? `${s.failures.length} 个分片/表失败` : undefined);
+      // 终态不无限滞留 Map：保留一个轮询窗口（前端 800ms 轮询 + 慢网络余量）供拉到
+      // 终态快照，之后定时清除；start 时的 sweepTransferTasks 兜底清同一批条目
+      setTimeout(() => {
+        this.transferTasks.delete(task.id);
+      }, TRANSFER_SNAPSHOT_TTL_MS);
+    });
+    return { taskId: task.id };
+  }
+
+  async transferProgress(projectPath: string | undefined, taskId: string): Promise<TransferSnapshot> {
+    const entry = this.transferTasks.get(taskId);
+    if (!entry) throw new DbToolError('NOT_FOUND', `传输任务不存在或已结束: ${taskId}`);
+    // 快照含表清单/行数/错误详情，非公开信息：与数据面接口一致要求项目授权，
+    // 且必须与发起项目同 key（taskId 可枚举，不能凭 id 越项目读取）
+    const { key } = await this.authorize(projectPath, entry.targetConnId, false);
+    if (key !== entry.projectKey) {
+      throw new DbToolError('UNAUTHORIZED_PROJECT', `传输任务不属于该项目: ${taskId}`);
+    }
+    return entry.task.snapshot();
+  }
+
+  async transferCancel(projectPath: string | undefined, taskId: string): Promise<{ cancelled: boolean }> {
+    const entry = this.transferTasks.get(taskId);
+    if (!entry) throw new DbToolError('NOT_FOUND', `传输任务不存在或已结束: ${taskId}`);
+    // 取消需对目标连接有写授权（能发起即能取消，授权语义对齐）
+    await this.authorize(projectPath, entry.targetConnId, true);
+    entry.task.cancel();
+    // 取消是影响目标库状态的操作：与 start/finish 同链审计（ok 以 cancelled 语义恒真）
+    this.audit(entry.projectKey, entry.targetConnId, 'transfer_cancel', entry.statement, 'danger', true, true);
+    return { cancelled: true };
+  }
+
+  /** 授权/连接变更时回收该连接参与的传输任务（对齐控制台会话的对称回收；cancel 为协作式，检查点退出） */
+  private cancelTransferTasksForConn(connId: string): void {
+    for (const entry of this.transferTasks.values()) {
+      if (entry.sourceConnId === connId || entry.targetConnId === connId) entry.task.cancel();
+    }
+  }
+
+  /** 传输历史：最近 n 条任务终态（可选按项目过滤）；对齐审计查询的公开语义 */
+  transferHistory(projectPath: string | undefined, limit = 50): ReturnType<DbToolStore['transferLog']['tail']> {
+    const n = Math.min(Math.max(1, Math.floor(limit) || 50), 200);
+    return projectPath && projectPath.trim() !== ''
+      ? this.store.transferLog.tail(n, normalizeProjectKey(projectPath), 'finish')
+      : this.store.transferLog.tail(n, undefined, 'finish');
+  }
+
+  /** 传输日志：最近 n 条全事件行（start/表完成/进度/终态），供日志标签实时查看 */
+  transferLogTail(projectPath: string | undefined, limit = 200): ReturnType<DbToolStore['transferLog']['tail']> {
+    const n = Math.min(Math.max(1, Math.floor(limit) || 200), 2000);
+    return projectPath && projectPath.trim() !== ''
+      ? this.store.transferLog.tail(n, normalizeProjectKey(projectPath))
+      : this.store.transferLog.tail(n);
+  }
+
+  /** 清除传输历史：全量清除（历史区与文件同步清空）。留审计。 */
+  transferHistoryClear(): { removed: number } {
+    const removed = this.store.transferLog.clear();
+    this.audit('', '', 'transfer_history_clear', '清除全部传输历史', 'none', false, true);
+    return { removed };
+  }
+
+  /** 清理终态任务（start 时调用；快照仅在 running 期间可查） */
+  private sweepTransferTasks(): void {
+    for (const [id, entry] of this.transferTasks) {
+      if (entry.task.snapshot().status !== 'running') this.transferTasks.delete(id);
     }
   }
 

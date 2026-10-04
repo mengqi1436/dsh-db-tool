@@ -13,6 +13,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { AuditLog } from './audit.js';
+import { TransferLog, transferLogDir } from './transfer-history.js';
+export type { TransferLogEntry, TransferLogType } from './transfer-history.js';
 import { ConnectionStore } from './connections.js';
 import { GrantStore } from './grants.js';
 import { chmodBestEffort } from './io.js';
@@ -38,6 +40,7 @@ export class DbToolStore {
   readonly secrets: SecretsBox;
   readonly grants: GrantStore;
   readonly audit: AuditLog;
+  readonly transferLog: TransferLog;
 
   constructor(homeDir?: string) {
     // || 而非 ??: DSH_HOME=""（空串）视为未设置，避免产出相对路径 'db-tool/'
@@ -48,6 +51,11 @@ export class DbToolStore {
     this.secrets = new SecretsBox(this.dir);
     this.grants = new GrantStore(this.dir);
     this.audit = new AuditLog(this.dir);
+    // 传输历史独立于 store：存到 <我的文档>/DSH/ 供用户直接查看；
+    // vitest 运行时仍走 temp home，避免测试写用户真实文档目录
+    this.transferLog = new TransferLog(
+      process.env.VITEST === 'true' ? this.dir : transferLogDir(),
+    );
     this.connections = new ConnectionStore(this.dir, this.secrets, this.grants);
   }
 }

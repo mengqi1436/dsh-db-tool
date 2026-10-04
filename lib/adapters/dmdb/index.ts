@@ -12,7 +12,9 @@
  *  - db.createPool({ connectString: 'dm://user:pass@host:5236', poolMin: 1, poolMax: 10,
  *    poolTimeout: 60, queueTimeout: 60000 })；不启用压缩（默认 compress=0，规避
  *    @napi-rs/snappy 跨平台坑）。
- *  - execute 必须显式 maxRows（默认 0=无限制）与 autoCommit: true（驱动默认非自动提交）。
+ *  - execute 必须显式 maxRows（默认 0=无限制）；autoCommit 显式传 true 使语义
+ *    不依赖驱动默认（驱动连接属性默认已是自动提交：dmdb connection.js
+ *    conn_prop_autoCommit = !0；d.ts 三级优先链 执行选项 > dmdb.autoCommit > 连接属性）。
  *  - 返回 { metaData, rows, rowsAffected } 与 oracledb 兼容。
  */
 import db from 'dmdb';
@@ -105,11 +107,11 @@ export interface DmAdapterOptions {
 }
 
 /** dmdb 池的最小结构（与 oracledb 一致：Pool 没有 execute，语句必须在 Connection 上执行） */
-interface DmPoolLike {
+export interface DmPoolLike {
   getConnection(): Promise<DmConnLike>;
   close(): Promise<void>;
 }
-interface DmConnLike {
+export interface DmConnLike {
   execute(sql: string, binds?: unknown[], opts?: Record<string, unknown>): Promise<DmResultLike>;
   commit(): Promise<void>;
   rollback(): Promise<void>;
@@ -144,7 +146,8 @@ export async function createDmAdapter(
     }
   }
 
-  /** 默认 execute 选项：显式 maxRows + 显式 autoCommit:true（dmdb 默认分别为 0/false，必须覆盖；SELECT 立即结束隐式事务，避免 ro 事务悬挂） */
+  /** 默认 execute 选项：显式 maxRows（dmdb 默认 0=无限制，必须覆盖）+ 显式 autoCommit:true
+   *  （驱动连接属性默认已是 true，显式传递仅让语义不依赖驱动默认；SELECT 立即结束隐式事务，避免 ro 事务悬挂） */
   const execOpts = { outFormat: db.OUT_FORMAT_OBJECT, maxRows: ROWS_MAX + 1, autoCommit: true };
   /** 事务内 execute：显式关闭自动提交，由 tx 的 commit/rollback 收口 */
   const execOptsTx = { ...execOpts, autoCommit: false };
@@ -385,10 +388,12 @@ export async function createDmAdapter(
       const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
       const off = Math.max(0, Math.floor(offset ?? 0) || 0);
       try {
-        // 统一 ANSI 分页（不依赖 compatibleMode=oracle），OFFSET/FETCH 均走 bind ⚠️ 推断（未真机验证）
+        // 统一 ANSI 分页（不依赖 compatibleMode=oracle）。ROW_LIMIT 子句语法图的
+        // <offset>/<大小> 均为字面 <整数>（DM8 SQL 手册），绑定占位符能否用于该
+        // 位置无官方佐证 → 内联经 clamp 的整数（off/n 源自内部 offset/limit，无注入面）
         const r = await withConn((c) => c.execute(
-          `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" OFFSET :o ROWS FETCH FIRST :n ROWS ONLY`,
-          [off, n],
+          `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" OFFSET ${off} ROWS FETCH FIRST ${n} ROWS ONLY`,
+          [],
           execOpts,
         ));
         return await rowsToQueryResult(r);
@@ -408,3 +413,19 @@ export async function createDmAdapter(
 }
 
 export const factory: AdapterFactory = async (conn) => createDmAdapter(conn);
+
+/** 数据传输读写端用的独立连接池 */
+export async function openDmPool(conn: ResolvedConnection): Promise<DmPoolLike> {
+  const { connectString } = resolveDmConn(conn);
+  try {
+    return (await db.createPool({
+      connectString,
+      poolMin: 1,
+      poolMax: 10,
+      poolTimeout: 60,
+      queueTimeout: 60000,
+    })) as unknown as DmPoolLike;
+  } catch (e) {
+    throw humanizeDmError(e);
+  }
+}

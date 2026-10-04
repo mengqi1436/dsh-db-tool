@@ -28,7 +28,11 @@ export interface PgLikeClient {
   release(err?: unknown): void;
 }
 export interface PgLikePool {
-  on(event: string, cb: (client: PgLikeClient) => void): unknown;
+  /** pg-pool 官方事件签名：'error' 回调 (err, client)（pool.emit('error', err, client)）、
+   *  'connect' 回调 (client)。其余事件按 EventEmitter 兜底 */
+  on(event: 'error', cb: (err: Error, client?: PgLikeClient) => void): unknown;
+  on(event: 'connect', cb: (client: PgLikeClient) => void): unknown;
+  on(event: string, cb: (...args: unknown[]) => void): unknown;
   query(text: string, values?: unknown[]): Promise<PgLikeResult>;
   connect(): Promise<PgLikeClient>;
   end(): Promise<void>;
@@ -66,9 +70,14 @@ export interface TxHandle {
   rollback(): Promise<void>;
 }
 
-function poolConfig(conn: ResolvedConnection, overrideUrl?: string): Record<string, unknown> {
+/** 多主机 authority 逐台重组段（host[:port]） */
+function joinHostSeg(h: PgUrlHost): string {
+  return `${h.host}${h.port != null ? ':' + h.port : ''}`;
+}
+
+function poolConfig(conn: ResolvedConnection, overrideUrl?: string, max = 10): Record<string, unknown> {
   const base: Record<string, unknown> = {
-    max: 10,
+    max,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   };
@@ -166,23 +175,27 @@ export async function pickHost(
   return undefined;
 }
 
-export async function createPgLikeAdapter(
+/**
+ * 建池前置解析（浏览适配器与传输读写端共用，保证两条路径连接语义一致）：
+ * URL 规范化（剥 jdbc:、多主机 authority 重组）后，多主机一律逐台探测选可用节点——
+ * 纯 JS 驱动（pg 8.x 与 gaussdb-node）均无 libpq 式多主机 failover：带端口多台
+ * connectionString 在 pg-connection-string / gaussdb-connection-string parse 时直接抛
+ * Invalid URL（实测），不带端口则整串 host 'h1,h2' 直传 net.connect → DNS ENOTFOUND，
+ * 故不能透传，须拆台探测（targetservertype=master 两 kind 同义：只接受主节点）。
+ * 返回最终驱动池配置与最终连接 URL。
+ */
+export async function pgLikePoolCfg(
   kind: DbKind,
-  Driver: PgLikeDriver,
+  driver: PgLikeDriver,
   conn: ResolvedConnection,
-  opts?: { mode?: AccessMode },
-): Promise<DatabaseAdapter & { tx: TxHandle }> {
-  // GaussDB JDBC 风格 URL 驱动自带的 WHATWG 解析处理不了（jdbc: 非特殊 scheme 使
-  // hostname/port 为空 → 兜底连本机；多主机 authority 端口段含逗号 → 抛 Invalid URL），
-  // 故建池前先规范化，多主机时逐台探测选可用节点；postgresql 多主机列表剥 jdbc: 后
-  // 原样透传（pg 驱动原生支持 libpq 多主机 failover），不 probe。
+  max: number,
+): Promise<{ cfg: Record<string, unknown>; url?: string }> {
   const norm = conn.url ? normalizeUrl(conn.url) : null;
-  const joinSeg = (h: PgUrlHost): string => `${h.host}${h.port != null ? ':' + h.port : ''}`;
-  const cleanUrl = norm ? norm.prefix + (norm.hosts ?? []).map(joinSeg).join(',') + norm.suffix : undefined;
+  const cleanUrl = norm ? norm.prefix + (norm.hosts ?? []).map(joinHostSeg).join(',') + norm.suffix : undefined;
   let finalUrl: string | undefined = cleanUrl;
-  if (kind === 'gaussdb' && norm?.hosts && norm.hosts.length > 1) {
+  if (norm?.hosts && norm.hosts.length > 1) {
     const { prefix, suffix } = norm;
-    const joinHost = (h: PgUrlHost): string => prefix + joinSeg(h) + suffix;
+    const joinHost = (h: PgUrlHost): string => prefix + joinHostSeg(h) + suffix;
     const firstUrl = joinHost(norm.hosts[0]!);
     // targetServerType=master（键值大小写不敏感）→ 只接受主节点
     const qi = suffix.indexOf('?');
@@ -190,7 +203,7 @@ export async function createPgLikeAdapter(
     for (const [k, v] of new URLSearchParams(qi >= 0 ? suffix.slice(qi + 1) : '')) {
       if (k.toLowerCase() === 'targetservertype' && v.toLowerCase() === 'master') masterOnly = true;
     }
-    const base = poolConfig(conn, firstUrl);
+    const base = poolConfig(conn, firstUrl, max);
     // 探测凭据自 prefix userinfo 解出（按最后一个 @ / 最后一个 : 分界，decode 与
     // percent-encode 注入互逆）；仅密码无用户名时 user 不设
     if (prefix.endsWith('@')) {
@@ -204,11 +217,45 @@ export async function createPgLikeAdapter(
         base.urlUser = decodeURIComponent(body);
       }
     }
-    const picked = await pickHost(Driver, base, norm.hosts, masterOnly);
+    const picked = await pickHost(driver, base, norm.hosts, masterOnly);
     // 全败回退首台重组值：让 testConnect 报真实连接错误
     finalUrl = picked ? joinHost(picked) : firstUrl;
   }
-  const cfg = poolConfig(conn, finalUrl);
+  return { cfg: poolConfig(conn, finalUrl, max), url: finalUrl };
+}
+
+/**
+ * 生成「同一份池配置仅覆盖库名」的 cfg：pg / gaussdb ConnectionParameters 按
+ * Object.assign({}, config, parse(config.connectionString)) 合并——connectionString
+ * 解析值覆盖全部显式字段（实测：{connectionString:'postgres://u:p@h1:5432/appdb',
+ * database:'otherdb',host:'x',user:'y'} → database 'appdb'/host 'h1'/user 'u'；
+ * node-postgres packages/pg/lib/connection-parameters.js:53-57，gaussdb-node
+ * lib/connection-parameters.js:55-57 同款）。故 URL 形态叠加 database 字段会被 URL
+ * 里的原库名覆盖（跨库池静默连回原库），必须改写 URL path 段；字段形态直接叠加。
+ * 写回库名 encodeURIComponent 与驱动 parse 的 decodeURI 对空格/非 ASCII 往返无损
+ * （两驱动实测 parse('.../a%20b') → database 'a b'；两驱动源码 pg-connection-string
+ * index.js:67 / gaussdb-connection-string index.js:62 均为 decodeURI(pathname)）——
+ * 含 # / 等保留字符的库名 decodeURI 不还原（驱动能力边界，libpq 才有完整
+ * percent-decoding），此类库名无法经 URL 形态无损表达。
+ */
+export function pgCfgWithDatabase(cfg: Record<string, unknown>, db: string): Record<string, unknown> {
+  const cs = cfg.connectionString;
+  // 无 authority 的非 URL 形态不产生垃圾改写，退回字段叠加
+  if (typeof cs !== 'string' || !cs.includes('://')) return { ...cfg, database: db };
+  const norm = normalizeUrl(cs);
+  const qi = /[?#]/.exec(norm.suffix)?.index ?? -1;
+  const tail = qi >= 0 ? norm.suffix.slice(qi) : '';
+  const hosts = (norm.hosts ?? []).map(joinHostSeg).join(',');
+  return { ...cfg, connectionString: `${norm.prefix}${hosts}/${encodeURIComponent(db)}${tail}` };
+}
+
+export async function createPgLikeAdapter(
+  kind: DbKind,
+  Driver: PgLikeDriver,
+  conn: ResolvedConnection,
+  opts?: { mode?: AccessMode },
+): Promise<DatabaseAdapter & { tx: TxHandle }> {
+  const { cfg, url: finalUrl } = await pgLikePoolCfg(kind, Driver, conn, 10);
   const pool = new Driver.Pool(cfg);
   const readOnly = opts?.mode === 'ro';
   // 所有池（主池 + 跨库池）统一走此初始化。
@@ -251,8 +298,10 @@ export async function createPgLikeAdapter(
     if (!db || db === mainDb()) return pool;
     const cached = dbPools.get(db);
     if (cached) return cached;
-    // 与主池同一份最终 cfg（多主机探测选定台后的 connectionString），仅覆盖库名
-    const created = new Driver.Pool({ ...cfg, database: db });
+    // 与主池同一份最终 cfg（多主机探测选定台后的 connectionString），仅覆盖库名——
+    // URL 形态经 pgCfgWithDatabase 改写 path（叠加 database 字段会被驱动里 URL
+    // 库名覆盖，静默连回原库）
+    const created = new Driver.Pool(pgCfgWithDatabase(cfg, db));
     setupPool(created); // 与主池一致：error 兜底 + ro 会话只读
     dbPools.set(db, created);
     return created;

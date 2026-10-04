@@ -54,6 +54,9 @@ function loadGaussDriver(): PgLikeDriver {
   }
 }
 
+/** 数据传输模块用的驱动加载入口 */
+export { loadGaussDriver };
+
 export async function createGaussdbAdapter(
   conn: ResolvedConnection,
   opts?: { mode?: AccessMode },

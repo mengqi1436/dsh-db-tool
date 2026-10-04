@@ -22,8 +22,9 @@ declare module 'oracledb' {
       outFormat?: number;
       maxRows?: number;
       autoCommit?: boolean;
-      /** 键为列名大写（如 'BLOB'），值为 { type: oracledb.STRING } 等 */
-      fetchInfo?: Record<string, { type: number }>;
+      // fetchInfo 不再声明：其键是【列名】而非类型名（官方 connection.rst
+      // 「Each column is specified by name」），无法按类型统一转换，官方已
+      // 标记 deprecated——按类型转换走全局 fetchAsString/fetchAsBuffer。
     }
 
     interface ColumnMetaData {
@@ -37,8 +38,11 @@ declare module 'oracledb' {
       rowsAffected?: number;
     }
 
-    interface Lob {
-      toString(): Promise<string>;
+    /** 官方 Lob 类（lob.rst）：成员 getData()/read()/close()/destroy() 等，
+     *  没有 toString()（实测 Lob.prototype.toString 即 Object.prototype.toString）。
+     *  getData() 的 Promise API：CLOB/BFILE → string，BLOB 等 → Buffer。 */
+    class Lob {
+      getData(): Promise<string | Buffer>;
       close(): Promise<void>;
     }
 
@@ -59,10 +63,12 @@ declare module 'oracledb' {
     const OBJECT: number;
     /** CLOB 类型码（用于 fetchAsString） */
     const CLOB: number;
-    /** STRING 类型码（用于 fetchInfo 将 BLOB 转 string） */
-    const STRING: number;
+    /** BLOB 类型码（用于 fetchAsBuffer） */
+    const BLOB: number;
     /** 全局 fetch 为字符串的类型列表（本插件会在加载时追加 CLOB） */
     let fetchAsString: number[];
+    /** 全局 fetch 为 Buffer 的类型列表（本插件会在加载时追加 BLOB） */
+    let fetchAsBuffer: number[];
 
     function createPool(poolAttributes: PoolAttributes): Promise<Pool>;
   }

@@ -26,6 +26,72 @@ window.__ModuleLoader__.load({
 			viewGrants: "项目授权",
 			viewBrowse: "数据浏览",
 			viewConsole: "SQL 控制台",
+			viewTransfer: "数据传输",
+			viewTransferLog: "传输日志",
+			tlogEmpty: "暂无传输日志",
+			tlogAuto: "自动刷新",
+			tlogClear: "清除日志",
+			tlogClearConfirm: "确定清除全部传输日志？",
+			tlogTypeStart: "开始",
+			tlogTypeTable: "表",
+			tlogTypeProgress: "进度",
+			tlogTypeFinish: "完成",
+			trSource: "源连接",
+			trTarget: "目标连接",
+			trTables: "数据库对象",
+			trGroupTable: "表",
+			trGroupCollection: "集合",
+			trGroupView: "视图",
+			trGroupOther: "其他",
+			trSelectAll: "全选",
+			trClear: "清空",
+			trWriteMode: "写入模式",
+			trModeInsert: "插入（冲突报错）",
+			trModeIgnore: "跳过重复",
+			trModeReplace: "覆盖（按主键）",
+			trModeTruncate: "清空后写入（危险）",
+			trBatchSize: "每批行数",
+			trTableConcurrency: "表级并行",
+			trShardConcurrency: "分片并行",
+			trStart: "开始传输",
+			trCancel: "取消任务",
+			trProgress: "传输进度",
+			trStatus: "状态",
+			trRows: "已写入行数",
+			trShards: "分片",
+			trFailures: "失败清单",
+			trStatusRunning: "进行中",
+			trStatusDone: "已完成",
+			trStatusFailed: "有失败",
+			trStatusCancelled: "已取消",
+			trStatusPending: "排队中",
+			trxOverwrite: "覆盖已有表结构（删除重建，危险）",
+			trxOverwriteHint: "已存在的目标表将被删除重建，其中数据全部丢失",
+			trHistory: "传输历史",
+			trHistoryClear: "清除历史",
+			trHistoryClearConfirm: "确定清除当前项目的全部传输历史？",
+			trHistoryEmpty: "暂无历史记录",
+			trSameConn: "源与目标上下文相同，请更改库或模式",
+			trLoadingTables: "加载表清单…",
+			// 数据传输（Navicat 式双栏）
+			trxSource: "源",
+			trxTarget: "目标",
+			trxConn: "连接:",
+			trxDatabase: "数据库:",
+			trxSchema: "模式:",
+			trxInfo: "信息",
+			trxConnType: "连接类型",
+			trxConnName: "连接名称",
+			trxHost: "主机",
+			trxPort: "端口",
+			trxServerVer: "服务器版本",
+			trxNoDbLevel: "默认上下文",
+			trxPickSource: "请选择源连接以加载表清单",
+			trxSelectedCount: "已选 {n} 项",
+			trxOptions: "传输选项",
+			trxArrowLabel: "传输方向：源到目标",
+			trxPickTable: "请至少勾选一张表",
+			trxLoadDbsFail: "库清单加载失败",
 			footerHint: "管理在此侧栏；业务操作要求当前项目已获得对应连接的授权。",
 			// 连接管理
 			newConn: "新建连接",
@@ -50,6 +116,7 @@ window.__ModuleLoader__.load({
 			testOk: "连接成功",
 			testFail: "连接失败",
 			edit: "编辑",
+			trRefresh: "刷新（重新拉取已展开的库/模式/表）",
 			delete: "删除",
 			deleteConnConfirm: "确定删除连接「{name}」？将级联删除其密钥与所有项目的授权。",
 			fieldKind: "数据库类型",
@@ -178,6 +245,72 @@ window.__ModuleLoader__.load({
 			viewGrants: "Project Access",
 			viewBrowse: "Browse",
 			viewConsole: "SQL Console",
+			viewTransfer: "Data Transfer",
+			viewTransferLog: "Transfer Log",
+			tlogEmpty: "No transfer log yet",
+			tlogAuto: "Auto refresh",
+			tlogClear: "Clear log",
+			tlogClearConfirm: "Clear all transfer log?",
+			tlogTypeStart: "Start",
+			tlogTypeTable: "Table",
+			tlogTypeProgress: "Progress",
+			tlogTypeFinish: "Finish",
+			trSource: "Source connection",
+			trTarget: "Target connection",
+			trTables: "Database objects",
+			trGroupTable: "Tables",
+			trGroupCollection: "Collections",
+			trGroupView: "Views",
+			trGroupOther: "Other",
+			trSelectAll: "Select all",
+			trClear: "Clear",
+			trWriteMode: "Write mode",
+			trModeInsert: "Insert (error on conflict)",
+			trModeIgnore: "Skip duplicates",
+			trModeReplace: "Replace (by primary key)",
+			trModeTruncate: "Clear then write (dangerous)",
+			trBatchSize: "Batch size",
+			trTableConcurrency: "Table parallelism",
+			trShardConcurrency: "Shard parallelism",
+			trStart: "Start transfer",
+			trCancel: "Cancel task",
+			trProgress: "Transfer progress",
+			trStatus: "Status",
+			trRows: "Rows written",
+			trShards: "Shards",
+			trFailures: "Failures",
+			trStatusRunning: "Running",
+			trStatusDone: "Done",
+			trStatusFailed: "Failed",
+			trStatusCancelled: "Cancelled",
+			trStatusPending: "Pending",
+			trxOverwrite: "Overwrite existing table structure (drop & recreate, dangerous)",
+			trxOverwriteHint: "Existing target tables will be dropped and recreated; their data will be lost",
+			trHistory: "Transfer History",
+			trHistoryClear: "Clear history",
+			trHistoryClearConfirm: "Clear all transfer history for this project?",
+			trHistoryEmpty: "No history yet",
+			trSameConn: "Source and target share the same context; pick a different database or schema",
+			trLoadingTables: "Loading tables…",
+			// Data transfer (Navicat-style two columns)
+			trxSource: "Source",
+			trxTarget: "Target",
+			trxConn: "Connection:",
+			trxDatabase: "Database:",
+			trxSchema: "Schema:",
+			trxInfo: "Information",
+			trxConnType: "Type",
+			trxConnName: "Name",
+			trxHost: "Host",
+			trxPort: "Port",
+			trxServerVer: "Server version",
+			trxNoDbLevel: "Default context",
+			trxPickSource: "Pick a source connection to load tables",
+			trxSelectedCount: "{n} selected",
+			trxOptions: "Transfer options",
+			trxArrowLabel: "Transfer direction: source to target",
+			trxPickTable: "Select at least one table",
+			trxLoadDbsFail: "Failed to load databases",
 			footerHint: "Manage here in the sidebar; business operations require a project grant on the connection.",
 			newConn: "New Connection",
 			editConn: "Edit Connection",
@@ -201,6 +334,7 @@ window.__ModuleLoader__.load({
 			testOk: "Connection OK",
 			testFail: "Connection failed",
 			edit: "Edit",
+			trRefresh: "Refresh (reload expanded databases/schemas/tables)",
 			delete: "Delete",
 			deleteConnConfirm: "Delete connection \"{name}\"? Its secrets and all project grants will be removed.",
 			fieldKind: "Database type",
@@ -409,6 +543,7 @@ window.__ModuleLoader__.load({
 				".dbt-browse-root{color:var(--dbt-text);}",
 				"/* ===== 根容器 ===== */",
 				".dbt-panel{font-size:13px;line-height:1.45;display:flex;flex-direction:column;gap:10px;padding:16px;height:100%;box-sizing:border-box;overflow-y:auto;}",
+				".dbt-panel input[type=\"checkbox\"]{width:16px;height:16px;flex:none;margin:0;accent-color:var(--dbt-accent);}",
 				"/* ===== iOS segmented control（顶部 tab） ===== */",
 				".dbt-tabs{display:flex;gap:2px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);padding:2px;}",
 				".dbt-tabs button{flex:1;border:none;background:transparent;color:inherit;border-radius:var(--dbt-radius-pill);padding:5px 8px;font-size:12px;font-weight:500;cursor:pointer;transition:background .18s var(--dbt-ease),box-shadow .18s var(--dbt-ease);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
@@ -489,6 +624,31 @@ window.__ModuleLoader__.load({
 				".dbt-browse-skel{display:flex;flex-direction:column;gap:8px;}",
 				".dbt-browse-skelrow{display:flex;gap:8px;}",
 				".dbt-browse-skelcell{flex:1;height:24px;background:var(--dbt-surface-strong);border-radius:var(--dbt-radius-pill);}",
+				"/* ===== 数据传输（Navicat 式双栏：摘要条 + 源/目标栏 + 信息区） ===== */",
+				".dbt-transfer-summary{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;}",
+				".dbt-transfer-endpoint{display:flex;align-items:baseline;gap:4px;min-width:0;}",
+				".dbt-transfer-endpoint strong,.dbt-transfer-endpoint span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;}",
+				".dbt-transfer-cols{display:flex;gap:8px;align-items:stretch;}",
+				".dbt-transfer-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:6px;}",
+				".dbt-transfer-coltitle,.dbt-transfer-infotitle{font-size:var(--dbt-caption,11px);font-weight:600;color:var(--dbt-accent);}",
+				".dbt-transfer-field{display:flex;flex-direction:column;gap:2px;min-width:0;}",
+				".dbt-transfer-fieldlabel{font-size:var(--dbt-caption-xs,10px);color:var(--dbt-text-secondary);}",
+				".dbt-transfer-divider{flex:none;align-self:center;color:var(--dbt-text-secondary);}",
+				".dbt-transfer-info{border-top:1px solid var(--dbt-separator);padding-top:6px;display:flex;flex-direction:column;gap:3px;}",
+				".dbt-transfer-kv{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0;font-size:var(--dbt-caption-xs,10px);}",
+				".dbt-transfer-kv dt{color:var(--dbt-text-secondary);}",
+				".dbt-transfer-kv dd{margin:0;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				".dbt-transfer-tablelist{max-height:220px;overflow:auto;border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-ctrl,6px);padding:3px 0;font-size:12px;background:var(--dbt-surface-strong);}",
+				".dbt-tr-group-head{display:flex;align-items:center;gap:6px;padding:3px 8px;min-height:26px;font-weight:600;cursor:pointer;user-select:none;}",
+				".dbt-tr-group-head:hover{background:var(--dbt-surface);}",
+				".dbt-tr-caret{display:inline-block;width:0;height:0;border-left:4px solid currentColor;border-top:3px solid transparent;border-bottom:3px solid transparent;opacity:.55;transform:rotate(0deg);transition:transform .12s var(--dbt-ease);flex:none;}",
+				".dbt-tr-caret.open{transform:rotate(90deg);}",
+				".dbt-tr-item{display:flex;align-items:center;padding:1px 8px 1px 26px;min-height:24px;}",
+				".dbt-tr-item:hover{background:var(--dbt-surface);}",
+				".dbt-tr-pair{display:flex;align-items:center;gap:6px;cursor:pointer;min-width:0;}",
+				".dbt-tr-pair span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				".dbt-tr-comment{color:var(--dbt-text-secondary);font-size:11px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0;}",
+				".dbt-transfer-options>summary{cursor:pointer;font-size:var(--dbt-caption,11px);color:var(--dbt-text-secondary);padding:4px 0;}",
 				"/* ===== 浏览面板：单元格按钮与详情底栏（Apple 分区卡） ===== */",
 				".dbt-cellbtn{border:none;background:transparent;color:inherit;font:inherit;padding:0;margin:0;cursor:pointer;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;width:100%;text-align:left;}",
 				".dbt-cellbtn:focus-visible{outline:2px solid var(--dbt-accent);outline-offset:-1px;border-radius:2px;}",
@@ -1485,7 +1645,7 @@ window.__ModuleLoader__.load({
 		/* ---------------- 数据浏览 ---------------- */
 		// Navicat 式对象树：连接 ▸ 库/[schema] ▸ 表，懒加载展开（浏览面板唯一树实例，展开状态随面板生命周期）
 		function BrowseTree(props) {
-			const { conns, projectPath, sel, onSelect, autoExpand } = props;
+			const { conns, projectPath, sel, onSelect, autoExpand, refreshTick } = props;
 			// sel 由父组件持有（弹窗内 active 高亮与初始选中都依赖）；onSelect(选中记录, 触发元素) 上报
 			const [open, setOpen] = React.useState({}); // "c:<id>" | "d:<id>/<db>" -> bool
 			const [loading, setLoading] = React.useState({});
@@ -1498,6 +1658,50 @@ window.__ModuleLoader__.load({
 			React.useEffect(() => {
 				setOpen({}); setLoading({}); setError({}); setDbs({}); setSchemasMap({}); setTablesMap({});
 			}, [projectPath]);
+
+			// 三层加载统一入口（toggle 展开与手动/自动刷新共用；key: c:<id> | d:<id>/<db> | s:<id>/<db>/<schema>）
+			function loadByKey(key) {
+				const cm = /^c:(.+)$/.exec(key);
+				const dm = /^d:(.+?)\/(.+)$/.exec(key);
+				const sm = /^s:(.+?)\/(.+?)\/(.+)$/.exec(key);
+				const connOf = (id) => conns.find((x) => x.id === id);
+				if (cm) {
+					const c = connOf(cm[1]);
+					if (!c) return Promise.resolve();
+					return api("databases" + qs({ project: projectPath, connId: c.id })).then((list) => {
+						setDbs((m) => Object.assign({}, m, { [c.id]: list || [] }));
+					});
+				}
+				if (dm) {
+					const c = connOf(dm[1]);
+					if (!c) return Promise.resolve();
+					const useSchemas = !!HAS_SCHEMAS[c.kind];
+					const what = useSchemas ? "schemas" : "tables";
+					return api(what + qs({ project: projectPath, connId: c.id, database: dm[2] })).then((list) => {
+						const setter = useSchemas ? setSchemasMap : setTablesMap;
+						setter((m) => Object.assign({}, m, { [c.id + "/" + dm[2]]: list || [] }));
+					});
+				}
+				if (sm) {
+					return api("tables" + qs({ project: projectPath, connId: sm[1], database: sm[2] + "." + sm[3] })).then((list) => {
+						setTablesMap((m) => Object.assign({}, m, { [sm[1] + "/" + sm[2] + "/" + sm[3]]: list || [] }));
+					});
+				}
+				return Promise.resolve();
+			}
+
+			// 手动刷新按钮 / 侧边栏切回可见：对所有已展开节点重新拉取（新库/新表即时可见），展开态保持
+			React.useEffect(() => {
+				if (!refreshTick) return;
+				for (const [key, isOpen] of Object.entries(open)) {
+					if (!isOpen || loading[key]) continue;
+					setError((s) => Object.assign({}, s, { [key]: undefined }));
+					setLoading((s) => Object.assign({}, s, { [key]: true }));
+					loadByKey(key)
+						.catch((e) => setError((s) => Object.assign({}, s, { [key]: e && e.message ? e.message : String(e) })))
+						.finally(() => setLoading((s) => Object.assign({}, s, { [key]: false })));
+				}
+			}, [refreshTick]); // eslint-disable-line
 
 			function toggle(key, load) {
 				const isOpen = !!open[key];
@@ -1517,10 +1721,7 @@ window.__ModuleLoader__.load({
 			}
 			function toggleConn(c) {
 				if (!projectPath) return;
-				toggle("c:" + c.id, () =>
-					api("databases" + qs({ project: projectPath, connId: c.id })).then((list) => {
-						setDbs((m) => Object.assign({}, m, { [c.id]: list || [] }));
-					}));
+				toggle("c:" + c.id, () => loadByKey("c:" + c.id));
 			}
 			// autoExpand：挂载后自动展开第一层级（连接节点），复用 toggleConn 的展开+懒加载；
 			// 加载失败仍走既有就地错误行机制。声明在清缓存 effect 之后：项目切换时先清 open 再重新展开。
@@ -1535,21 +1736,12 @@ window.__ModuleLoader__.load({
 			const HAS_SCHEMAS = { postgresql: true, gaussdb: true };
 			function toggleDb(c, d) {
 				if (!projectPath) return;
-				const useSchemas = !!HAS_SCHEMAS[c.kind];
-				const what = useSchemas ? "schemas" : "tables";
-				toggle("d:" + c.id + "/" + d, () =>
-					api(what + qs({ project: projectPath, connId: c.id, database: d })).then((list) => {
-						const setter = useSchemas ? setSchemasMap : setTablesMap;
-						setter((m) => Object.assign({}, m, { [c.id + "/" + d]: list || [] }));
-					}));
+				toggle("d:" + c.id + "/" + d, () => loadByKey("d:" + c.id + "/" + d));
 			}
 			function toggleSchema(c, d, s) {
 				if (!projectPath) return;
 				// PG 系跨库浏览：tables 的 database 传 "库名.schema"（Navicat 官方行为，服务端按库开连接）
-				toggle("s:" + c.id + "/" + d + "/" + s, () =>
-					api("tables" + qs({ project: projectPath, connId: c.id, database: d + "." + s })).then((list) => {
-						setTablesMap((m) => Object.assign({}, m, { [c.id + "/" + d + "/" + s]: list || [] }));
-					}));
+				toggle("s:" + c.id + "/" + d + "/" + s, () => loadByKey("s:" + c.id + "/" + d + "/" + s));
 			}
 			// 树键盘导航（WAI-ARIA treeview / roving tabindex）：Tab 仅进停靠行，方向键在可见行间移动；
 			// 右箭头展开、左箭头收起或回到父级（父级 = DOM 序向上第一个更浅层级行），Home/End 跳首尾
@@ -1868,7 +2060,7 @@ window.__ModuleLoader__.load({
 						"label",
 						// 不用 .dbt-row：全局 input flex:1 会把 checkbox 拉伸占满、标签被推到远端（视觉审查命中）
 						{ style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", width: "fit-content" } },
-						React.createElement("input", { type: "checkbox", style: { flex: "none", minWidth: 0, width: "auto" }, checked: editNull, onChange: (e) => setEditNull(e.target.checked) }),
+						React.createElement("input", { type: "checkbox", checked: editNull, onChange: (e) => setEditNull(e.target.checked) }),
 						t("setNull"),
 					) : null,
 					truncHint && truncHint !== selReason ? React.createElement("span", { className: "dbt-readhint" }, t(truncHint)) : null,
@@ -1994,6 +2186,7 @@ window.__ModuleLoader__.load({
 					React.createElement(BrowseTree, {
 						conns, projectPath, sel,
 						autoExpand: !!active, // 首次激活才自动展开连接层级（常驻挂载下隐藏不发请求）
+						refreshTick: props.refreshTick, // 手动刷新按钮 / 侧边栏切回可见时重拉已展开层
 						onSelect: (s) => setSel(s), // 树内切表
 					}),
 				),
@@ -2616,6 +2809,557 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		/* ---------------- 数据传输（Navicat 式双栏：摘要条 + 源/目标层级联动 + 信息区 + 表清单 + 进度轮询） ---------------- */
+		// 双向箭头（摘要条与栏间分隔共用；stroke currentColor 随容器变色）
+		function transferArrow() {
+			return React.createElement("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "aria-hidden": true },
+				React.createElement("path", { d: "M4 8.5h15M15.5 4.5L19 8.5l-3.5 4" }),
+				React.createElement("path", { d: "M20 15.5H5M8.5 11.5L5 15.5l3.5 4" }));
+		}
+		// 信息区服务器版本探测：300ms 防抖 + 按 connId 缓存（组件卸载丢弃）+ 失败静默为空串 + 切走后只写缓存不改显示
+		function useServerVer(connId, cacheRef) {
+			const [ver, setVer] = React.useState("");
+			const liveRef = React.useRef(connId); // 乱序护栏：慢响应回来时只服务当前选中连接
+			React.useEffect(() => {
+				liveRef.current = connId;
+				if (!connId) { setVer(""); return undefined; }
+				const cached = cacheRef.current[connId];
+				if (cached !== undefined) { setVer(cached); return undefined; }
+				const asked = connId;
+				const timer = window.setTimeout(() => {
+					api("connections/" + encodeURIComponent(asked) + "/test", { method: "POST", body: {} })
+						.then((r) => {
+							const info = r && r.ok && r.serverInfo ? String(r.serverInfo) : "";
+							cacheRef.current[asked] = info; // 失败也缓存空串，会话内不反复探测
+							if (liveRef.current === asked) setVer(info);
+						})
+						.catch(() => { cacheRef.current[asked] = ""; });
+				}, 300);
+				return () => window.clearTimeout(timer);
+			}, [connId]);
+			return ver;
+		}
+		function TransferView(props) {
+			const conns = props.conns || [];
+			const projectPath = props.projectPath;
+			const askConfirm = props.askConfirm;
+			const [srcId, setSrcId] = React.useState("");
+			const [dstId, setDstId] = React.useState("");
+			// 层级状态（BrowsePane 同语义：database=对象树第一层，schema=第二层仅 pg 系；""=连接默认上下文）
+			const [srcDb, setSrcDb] = React.useState("");
+			const [srcSchema, setSrcSchema] = React.useState("");
+			const [dstDb, setDstDb] = React.useState("");
+			const [dstSchema, setDstSchema] = React.useState("");
+			const [srcDbs, setSrcDbs] = React.useState(null); // null=未加载
+			const [srcSchemas, setSrcSchemas] = React.useState(null);
+			const [dstDbs, setDstDbs] = React.useState(null);
+			const [dstSchemas, setDstSchemas] = React.useState(null);
+			const [dbsErr, setDbsErr] = React.useState({ src: "", dst: "" }); // 库清单加载失败就地显示（不弹全局）
+			const [srcTables, setSrcTables] = React.useState([]); // {name,type}[] 可传输对象（表/集合）
+			const [loadingTables, setLoadingTables] = React.useState(false);
+			const [tablesErr, setTablesErr] = React.useState("");
+			const [tablesTick, setTablesTick] = React.useState(0); // 表清单就地重试
+			const [selected, setSelected] = React.useState([]); // 已勾选表名
+			const [writeMode, setWriteMode] = React.useState("insert");
+			const [batchSize, setBatchSize] = React.useState(1000);
+			const [tableConcurrency, setTableConcurrency] = React.useState(4);
+			const [shardConcurrency, setShardConcurrency] = React.useState(4);
+			const [overwriteStructure, setOverwriteStructure] = React.useState(false);
+			const [task, setTask] = React.useState(null); // {id, snap}
+			const [busy, setBusy] = React.useState(false);
+			const [error, setError] = React.useState("");
+			const pollRef = React.useRef(null);
+			const mountedRef = React.useRef(true);
+			const dbsCacheRef = React.useRef({}); // connId -> string[]
+			const schemasCacheRef = React.useRef({}); // connId + "/" + db -> string[]
+			const verCacheRef = React.useRef({}); // connId -> serverInfo（含失败空串）
+			React.useEffect(() => () => { mountedRef.current = false; }, []);
+			const srcVer = useServerVer(srcId, verCacheRef);
+			const dstVer = useServerVer(dstId, verCacheRef);
+
+			const srcConn = conns.find((c) => c.id === srcId);
+			const dstConn = conns.find((c) => c.id === dstId);
+			const dstGrant = (props.grants || []).find((x) => x.connId === dstId);
+			// PG/GaussDB 三层（库→模式→表），与 BrowsePane 同一张表；sqlite 无库层（连接默认上下文）
+			const HAS_SCHEMAS = { postgresql: true, gaussdb: true };
+			const NO_DB_LEVEL = { sqlite: true };
+
+			// 项目切换清层级缓存（对齐 BrowsePane：避免陈旧授权下的旧数据）
+			React.useEffect(() => {
+				dbsCacheRef.current = {}; schemasCacheRef.current = {};
+				setSrcDb(""); setSrcSchema(""); setDstDb(""); setDstSchema(""); setSrcDbs(null); setSrcSchemas(null); setDstDbs(null); setDstSchemas(null);
+				setDbsErr({ src: "", dst: "" });
+			}, [projectPath]);
+
+			// 库清单加载（BrowsePane 同端点；缓存防重复拉取，失败就地记 dbsErr 可重试）
+			function loadDbs(slot, connId) {
+				const conn = conns.find((c) => c.id === connId);
+				if (!connId || !projectPath || !conn || NO_DB_LEVEL[conn.kind]) return;
+				const cached = dbsCacheRef.current[connId];
+				if (cached) {
+					if (slot === "src") setSrcDbs(cached); else setDstDbs(cached);
+					return;
+				}
+				api("databases" + qs({ project: projectPath, connId }))
+					.then((list) => {
+						const v = Array.isArray(list) ? list : [];
+						dbsCacheRef.current[connId] = v;
+						if (slot === "src") setSrcDbs(v); else setDstDbs(v);
+					})
+					.catch((e) => setDbsErr((s) => Object.assign({}, s, { [slot]: String(e && e.message ? e.message : e) })));
+			}
+			// 源连接变化 → 清层级与表选中，拉库清单（目标侧连接变化只联动自身）
+			React.useEffect(() => {
+				setSrcDb(""); setSrcSchema(""); setSrcSchemas(null); setTablesErr("");
+				setDbsErr((s) => Object.assign({}, s, { src: "" }));
+				loadDbs("src", srcId);
+			}, [srcId, projectPath]); // eslint-disable-line
+			React.useEffect(() => {
+				setDstDb(""); setDstSchema(""); setDstSchemas(null);
+				setDbsErr((s) => Object.assign({}, s, { dst: "" }));
+				loadDbs("dst", dstId);
+			}, [dstId, projectPath]); // eslint-disable-line
+			// 库变化（pg 系）→ 清模式并拉库内 schema 清单，完成后自动补选第一项（Navicat 式：进库即见表）；源/目标共用
+			function loadSchemas(slot, connId, db) {
+				const conn = conns.find((c) => c.id === connId);
+				if (!connId || !db || !HAS_SCHEMAS[conn && conn.kind]) return;
+				const setList = slot === "src" ? setSrcSchemas : setDstSchemas;
+				const setPick = slot === "src" ? setSrcSchema : setDstSchema;
+				setPick(""); setList(null);
+				const ck = connId + "/" + db;
+				const cached = schemasCacheRef.current[ck];
+				if (cached) { setList(cached); setPick(cached[0] || ""); return; }
+				api("schemas" + qs({ project: projectPath, connId, database: db }))
+					.then((list) => {
+						const v = Array.isArray(list) ? list : [];
+						schemasCacheRef.current[ck] = v;
+						setList(v);
+						setPick(v[0] || "");
+					})
+					.catch(() => { setList([]); }); // 失败置空清单：模式/表区按「无模式」呈现，不弹全局错误
+			}
+			React.useEffect(() => { loadSchemas("src", srcId, srcDb); }, [srcId, srcDb, projectPath]); // eslint-disable-line
+			React.useEffect(() => { loadSchemas("dst", dstId, dstDb); }, [dstId, dstDb, projectPath]); // eslint-disable-line
+			// 表清单按源层级加载：pg 系需库+模式齐备（服务端 tables.database="库名.模式" 复合形态，与 BrowsePane 一致）；
+			// 其余库层直传库名（""=默认库），sqlite/mongo 按连接默认上下文。只列 BASE TABLE/COLLECTION。乱序护栏 stopped。
+			React.useEffect(() => {
+				setSrcTables([]); setSelected([]); setTablesErr("");
+				if (!srcId || !projectPath) return undefined;
+				const kind = srcConn && srcConn.kind;
+				let database;
+				if (NO_DB_LEVEL[kind]) database = undefined;
+				else if (HAS_SCHEMAS[kind]) {
+					if (!srcDb || !srcSchema) return undefined; // 等模式下拉就位（schema effect 自动补选）
+					database = srcDb + "." + srcSchema;
+				} else database = srcDb || undefined;
+				let stopped = false;
+				setLoadingTables(true);
+				api("tables" + qs({ project: projectPath, connId: srcId, database }))
+					.then((list) => {
+						if (stopped) return;
+					const rows = (Array.isArray(list) ? list : [])
+						.filter((x) => !x || !x.type || String(x.type).toUpperCase() === "TABLE" || String(x.type).toUpperCase() === "COLLECTION" || String(x.type).toUpperCase() === "BASE TABLE")
+						.map((x) => ({ name: String(x.name), type: String((x && x.type) || "").toUpperCase(), comment: x && x.comment ? String(x.comment) : "" }))
+						.filter((x) => x.name);
+					setSrcTables(rows);
+					})
+					.catch((e) => { if (!stopped) { setSrcTables([]); setTablesErr(String(e && e.message ? e.message : e)); } })
+					.finally(() => { if (!stopped) setLoadingTables(false); });
+				return () => { stopped = true; };
+			}, [srcId, srcDb, srcSchema, projectPath, tablesTick]); // eslint-disable-line
+
+			// 轮询：running → 每 800ms；终态/NOT_FOUND 停止（NOT_FOUND = 终态即清除）
+			const stopPoll = React.useCallback(() => {
+				if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+			}, []);
+			React.useEffect(() => stopPoll, [stopPoll]);
+			function poll(id) {
+				stopPoll();
+				// 乱序护栏：慢响应（>800ms）晚到时本轮已被置失效，不得覆盖已到达的终态快照
+				let stopped = false;
+				pollRef.current = setInterval(async () => {
+					if (stopped) return;
+					try {
+						const snap = await api("transfer/" + encodeURIComponent(id) + qs({ project: projectPath }));
+						if (stopped) return; // 终态已先行（另一轮已 stopPoll）：丢弃本轮旧快照
+						setTask({ id, snap });
+						if (!snap || snap.status !== "running") { stopped = true; stopPoll(); }
+					} catch (e) {
+						stopped = true;
+						stopPoll();
+						// 任务条目已被清理（终态保留窗口过后/被新任务 sweep）：拉一次失败不报错，保持既有快照
+						setTask((prev) => (prev && prev.snap && prev.snap.status !== "running" ? prev : null));
+					}
+				}, 800);
+			}
+
+			// 同连接且库/模式都相同才视为同上下文：允许同连接跨库（或同库跨模式）传输
+			// （后端同目标互斥仍按 targetConnId，statement 携带定位入审计）
+			const sameCtx = !!srcId && srcId === dstId && (srcDb || "") === (dstDb || "") && (srcSchema || "") === (dstSchema || "");
+			const canStart = !!srcId && !!dstId && selected.length > 0 && !sameCtx;
+			// 禁用提示按实际缺失条件给出（sameCtx 优先：结构性约束先于勾表提醒），不得与禁因不符
+			const startHint = sameCtx ? t("trSameConn") : (!srcId || !dstId) ? t("selectConn") : t("trxPickTable");
+
+			async function start() {
+				if (busy || !canStart) return;
+				setBusy(true); setError("");
+				try {
+					const data = await runGuarded(
+						(challengeId) => api("transfer/start", {
+							method: "POST",
+							body: {
+								projectPath, sourceConnId: srcId, targetConnId: dstId, tables: selected, writeMode, batchSize, tableConcurrency, shardConcurrency, overwriteStructure, challengeId,
+								// 定位字段（undefined 序列化即省略 = 连接默认上下文，后端 optStr 语义）
+								sourceDatabase: srcDb || undefined, sourceSchema: srcSchema || undefined,
+								targetDatabase: dstDb || undefined, targetSchema: dstSchema || undefined,
+							},
+						}),
+						(info) => askConfirm(Object.assign({}, info, {
+							target: { conn: dstConn ? (dstConn.name || dstId) : dstId, kind: dstConn ? dstConn.kind : "", db: dstDb ? (dstDb + (dstSchema ? "." + dstSchema : "")) : t("defaultDb"), mode: dstGrant ? dstGrant.mode : "" },
+						})),
+					);
+				const id = data && data.taskId;
+				// 确认往返期间组件可能已卸载（locale 切换重建 Panel）：此时不再建立轮询
+				if (id && mountedRef.current) {
+					setTask({ id, snap: { status: "running", tables: [], failures: [] } });
+					poll(id);
+				}
+				} catch (e) {
+					if (!e.cancelled) setError(String(e && e.message ? e.message : e));
+				} finally {
+					setBusy(false);
+				}
+			}
+
+			function cancel() {
+				if (!task) return;
+				api("transfer/" + encodeURIComponent(task.id) + "/cancel", { method: "POST", body: { projectPath } })
+					.catch((e) => setError(String(e && e.message ? e.message : e)));
+			}
+
+			const toggle = (name) => setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : prev.concat(name)));
+			const [collapsed, setCollapsed] = React.useState({}); // 分组树折叠状态（{ [type]: true }）
+			const [history, setHistory] = React.useState(null); // 终态历史条目数组（打开 details 时懒加载）
+			const loadHistory = React.useCallback(() => {
+				if (!projectPath) return;
+				api("transfer-history" + qs({ limit: 30 }))
+					.then((list) => setHistory(Array.isArray(list) ? list : []))
+					.catch((e) => setError(String(e && e.message ? e.message : e)));
+			}, [projectPath]);
+			// 清除确认走 askConfirm 通道（原生 confirm 已在库内移除：无 aria/焦点管理）
+			async function clearHistory() {
+				const yes = await props.askConfirm({
+					title: t("trHistoryClear"),
+					statement: t("trHistory"),
+					hint: t("trHistoryClearConfirm"),
+					confirmLabel: t("trHistoryClear"),
+					target: { conn: "", kind: "", db: "", mode: "" },
+				});
+				if (!yes) return;
+				api("transfer-history/clear", { method: "POST", body: {} })
+					.then((r) => { setMessage(t("ok") + " (" + (r && r.removed != null ? r.removed : 0) + ")"); setHistory([]); })
+					.catch((e) => setError(String(e && e.message ? e.message : e)));
+			}
+			const historyStatus = (s2) => s2 === "done" ? t("trStatusDone") : s2 === "failed" ? t("trStatusFailed") : s2 === "cancelled" ? t("trStatusCancelled") : s2;
+			// 状态着色：failed 红 / done 绿 / 其余默认
+			const statusColor = (s) => s === "failed" ? { color: "var(--dbt-danger,#ff453a)", fontWeight: 600 } : s === "done" ? { color: "var(--dbt-success,#30d158)" } : undefined;
+			const statusLabel = (s) => s === "pending" ? t("trStatusPending") : s === "running" ? t("trStatusRunning") : s === "done" ? t("trStatusDone") : s === "failed" ? t("trStatusFailed") : s === "cancelled" ? t("trStatusCancelled") : s;
+			const connOptions = (value, onPick, disabled, label) => React.createElement("select", { value, disabled: !!disabled || busy, "aria-label": label, onChange: (e) => onPick(e.target.value) },
+				React.createElement("option", { value: "" }, t("selectConn")),
+				conns.filter((c) => c.kind !== "redis").map((c) => {
+					const g = (props.grants || []).find((x) => x.connId === c.id);
+					const suffix = g && g.mode ? " · " + g.mode : "";
+					return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + suffix + ")");
+				}));
+			// 摘要条层级描述：pg 系「库名.模式名」，其余库层显库名，无层级/未选库显示默认库
+			const scopeText = (conn, db, schema) => {
+				if (!conn) return "—";
+				const k = conn.kind;
+				if (NO_DB_LEVEL[k] || !db) return t("defaultDb");
+				return HAS_SCHEMAS[k] && schema ? db + "." + schema : db;
+			};
+			// 信息区键值：kind/name/host/port 直读连接元数据（URL 方式可能无 host/port，显示「—」不编造）
+			function infoKv(conn, ver) {
+				return React.createElement("dl", { className: "dbt-transfer-kv" },
+					React.createElement("dt", null, t("trxConnType")), React.createElement("dd", null, conn.kind || "—"),
+					React.createElement("dt", null, t("trxConnName")), React.createElement("dd", null, conn.name || conn.id),
+					React.createElement("dt", null, t("trxHost")), React.createElement("dd", null, conn.host || "—"),
+					React.createElement("dt", null, t("trxPort")), React.createElement("dd", null, conn.port != null ? String(conn.port) : "—"),
+					React.createElement("dt", null, t("trxServerVer")), React.createElement("dd", null, ver || "—"));
+			}
+			// 单栏：栏标题（蓝）+ 连接/库(/模式)纵向下拉 + 底部信息区
+			function transferCol(side) {
+				const isSrc = side === "src";
+				const connId = isSrc ? srcId : dstId;
+				const conn = isSrc ? srcConn : dstConn;
+				const kind = conn && conn.kind;
+				const db = isSrc ? srcDb : dstDb;
+				const onDb = isSrc ? setSrcDb : setDstDb;
+				const dbs = isSrc ? srcDbs : dstDbs;
+				const schemas = isSrc ? srcSchemas : dstSchemas;
+				const schema = isSrc ? srcSchema : dstSchema;
+				const onSchema = isSrc ? setSrcSchema : setDstSchema;
+				const errText = isSrc ? dbsErr.src : dbsErr.dst;
+				const titleId = "dbt-transfer-" + side + "-title";
+				// mongo 源/目标栏均可选库：服务端 tables/preview 按 database 定位（mongodb/index.ts dbOf），
+				// 表清单与 sourceDatabase/targetDatabase 同库对齐，无错位
+				const noDbLevel = NO_DB_LEVEL[kind];
+				return React.createElement("section", { className: "dbt-transfer-col", "aria-labelledby": titleId },
+					React.createElement("header", { id: titleId, className: "dbt-transfer-coltitle" }, t(isSrc ? "trxSource" : "trxTarget")),
+					React.createElement("label", { className: "dbt-transfer-field" },
+						React.createElement("span", { className: "dbt-transfer-fieldlabel" }, t("trxConn")),
+						connOptions(connId, isSrc ? setSrcId : setDstId, false, t("trxConn"))),
+					noDbLevel
+						? React.createElement("label", { className: "dbt-transfer-field" },
+							React.createElement("span", { className: "dbt-transfer-fieldlabel" }, t("trxDatabase")),
+							React.createElement("span", { className: "dbt-muted" }, t("trxNoDbLevel")))
+						: React.createElement("label", { className: "dbt-transfer-field" },
+							React.createElement("span", { className: "dbt-transfer-fieldlabel" }, t("trxDatabase")),
+							React.createElement("select", { value: db, disabled: busy || !connId, "aria-label": t("trxDatabase"), onChange: (e) => onDb(e.target.value) },
+								React.createElement("option", { value: "" }, t("defaultDb")),
+								(dbs || []).map((d) => React.createElement("option", { key: d, value: d }, d)))),
+					errText ? React.createElement("span", { className: "dbt-err" },
+						t("trxLoadDbsFail") + "：" + errText + " ",
+						React.createElement("button", { className: "dbt-btn", onClick: () => { setDbsErr((s) => Object.assign({}, s, { [side]: "" })); loadDbs(side, connId); } }, t("retry"))) : null,
+					HAS_SCHEMAS[kind] ? React.createElement("label", { className: "dbt-transfer-field" },
+						React.createElement("span", { className: "dbt-transfer-fieldlabel" }, t("trxSchema")),
+						React.createElement("select", { value: schema, disabled: busy || !db || !schemas, "aria-label": t("trxSchema"), onChange: (e) => onSchema(e.target.value) },
+							(schemas || []).map((s) => React.createElement("option", { key: s, value: s }, s)))) : null,
+					conn ? React.createElement("footer", { className: "dbt-transfer-info" },
+						React.createElement("div", { className: "dbt-transfer-infotitle" }, t("trxInfo")),
+						infoKv(conn, isSrc ? srcVer : dstVer)) : null,
+					!isSrc && sameCtx ? React.createElement("span", { className: "dbt-err", role: "alert" }, t("trSameConn")) : null,
+				);
+			}
+			// 表清单三态：加载中 / 失败+就地重试 / 空态（未选连接或 pg 系未选库、库内无模式、无表）/ 分组树
+			function tablesBody() {
+				if (loadingTables) return React.createElement("div", { className: "dbt-muted" }, t("trLoadingTables"));
+				if (tablesErr) return React.createElement("div", { className: "dbt-browse-errorbox" },
+					React.createElement("span", { className: "dbt-err", role: "alert" }, tablesErr),
+					React.createElement("button", { className: "dbt-btn", onClick: () => setTablesTick((x) => x + 1) }, t("retry")));
+				const kind = srcConn && srcConn.kind;
+				if (!srcId || (HAS_SCHEMAS[kind] && !srcDb)) return React.createElement("div", { className: "dbt-muted" }, t("trxPickSource"));
+				if (HAS_SCHEMAS[kind] && srcDb && srcSchemas && srcSchemas.length === 0) return React.createElement("div", { className: "dbt-muted" }, t("noSchemas"));
+				if (HAS_SCHEMAS[kind] && srcDb && !srcSchema) return React.createElement("div", { className: "dbt-muted" }, t("trLoadingTables"));
+				if (srcTables.length === 0) return React.createElement("div", { className: "dbt-muted" }, t("noTables"));
+				// 按类型分组（TABLE/BASE TABLE→表、COLLECTION→集合、其余→其他），对齐 Navicat 数据库对象树
+				const byType = new Map();
+				for (const row of srcTables) {
+					const key = row.type === "COLLECTION" ? "COLLECTION" : row.type === "VIEW" ? "VIEW" : row.type === "" ? "OTHER" : "TABLE";
+					if (!byType.has(key)) byType.set(key, []);
+					byType.get(key).push(row);
+				}
+				const groupLabel = (key) => key === "COLLECTION" ? t("trGroupCollection") : key === "VIEW" ? t("trGroupView") : key === "OTHER" ? t("trGroupOther") : t("trGroupTable");
+				const toggleGroup = (rows, allSelected) =>
+					setSelected((prev) => allSelected
+						? prev.filter((n) => !rows.some((r) => r.name === n))
+						: prev.concat(rows.map((r) => r.name).filter((n) => !prev.includes(n))));
+				const triRef = (all, some) => (el) => { if (el) el.indeterminate = some && !all; };
+				return React.createElement("div", { className: "dbt-transfer-tablelist", role: "group", "aria-label": t("trTables") },
+					[...byType.entries()].map(([key, rows]) => {
+						const selCount = rows.filter((r) => selected.includes(r.name)).length;
+						const all = selCount === rows.length;
+						const some = selCount > 0;
+						const open = !collapsed[key];
+						const flip = () => setCollapsed((prev) => Object.assign({}, prev, { [key]: open }));
+						return React.createElement("div", { key },
+							React.createElement("div", { className: "dbt-tr-group-head", role: "button", tabIndex: 0, "aria-expanded": open,
+								onClick: flip, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } } },
+								React.createElement("span", { className: "dbt-tr-caret" + (open ? " open" : ""), "aria-hidden": "true" }),
+								React.createElement("input", { type: "checkbox", ref: triRef(all, some), checked: all, onChange: () => toggleGroup(rows, all), onClick: (e) => e.stopPropagation(), "aria-label": groupLabel(key) }),
+								React.createElement("span", null, groupLabel(key) + " (" + selCount + "/" + rows.length + ")")),
+							open ? rows.map((row) => React.createElement("div", { key: row.name, className: "dbt-tr-item", title: row.comment || undefined },
+								React.createElement("label", { className: "dbt-tr-pair" },
+									React.createElement("input", { type: "checkbox", checked: selected.includes(row.name), onChange: () => toggle(row.name) }),
+									React.createElement("span", null, row.name),
+									row.comment ? React.createElement("span", { className: "dbt-tr-comment" }, row.comment) : null))) : null);
+					}));
+			}
+
+			return React.createElement(
+				"div",
+				{ className: "dbt-card" },
+				// 顶部摘要条：源连接/层级 ⇄ 目标连接/层级（源=目标同上下文时箭头转 danger 色）
+				React.createElement("div", { className: "dbt-transfer-summary", "aria-label": t("trxArrowLabel") },
+					React.createElement("span", { className: "dbt-transfer-endpoint" },
+						React.createElement("strong", null, srcConn ? (srcConn.name || srcId) : t("selectConn")),
+						React.createElement("span", { className: "dbt-muted" }, scopeText(srcConn, srcDb, srcSchema))),
+					React.createElement("span", { className: "dbt-transfer-divider", style: sameCtx ? { color: "var(--dbt-danger)" } : undefined }, transferArrow()),
+					React.createElement("span", { className: "dbt-transfer-endpoint" },
+						React.createElement("strong", null, dstConn ? (dstConn.name || dstId) : t("selectConn")),
+						React.createElement("span", { className: "dbt-muted" }, scopeText(dstConn, dstDb, dstSchema)))),
+				// 双栏：源（连接/数据库/模式）⇄ 目标（连接/数据库）
+				React.createElement("div", { className: "dbt-transfer-cols" },
+					transferCol("src"),
+					React.createElement("div", { className: "dbt-transfer-divider" }, transferArrow()),
+					transferCol("dst")),
+				// 传输对象：表清单按源层级联动加载
+				React.createElement("div", { className: "dbt-group" },
+					React.createElement("div", { className: "dbt-listrow" },
+						React.createElement("span", { className: "dbt-muted" }, t("trTables")),
+						React.createElement("span", { className: "dbt-muted" }, t("trxSelectedCount", { n: selected.length })),
+						React.createElement("span", { style: { flex: 1 } }),
+						srcTables.length > 0 ? React.createElement("button", { className: "dbt-btn", onClick: () => setSelected(srcTables.map((x) => x.name)) }, t("trSelectAll")) : null,
+						selected.length > 0 ? React.createElement("button", { className: "dbt-btn", onClick: () => setSelected([]) }, t("trClear")) : null),
+					tablesBody()),
+				// 传输选项（原生 details 渐进披露；四控件沿用原逻辑）
+				React.createElement("details", { className: "dbt-transfer-options" },
+					React.createElement("summary", null, t("trxOptions")),
+					React.createElement("div", { className: "dbt-group" },
+						React.createElement("div", { className: "dbt-listrow" },
+							React.createElement("span", { className: "dbt-muted" }, t("trWriteMode")),
+							React.createElement("select", { value: writeMode, disabled: busy, "aria-label": t("trWriteMode"), onChange: (e) => setWriteMode(e.target.value) },
+								React.createElement("option", { value: "insert" }, t("trModeInsert")),
+								React.createElement("option", { value: "ignore" }, t("trModeIgnore")),
+								React.createElement("option", { value: "replace" }, t("trModeReplace")),
+								React.createElement("option", { value: "truncate" }, t("trModeTruncate")))),
+						React.createElement("div", { className: "dbt-listrow" },
+							React.createElement("span", { className: "dbt-muted" }, t("trBatchSize")),
+							React.createElement("input", { type: "number", min: 1, max: 5000, "aria-label": t("trBatchSize"), value: batchSize, disabled: busy, onChange: (e) => setBatchSize(Math.min(5000, Math.max(1, Math.floor(Number(e.target.value) || 1)))) })),
+						React.createElement("div", { className: "dbt-listrow" },
+							React.createElement("span", { className: "dbt-muted" }, t("trTableConcurrency")),
+							React.createElement("input", { type: "number", min: 1, max: 16, "aria-label": t("trTableConcurrency"), value: tableConcurrency, disabled: busy, onChange: (e) => setTableConcurrency(Math.min(16, Math.max(1, Math.floor(Number(e.target.value) || 1)))) })),
+						React.createElement("div", { className: "dbt-listrow" },
+							React.createElement("span", { className: "dbt-muted" }, t("trShardConcurrency")),
+							React.createElement("input", { type: "number", min: 1, max: 32, "aria-label": t("trShardConcurrency"), value: shardConcurrency, disabled: busy, onChange: (e) => setShardConcurrency(Math.min(32, Math.max(1, Math.floor(Number(e.target.value) || 1)))) })),
+					React.createElement("label", { className: "dbt-listrow", title: t("trxOverwriteHint") },
+						React.createElement("input", { type: "checkbox", checked: overwriteStructure, disabled: busy, onChange: (e) => setOverwriteStructure(e.target.checked) }),
+						React.createElement("span", { className: "dbt-muted" }, t("trxOverwrite"))))),
+
+				// 动作行（禁用时 title 说明原因）+ 进度（仅任务存在时渲染）
+				React.createElement("div", { className: "dbt-listrow" },
+					React.createElement("button", { className: "dbt-btn primary", disabled: busy || !canStart, title: canStart ? undefined : startHint, onClick: () => { start(); } }, t("trStart")),
+					task && task.snap && task.snap.status === "running"
+						? React.createElement("button", { className: "dbt-btn", onClick: cancel }, t("trCancel"))
+						: null,
+					error ? React.createElement("span", { className: "dbt-err", role: "alert" }, error) : null),
+				task && task.snap
+					? React.createElement(
+						"div",
+						{ className: "dbt-group" },
+						React.createElement("div", { className: "dbt-listrow" },
+							React.createElement("span", { className: "dbt-muted" }, t("trProgress")),
+							React.createElement("strong", null, React.createElement("span", { "aria-live": "polite", style: statusColor(task.snap.status) }, statusLabel(task.snap.status)))),
+						React.createElement("table", { className: "dbt-table" },
+							React.createElement("thead", null, React.createElement("tr", null,
+								React.createElement("th", null, t("trTables")),
+								React.createElement("th", null, t("trStatus")),
+								React.createElement("th", null, t("trRows")),
+								React.createElement("th", null, t("trShards")))),
+							React.createElement("tbody", null, (task.snap.tables || []).map((tb) =>
+								React.createElement("tr", { key: tb.name },
+									React.createElement("td", null, tb.name),
+									React.createElement("td", { style: statusColor(tb.status) }, statusLabel(tb.status)),
+									React.createElement("td", null, String(tb.rows) + (tb.totalRows != null ? " / " + tb.totalRows : "")),
+									React.createElement("td", null, tb.shardsDone + "/" + tb.shardsTotal + (tb.shardsFailed > 0 ? " (" + tb.shardsFailed + "×)" : "")))))),
+						(task.snap.failures || []).length > 0
+							? React.createElement("div", { className: "dbt-group" },
+								React.createElement("div", { className: "dbt-muted" }, t("trFailures")),
+								task.snap.failures.map((f, i) => React.createElement("div", { key: i, className: "dbt-err" },
+									f.table + (f.shard >= 0 ? " #" + f.shard : "") + ": " + f.error)))
+							: null)
+					: null,
+				// 传输历史（终态持久化：任何时候可查已传输/失败结果；可按项目清除防积累）
+				React.createElement(
+					"details",
+					{ className: "dbt-transfer-options", onToggle: (e) => { if (e.target.open && history === null) loadHistory(); } },
+					React.createElement("summary", null, t("trHistory")),
+					React.createElement("div", { className: "dbt-group" },
+						React.createElement("div", { className: "dbt-listrow" },
+							React.createElement("span", { className: "dbt-muted" }, t("trHistory")),
+							React.createElement("span", { style: { flex: 1 } }),
+							history !== null && history.length > 0
+								? React.createElement("button", { className: "dbt-btn", onClick: () => { clearHistory(); } }, t("trHistoryClear"))
+								: null),
+						history === null
+							? React.createElement("div", { className: "dbt-muted" }, "…")
+							: history.length === 0
+								? React.createElement("div", { className: "dbt-muted" }, t("trHistoryEmpty"))
+								: history.map((h) => React.createElement("div", { key: h.taskId + h.ts, className: "dbt-tr-item", title: h.statement },
+									React.createElement("span", { className: "dbt-muted", style: { flex: "none" } }, new Date(h.ts).toLocaleString()),
+									React.createElement("strong", { style: statusColor(h.status) }, historyStatus(h.status)),
+									React.createElement("span", { className: "dbt-tr-comment" },
+										((h.statement.match(/表\[[^\]]*\]/) || [""])[0].slice(0, 80))
+										+ " · " + (h.tables || []).filter((t2) => t2.status === "done").length + "✓/"
+										+ (h.tables || []).filter((t2) => t2.status === "failed").length + "✗"
+										+ ((h.failures || []).length > 0 ? " · " + t("trFailures") + " " + h.failures.length : ""))))),
+				),
+			);
+		}
+
+		/* ---------------- 传输日志（独立标签：实时事件流，5s 自动刷新） ---------------- */
+		function TransferLogView(props) {
+			const projectPath = props.projectPath;
+			const [rows, setRows] = React.useState(null); // 日志条目数组
+			const [auto, setAuto] = React.useState(true);
+			const [error, setError] = React.useState("");
+			const timerRef = React.useRef(null);
+			const visibleRef = React.useRef(props.visible);
+			visibleRef.current = props.visible;
+
+			const load = React.useCallback(() => {
+				api("transfer-log" + qs({ project: projectPath, limit: 300 }))
+					.then((list) => setRows(Array.isArray(list) ? list : []))
+					.catch((e) => setError(String(e && e.message ? e.message : e)));
+			}, [projectPath]);
+
+			// 标签可见时 5s 轮询；隐藏即停（不空转）
+			React.useEffect(() => {
+				load();
+				if (!auto) return undefined;
+				timerRef.current = setInterval(() => {
+					if (visibleRef.current) load();
+				}, 5000);
+				return () => { if (timerRef.current) clearInterval(timerRef.current); };
+			}, [auto, load]);
+
+			async function clearLog() {
+				const yes = await props.askConfirm({
+					title: t("tlogClear"),
+					statement: t("tlog"),
+					hint: t("tlogClearConfirm"),
+					confirmLabel: t("tlogClear"),
+					target: { conn: "", kind: "", db: "", mode: "" },
+				});
+				if (!yes) return;
+				api("transfer-history/clear", { method: "POST", body: {} })
+					.then(() => load())
+					.catch((e) => setError(String(e && e.message ? e.message : e)));
+			}
+
+			const typeLabel = (ty) => ty === "start" ? t("tlogTypeStart") : ty === "table" ? t("tlogTypeTable") : ty === "progress" ? t("tlogTypeProgress") : ty === "finish" ? t("tlogTypeFinish") : ty;
+
+			return React.createElement(
+				"div",
+				{ className: "dbt-card" },
+				React.createElement("div", { className: "dbt-listrow" },
+					React.createElement("span", { className: "dbt-muted" }, t("viewTransferLog")),
+					React.createElement("label", { className: "dbt-listrow", style: { flex: "none" } },
+						React.createElement("input", { type: "checkbox", checked: auto, onChange: (e) => setAuto(e.target.checked) }),
+						React.createElement("span", { className: "dbt-muted" }, t("tlogAuto"))),
+					React.createElement("span", { style: { flex: 1 } }),
+					React.createElement("button", { className: "dbt-btn", onClick: () => { clearLog(); } }, t("tlogClear")),
+					React.createElement("button", { className: "dbt-btn", onClick: load }, t("trRefresh"))),
+				error ? React.createElement("div", { className: "dbt-err", role: "alert" }, error) : null,
+				rows === null
+					? React.createElement("div", { className: "dbt-muted" }, "…")
+					: rows.length === 0
+						? React.createElement("div", { className: "dbt-muted" }, t("tlogEmpty"))
+						: React.createElement("div", { className: "dbt-transfer-tablelist", style: { maxHeight: 320 } },
+							rows.map((r, i) => {
+								const brief = r.type === "start"
+									? (r.statement || "").replace(/表\[[^\]]*\]/, "表[" + ((r.statement.match(/表\[([^\]]*)\]/) || ["", ""])[1].split(",").length) + "张]")
+									: r.type === "table" || r.type === "progress"
+										? (r.table || "") + "  " + (r.rows != null ? r.rows : 0) + (r.totalRows != null ? " / " + r.totalRows : "") + " 行" + (r.status === "failed" ? "  " + (r.statusLabel || "") : "")
+										: (r.statement || "").slice(0, 60) + "  " + (r.status || "");
+								return React.createElement("div", { key: r.ts + i, className: "dbt-tr-item" },
+									React.createElement("span", { className: "dbt-muted", style: { flex: "none", minWidth: 84 } }, new Date(r.ts).toLocaleTimeString()),
+									React.createElement("span", { className: "dbt-tr-chip", style: { flex: "none" } }, typeLabel(r.type)),
+									React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, brief));
+							})),
+			);
+		}
+
 		/* ---------------- 根面板 ---------------- */
 		function Panel(props) {
 			const visible = props.visible;
@@ -2629,6 +3373,11 @@ window.__ModuleLoader__.load({
 			const [error, setError] = React.useState("");
 			const [message, setMessage] = React.useState("");
 			const [confirmReq, setConfirmReq] = React.useState(null); // {statement,danger,reason,resolve}
+			const [treeRefresh, setTreeRefresh] = React.useState(0); // 浏览树刷新信号（手动按钮 / 切回可见自动）
+			// 侧边栏切回可见时自动重拉已展开层：agents 等外部建库/建表后切回来即可见，无需手点刷新
+			React.useEffect(() => {
+				if (visible) setTreeRefresh((x) => x + 1);
+			}, [visible]);
 
 			const askConfirm = React.useCallback((info) => new Promise((resolve) => {
 				setConfirmReq(Object.assign({}, info, { resolve }));
@@ -2681,6 +3430,8 @@ window.__ModuleLoader__.load({
 				manage: React.createElement(ManageView, shared),
 				grants: React.createElement(GrantsView, shared),
 				console: React.createElement(ConsoleView, shared),
+				transfer: React.createElement(TransferView, shared),
+				tlog: React.createElement(TransferLogView, shared),
 			};
 			return React.createElement(
 				"div",
@@ -2688,7 +3439,7 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-tabs", role: "tablist" },
-					[["manage", t("viewManage")], ["grants", t("viewGrants")], ["browse", t("viewBrowse")], ["console", t("viewConsole")]].map(([v, label]) =>
+					[["manage", t("viewManage")], ["grants", t("viewGrants")], ["browse", t("viewBrowse")], ["console", t("viewConsole")], ["transfer", t("viewTransfer")], ["tlog", t("viewTransferLog")]].map(([v, label]) =>
 						React.createElement("button", {
 							key: v, className: view === v ? "active" : "",
 							role: "tab", "aria-selected": view === v,
@@ -2714,21 +3465,31 @@ window.__ModuleLoader__.load({
 						React.createElement("span", { className: "dbt-muted" }, t("projectLabel", { path: projectPath })),
 						// 编辑图标：极简铅笔 SVG（验收要求无 emoji；svg aria-hidden，按钮 aria-label 提供语义）
 						React.createElement("button", {
-							className: "dbt-btn", onClick: () => setProjectEdited(true), "aria-label": t("edit"),
-						},
-							React.createElement("svg", { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": "true" },
-								React.createElement("path", {
-									d: "M8.6 1.4 L10.6 3.4 L4.2 9.8 L1.6 10.4 L2.2 7.8 Z",
-									stroke: "currentColor", strokeWidth: 1.2, strokeLinejoin: "round",
-								})),
-						)),
+								className: "dbt-btn", onClick: () => setProjectEdited(true), "aria-label": t("edit"),
+							},
+								React.createElement("svg", { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": "true" },
+									React.createElement("path", {
+										d: "M8.6 1.4 L10.6 3.4 L4.2 9.8 L1.6 10.4 L2.2 7.8 Z",
+										stroke: "currentColor", strokeWidth: 1.2, strokeLinejoin: "round",
+									})),
+							),
+							// 刷新：重拉所有已展开的库/模式/表（agents 等外部建库后点一下即可见）
+							React.createElement("button", {
+								className: "dbt-btn", onClick: () => setTreeRefresh((x) => x + 1), "aria-label": t("trRefresh"), title: t("trRefresh"),
+							},
+								React.createElement("svg", { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": "true" },
+									React.createElement("path", {
+										d: "M10.5 6a4.5 4.5 0 1 1-1.32-3.18M10.5 1v2.5H8",
+										stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round", strokeLinejoin: "round",
+									})),
+							)),
 				error ? React.createElement("div", { className: "dbt-err", "aria-live": "polite" }, t("error") + ": " + error) : null,
 				message ? React.createElement("div", { className: "dbt-msg", "aria-live": "polite" }, message) : null,
 				// 视图常驻挂载 + hidden 切换：切 tab 保留各视图内部状态（控制台 SQL、浏览选中不丢）；
 				// dbt-in 入场动画只在面板首次打开播一次（.dbt-view 类自带，常驻后不随 tab 重播）；
 				// browse 撑满面板剩余高度（BrowsePane 内详情栏才能钉在面板最底部），active 控制首次激活才拉树。
 				// .dbt-view 类的 display:flex 会盖过 hidden 的 UA 样式，故内联 display 同步切换
-				["manage", "grants", "browse", "console"].map((v) =>
+				["manage", "grants", "browse", "console", "transfer", "tlog"].map((v) =>
 					React.createElement("div", {
 						key: v, className: "dbt-view", hidden: view !== v,
 						style: v === "browse"
@@ -2736,7 +3497,7 @@ window.__ModuleLoader__.load({
 							: (view === v ? undefined : { display: "none" }),
 					},
 						v === "browse"
-							? React.createElement(BrowsePane, { ctx: props.ctx, conns, projectPath, grants, askConfirm, active: view === "browse" })
+							? React.createElement(BrowsePane, { ctx: props.ctx, conns, projectPath, grants, askConfirm, active: view === "browse", refreshTick: treeRefresh })
 							: viewEls[v])),
 				React.createElement("div", { className: "dbt-muted" }, t("footerHint")),
 				confirmReq ? React.createElement(DangerDialog, { challenge: confirmReq, onClose: () => setConfirmReq(null) }) : null,

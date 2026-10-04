@@ -4,7 +4,9 @@
  * 设计要点（依据官方文档调研）：
  *  - oracledb.createPool({ user, password, connectString, poolMin: 1, poolMax: 10, poolTimeout: 60 })。
  *    禁止 SYSDBA 等特权连接（不透传 privilege）。
- *  - CLOB 经全局 fetchAsString 转字符串；BLOB 经 execute 的 fetchInfo 转 string。
+ *  - CLOB 经全局 fetchAsString 转字符串；BLOB 经全局 fetchAsBuffer 转 Buffer。
+ *    （fetchInfo 的键是【列名】而非类型名，按类型统一转换只能用全局 fetchXXX 属性——
+ *    官方 connection.rst「fetchInfo」节：「Each column is specified by name」）
  *    NUMBER 保持 number（超精度损失由用户承担，见文档标注）。
  *  - query() 仅允许 SELECT/WITH；execute() DML/DDL，autoCommit: true 单语句语义。
  *  - Oracle 无 BEGIN，事务用 SET TRANSACTION READ WRITE + commit/rollback（tx 成员）。
@@ -27,15 +29,17 @@ import type {
   TestConnectResult,
 } from '../types.js';
 
-// CLOB 统一按字符串返回（BLOB 不能走 fetchAsString，须用 execute 的 fetchInfo）
+// CLOB 统一按字符串返回；BLOB 统一按 Buffer 返回。均为官方全局按类型转换
+// （fetchInfo 的键是列名而非类型名，`{ BLOB: … }` 只会匹配恰好名为 "BLOB" 的列，
+// 按类型统一转换须用全局 fetchAsString/fetchAsBuffer——官方 connection.rst
+// 「fetchInfo」节原文「Each column is specified by name, using Oracle's standard
+// naming convention.」；fetchInfo 自 6.0 标记 deprecated，官方建议全局属性/fetchTypeHandler）
 if (!oracledb.fetchAsString.includes(oracledb.CLOB)) {
   oracledb.fetchAsString = [...oracledb.fetchAsString, oracledb.CLOB];
 }
-
-/** BLOB → string（execute 级选项） */
-const BLOB_FETCH: oracledb.ExecuteOptions = {
-  fetchInfo: { BLOB: { type: oracledb.STRING } },
-};
+if (!oracledb.fetchAsBuffer.includes(oracledb.BLOB)) {
+  oracledb.fetchAsBuffer = [...oracledb.fetchAsBuffer, oracledb.BLOB];
+}
 
 const ROWS_MAX = 500;
 const CELL_TRUNC = 1000;
@@ -94,8 +98,15 @@ async function normalizeCell(v: unknown): Promise<NormalizedCell> {
   if (typeof v === 'number') return Number.isFinite(v) ? v : String(v);
   if (typeof v === 'string') return trunc(v);
   if (v instanceof Date) return v.toISOString();
-  if (typeof v === 'object' && (v as { constructor?: { name?: string } }).constructor?.name === 'Lob') {
-    const s = await (v as unknown as { toString(): Promise<string> }).toString();
+  if (Buffer.isBuffer(v)) return trunc(`0x${v.toString('hex')}`); // fetchAsBuffer 产出的 BLOB
+  if (v instanceof oracledb.Lob) {
+    // 官方 Lob 类成员仅 getData()/read()/close()/destroy() 等，无 toString()（官方 lob.rst；
+    // 实测 Lob.prototype.toString 即 Object.prototype.toString）——曾误用 toString()
+    // 致 LOB 列恒显示 '[object Object]'。getData() 按 CLOB/BFILE 返回 string、按
+    // 未转换 BLOB 返回 Buffer。判别用官方导出类 instanceof（constructor.name 非
+    // 官方承诺，esbuild 压缩改名场景会失效）。
+    const data = await v.getData();
+    const s = typeof data === 'string' ? data : `0x${Buffer.from(data).toString('hex')}`;
     return trunc(s);
   }
   return trunc(String(v));
@@ -199,7 +210,7 @@ export async function createOracleAdapter(
   }
 
   // autoCommit 默认 true：query/元数据 SELECT 结束隐式事务避免 ro 事务悬挂；tx 专用连接显式 autoCommit:false 覆盖
-  const execOpts: oracledb.ExecuteOptions = { outFormat: oracledb.OBJECT, maxRows: ROWS_MAX + 1, autoCommit: true, ...BLOB_FETCH };
+  const execOpts: oracledb.ExecuteOptions = { outFormat: oracledb.OBJECT, maxRows: ROWS_MAX + 1, autoCommit: true };
 
   /**
    * 从池借一条连接执行后归还。⚠️ oracledb 的 Pool 没有 execute，
@@ -443,3 +454,20 @@ export async function createOracleAdapter(
 }
 
 export const factory: AdapterFactory = async (conn) => createOracleAdapter(conn);
+
+/** 数据传输读写端用的独立连接池（复用 resolveOracleConn 与错误包装） */
+export async function openOraclePool(conn: ResolvedConnection): Promise<oracledb.Pool> {
+  const { user, password, connectString } = resolveOracleConn(conn);
+  try {
+    return await oracledb.createPool({
+      user,
+      password,
+      connectString,
+      poolMin: 1,
+      poolMax: 10,
+      poolTimeout: 60,
+    });
+  } catch (e) {
+    throw humanizeOraError(e);
+  }
+}

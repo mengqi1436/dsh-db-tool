@@ -1,10 +1,12 @@
 /**
  * MySQL 适配器离线负向用例（mock-free，不连服务器）。
  * mysql2 createPool 惰性建连，以下用例的断言都在触达网络之前抛出。
- * 覆盖：ro 模式 query 首词只读白名单、defaultDb 从 URL pathname 解析默认库。
+ * 覆盖：ro 模式 query 首词只读白名单、defaultDb 从 URL pathname 解析默认库、
+ * 'connection' 回调内会话 SET 的错误兜底（EventEmitter 命令对象）。
  */
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { createMysqlAdapter } from '../../lib/adapters/mysql/index.js';
+import { createMysqlAdapter, openMysqlRaw } from '../../lib/adapters/mysql/index.js';
 import type { ResolvedConnection } from '../../lib/adapters/types.js';
 
 function connByUrl(url: string): ResolvedConnection {
@@ -83,6 +85,33 @@ describe('mysql 适配器（离线负向用例）', () => {
       await expect(a.listTables()).rejects.toThrow(/mysql 列出表/);
     } finally {
       await a.close();
+    }
+  });
+});
+
+describe("mysql promise 池 'connection' 回调：会话 SET 的错误兜底", () => {
+  // mysql2 3.24.4 实证：promise 池 'connection' 回调收到 callback 版 PoolConnection，
+  // 非回调式 query() 返回 Query 命令对象（EventEmitter），与 promise 池连接状态机冲突
+  // → 该连接所有后续 query 永挂（真机 pg→mysql 卡死根因）。修复为回调式 query + err 吞掉。
+  function fakeConn(recorder: { sqls: string[] }): { query(sql: string, cb?: (e: unknown) => void): unknown } {
+    return {
+      query: (sql: string, cb?: (e: unknown) => void) => {
+        recorder.sqls.push(sql);
+        if (cb) cb(new Error('SET 失败（连接中断/服务器拒绝）'));
+        return undefined;
+      },
+    };
+  }
+
+  it('openMysqlRaw：connection 回调用回调式 query 设时区，SET 失败被吞不崩', async () => {
+    const raw = await openMysqlRaw({ meta: { id: 'mysql-offline', kind: 'mysql' }, url: 'mysql://u:p@127.0.0.1:3326/dbx' });
+    try {
+      expect(raw.database).toBe('dbx');
+      const recorder = { sqls: [] as string[] };
+      expect(() => raw.pool.emit('connection', fakeConn(recorder))).not.toThrow();
+      expect(recorder.sqls[0]).toContain('SET time_zone');
+    } finally {
+      await raw.pool.end();
     }
   });
 });

@@ -3,6 +3,7 @@
  * 覆盖：SQL 守卫、DML/DDL 语义、错误转换、标识符校验、元数据查询、ro 模式、dmdb 驱动选项。
  */
 import { describe, expect, it, vi } from 'vitest';
+import oracledb from 'oracledb';
 import {
   createDmAdapter,
   humanizeDmError,
@@ -231,6 +232,36 @@ describe('Oracle 元数据（mock pool）', () => {
     expect(pool.connObj.execute.mock.calls[1]![0] as string).toContain('OFFSET :o ROWS FETCH NEXT :n ROWS ONLY');
     expect(pool.connObj.execute.mock.calls[1]![1]).toEqual([20, 10]);
   });
+  it('BLOB 按 fetchAsBuffer 全局转换 → normalizeCell 出 0x hex（不再走失效的 fetchInfo）', async () => {
+    const blob = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+    const pool = makeOraPool([{ BIN: blob }], [{ name: 'BIN' }]);
+    const a = await createOracleAdapter(oraConn, { pool });
+    const r = await a.query('SELECT * FROM t');
+    expect(r.rows[0]![0]).toBe('0xdeadbeef');
+  });
+  it('execute 选项不含 fetchInfo（键为列名而非类型名，按类型转换已迁至全局属性）', async () => {
+    const pool = makeOraPool();
+    const a = await createOracleAdapter(oraConn, { pool });
+    await a.execute('UPDATE t SET x = 1');
+    expect(pool.connObj.execute.mock.calls[0]![2]).not.toHaveProperty('fetchInfo');
+  });
+  it('Lob 残留对象（BFILE 等未转换场景）经 getData() 取值，toString() 兜底不再吃掉数据', async () => {
+    const lob = Object.create(oracledb.Lob.prototype) as oracledb.Lob & { getData: unknown };
+    (lob as { getData: unknown }).getData = vi.fn(async () => 'CLOB 内容');
+    const pool = makeOraPool([{ DOC: lob }], [{ name: 'DOC' }]);
+    const a = await createOracleAdapter(oraConn, { pool });
+    const r = await a.query('SELECT * FROM t');
+    expect((lob.getData as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect(r.rows[0]![0]).toBe('CLOB 内容');
+  });
+  it('Lob getData 返回 Buffer（未转换 BLOB 残留）→ 0x hex 展示', async () => {
+    const lob = Object.create(oracledb.Lob.prototype) as oracledb.Lob & { getData: unknown };
+    (lob as { getData: unknown }).getData = vi.fn(async () => Buffer.from([0x01, 0x02]));
+    const pool = makeOraPool([{ DOC: lob }], [{ name: 'DOC' }]);
+    const a = await createOracleAdapter(oraConn, { pool });
+    const r = await a.query('SELECT * FROM t');
+    expect(r.rows[0]![0]).toBe('0x0102');
+  });
 });
 
 describe('达梦 DM（mock pool）', () => {
@@ -288,14 +319,14 @@ describe('达梦 DM（mock pool）', () => {
     const r = await a.execute('TRUNCATE TABLE t');
     expect(r.message).toContain('DDL 已隐式提交，不可回滚');
   });
-  it('previewRows 统一 ANSI 分页，OFFSET/FETCH bind 透传（offset 用例）', async () => {
+  it('previewRows 统一 ANSI 分页，OFFSET/FETCH 内联 clamp 整数（ROW_LIMIT 语法图为字面整数，绑定无官方佐证）', async () => {
     const pool = makeDmPool([{ A: 1 }], [{ name: 'A' }]);
     const a = await createDmAdapter(dmConn, { pool });
     await a.previewRows('t', 10);
-    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('OFFSET :o ROWS FETCH FIRST :n ROWS ONLY');
-    expect(pool.connObj.execute.mock.calls[0]![1]).toEqual([0, 10]);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('OFFSET 0 ROWS FETCH FIRST 10 ROWS ONLY');
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).not.toContain(':o');
     await a.previewRows('t', 5, undefined, 15);
-    expect(pool.connObj.execute.mock.calls[1]![1]).toEqual([15, 5]);
+    expect(pool.connObj.execute.mock.calls[1]![0] as string).toContain('OFFSET 15 ROWS FETCH FIRST 5 ROWS ONLY');
   });
   it('listTables 复用 ALL_TABLES 数据字典', async () => {
     const pool = makeDmPool([{ TABLE_NAME: 'T1' }], [{ name: 'TABLE_NAME' }]);

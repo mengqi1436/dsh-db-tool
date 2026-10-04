@@ -212,6 +212,12 @@ export async function createMongoAdapter(
         : defaultDbName(conn.fields);
   const db = client.db(dbName);
 
+  /** 库定位：database 指定且非连接默认库时切库（client.db() 是轻量句柄，不建新连接）；
+   *  表清单/预览按所选库真实返回，避免「清单来自固定库、定位发所选库」的错位 */
+  function dbOf(database?: string): import('mongodb').Db {
+    return database && database !== dbName ? client.db(database) : db;
+  }
+
   function wrap(e: unknown): Error {
     const M = vendorOrNull();
     if (M && e instanceof M.MongoServerError) {
@@ -240,8 +246,16 @@ export async function createMongoAdapter(
 
     async testConnect(): Promise<TestConnectResult> {
       try {
-        const hello = await client.db('admin').command({ hello: 1 });
-        return { ok: true, serverInfo: `MongoDB ${String(hello.version ?? '')}` };
+        // hello 响应没有 version 字段（官方手册字段表仅 isWritablePrimary/topologyVersion/
+        // maxBsonObjectSize/maxWireVersion 等），软件版本属 buildInfo 命令 → 取
+        // buildInfo.version；权限不足等失败回退 hello 仅判连通（版本信息尽力而为）
+        try {
+          const info = (await client.db('admin').command({ buildInfo: 1 })) as { version?: unknown };
+          return { ok: true, serverInfo: `MongoDB ${String(info.version ?? '')}` };
+        } catch {
+          await client.db('admin').command({ hello: 1 });
+          return { ok: true, serverInfo: 'MongoDB（版本信息不可读）' };
+        }
       } catch (e) {
         return { ok: false, error: wrap(e).message };
       }
@@ -381,8 +395,11 @@ export async function createMongoAdapter(
               ? cmd.index
               : isPlainObject(cmd.indexes) ? [cmd.indexes] : Array.isArray(cmd.indexes) ? cmd.indexes : null;
           if (!specs) throw new Error('MongoDB createIndex 需要 index 规格对象或数组：{"createIndex":"coll","index":{"key":{"a":1},"name":"a_1"}}');
-          const created = (await db.collection(name).createIndexes(specs as IndexDescription[])) as { createdNewIndexes?: number };
-          return { affectedRows: created.createdNewIndexes ?? undefined, message: `已在集合 ${name} 创建索引（${created.createdNewIndexes ?? '?'} 个新增）` };
+          // 官方返回索引名数组（mongodb.d.ts: createIndexes(...): Promise<string[]>），
+          // 无 createdNewIndexes 字段（曾按记忆臆造，恒 undefined）；驱动不区分
+          // 新建/已存在，affectedRows = 规格数
+          const created = await db.collection(name).createIndexes(specs as IndexDescription[]);
+          return { affectedRows: created.length, message: `已在集合 ${name} 创建索引（${created.length} 个）` };
         }
         if (op === 'dropIndex' || op === 'dropIndexes') {
           const name = collOf(cmd, op);
@@ -458,9 +475,9 @@ export async function createMongoAdapter(
       }
     },
 
-    async listTables(): Promise<TableInfo[]> {
+    async listTables(database?: string): Promise<TableInfo[]> {
       try {
-        const infos = await db.listCollections().toArray();
+        const infos = await dbOf(database).listCollections().toArray();
         return infos.map((c) => ({ name: c.name, type: c.type === 'view' ? 'view' : 'collection' }));
       } catch (e) {
         throw wrap(e);
@@ -509,11 +526,11 @@ export async function createMongoAdapter(
       }
     },
 
-    async previewRows(name: string, limit: number, _database?: string, offset?: number): Promise<QueryResult> {
+    async previewRows(name: string, limit: number, database?: string, offset?: number): Promise<QueryResult> {
       try {
         const n = Math.max(1, Math.min(Math.floor(limit) || 20, FIND_MAX_LIMIT));
         const skip = Math.max(0, Math.floor(offset ?? 0) || 0);
-        const docs = await db.collection(name).find({}).sort({ _id: 1 }).skip(skip).limit(n).toArray();
+        const docs = await dbOf(database).collection(name).find({}).sort({ _id: 1 }).skip(skip).limit(n).toArray();
         return docsToResult(docs, false);
       } catch (e) {
         throw wrap(e);
@@ -622,3 +639,35 @@ function sanitizeUri(uri: string): string {
 }
 
 export const factory: AdapterFactory = async (conn) => createMongoAdapter(conn);
+
+/** 数据传输读写端用的原始通道：client + 目标库句柄 + vendor 模块（BSON 类判别/构造用） */
+export interface MongoRaw {
+  client: MongoClient;
+  db: import('mongodb').Db;
+  M: MongoModule;
+}
+
+export async function openMongoRaw(conn: ResolvedConnection): Promise<MongoRaw> {
+  const M = vendor();
+  const uri = conn.url ?? buildUri(conn.fields, conn.ssl);
+  const client = new M.MongoClient(uri, {
+    maxPoolSize: 10,
+    readPreference: 'primary',
+    w: 'majority',
+    family: 4,
+  });
+  try {
+    await client.connect();
+  } catch (e) {
+    throw new Error(
+      `MongoDB 连接失败（${sanitizeUri(uri)}）：${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  const dbName =
+    typeof conn.meta.database === 'string' && conn.meta.database !== ''
+      ? conn.meta.database
+      : conn.url
+        ? urlDbName(conn.url)
+        : defaultDbName(conn.fields);
+  return { client, db: client.db(dbName), M };
+}

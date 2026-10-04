@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { createSqliteAdapter } from '../../lib/adapters/sqlite/index.js';
+import { createSqliteAdapter, stmtColumns } from '../../lib/adapters/sqlite/index.js';
 import type { DatabaseAdapter, ResolvedConnection } from '../../lib/adapters/types.js';
 
 const nodeSqliteAvailable = await import('node:sqlite')
@@ -74,6 +74,13 @@ for (const mode of ['node', 'better'] as const) {
       expect(r.columns).toEqual(['id', 'name', 'score', 'data']);
       expect(r.rowCount).toBe(2);
       expect(r.rows[0]).toEqual([1, 'user1', 1.5, '[BLOB 3 bytes]']);
+    });
+
+    it('query 空结果集仍有列头（columns 不依赖行数据）', async () => {
+      const r = await adapter.query('SELECT id, name FROM users WHERE id = -1');
+      expect(r.columns).toEqual(['id', 'name']);
+      expect(r.rowCount).toBe(0);
+      expect(r.rows).toEqual([]);
     });
 
     it('query 支持 ? 参数绑定', async () => {
@@ -155,3 +162,25 @@ for (const mode of ['node', 'better'] as const) {
     });
   });
 }
+
+/**
+ * stmtColumns 回退分支单测（真机无法构造 columns 缺失的 node:sqlite：
+ * 需 Node 22.13.0–22.15.x 才会命中该窗口，见 lib 侧注释）。
+ */
+describe('stmtColumns：columns() 缺失驱动（node:sqlite < 22.16）的回退', () => {
+  type Stmt = Parameters<typeof stmtColumns>[0];
+  const noColumns = {} as Stmt;
+
+  it('有 columns() → 用它（主路径，列头不依赖行）', () => {
+    const stmt = { columns: () => [{ name: 'b' }, { name: 'a' }] } as Stmt;
+    expect(stmtColumns(stmt, [])).toEqual(['b', 'a']);
+  });
+
+  it('无 columns() 且有行 → 首行 keys 按序作列名', () => {
+    expect(stmtColumns(noColumns, [{ name: 'u1', id: 2 }])).toEqual(['name', 'id']);
+  });
+
+  it('无 columns() 且空结果 → 空列头（不抛 TypeError）', () => {
+    expect(stmtColumns(noColumns, [])).toEqual([]);
+  });
+});

@@ -43,9 +43,11 @@ class FakePool implements PgLikePool {
   /** 注入：新建 client 对匹配前缀的 SQL 抛错（模拟 ro SET 失败） */
   clientFailSqlPrefix?: string;
 
-  on(event: string, cb: (c: PgLikeClient) => void) {
-    if (event === 'connect') this.connectHandlers.push(cb);
-    else if (event === 'error') this.errorHandlers.push(cb);
+  // PgLikePool.on 官方签名：'error' 回调 (err, client)、'connect' 回调 (client)。
+  // never[] 是函数参数逆变下的顶型写法：任何回调签名都可赋给 (...args: never[]) => void
+  on(event: string, cb: (...args: never[]) => void) {
+    if (event === 'connect') this.connectHandlers.push(cb as (c: PgLikeClient) => void);
+    else if (event === 'error') this.errorHandlers.push(cb as (c: PgLikeClient) => void);
     return this;
   }
   async query(sql: string, params?: unknown[]) {
@@ -296,25 +298,37 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(pool.executed[0]?.sql).toContain('version()');
   });
 
-  // 跨库浏览：Driver.Pool 按 config.database 建池（真实 pg 驱动语义），记录每次建池的库名
+  // 跨库浏览：Driver.Pool 按驱动实际解析出的目标库建池（模拟 pg/gaussdb 合并语义：
+  // connectionString path 段覆盖显式 database——叠加字段会被 URL 库名覆盖），记录每次建池
+  function effectiveDb(config: Record<string, unknown>): string {
+    const cs = config.connectionString;
+    if (typeof cs === 'string' && cs.includes('://')) {
+      const m = /\/([^/?#]+)/.exec(cs.slice(cs.indexOf('://') + 3));
+      if (m?.[1]) return decodeURIComponent(m[1]);
+    }
+    return String(config.database ?? 'postgres');
+  }
+
   async function makeMulti(opts?: { mode: 'ro' }) {
     const pools = new Map<string, FakePool>();
     const createdDb: string[] = [];
+    const poolCfgs: Record<string, unknown>[] = [];
     const driver: PgLikeDriver = {
-      Pool: function (config: { database?: string }) {
-        const db = String(config?.database ?? 'postgres');
+      Pool: function (config: Record<string, unknown>) {
+        const db = effectiveDb(config);
         createdDb.push(db);
+        poolCfgs.push(config);
         const p = new FakePool();
         pools.set(db, p);
         return p;
       } as unknown as PgLikeDriver['Pool'],
     };
     const a = await createPgLikeAdapter('postgresql', driver, conn(), opts);
-    return { a, pools, createdDb };
+    return { a, pools, createdDb, poolCfgs };
   }
 
   it('跨库浏览：非连接库按库名开独立池并缓存复用', async () => {
-    const { a, pools, createdDb } = await makeMulti();
+    const { a, pools, createdDb, poolCfgs } = await makeMulti();
     // 首次访问懒建 gycwd 池
     await a.listSchemas!('gycwd');
     const g = pools.get('gycwd')!;
@@ -323,14 +337,18 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(tables[0]).toMatchObject({ name: 't1', type: 'TABLE', database: 'gycwd.public' });
     // 池缓存：两次操作只建一次 gycwd 池
     expect(createdDb.filter((d) => d === 'gycwd').length).toBe(1);
+    // URL 形态跨库池：connectionString 库名段已改写（叠加 database 字段会被驱动里
+    // URL 原库名覆盖，静默连回原库——mysql2 pool.config 同级事故）
+    expect(poolCfgs[1]!.connectionString).toBe('postgres://u:p@h:5432/gycwd');
+    expect(poolCfgs[1]!.database).toBeUndefined();
     // describeTable / previewRows 走同一跨库池
     g.queue = [okRes([{ column_name: 'id', data_type: 'integer', is_nullable: 'NO', column_default: null, character_maximum_length: null, col_comment: null }]), okRes([{ id: 1 }], ['id'])];
     expect((await a.describeTable('t1', 'gycwd.public'))[0]?.name).toBe('id');
     await a.previewRows('t1', 10, 'gycwd.public');
     expect(g.executed.at(-1)?.sql).toBe('SELECT * FROM "public"."t1" LIMIT $1 OFFSET $2');
     // 连接自身库（url 库名）不建新池
-    await a.previewRows('t1', 10, 'postgres');
-    expect(createdDb.filter((d) => d !== 'gycwd')).toEqual(['postgres']); // 主池仅初始化 1 次
+    await a.previewRows('t1', 10, 'db');
+    expect(createdDb.filter((d) => d !== 'gycwd')).toEqual(['db']); // 主池仅初始化 1 次
     // close 连同跨库池一起关闭
     await a.close();
     expect(g.ended).toBe(1);
@@ -339,7 +357,7 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
   it('跨库目标解析：无点=当前库 schema；非法字符被拒', async () => {
     const { a, pools, createdDb } = await makeMulti();
     // 无点 → 当前库默认 schema（public），走主池
-    pools.get('postgres')!.queue = [okRes([])];
+    pools.get('db')!.queue = [okRes([])];
     await expect(a.listTables('app')).resolves.toEqual([]);
     expect(createdDb.length).toBe(1); // 只有主池
     // "db.schema" 里的非法字符（NUL/换行）仍被 assertIdent 拒绝
@@ -372,6 +390,6 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     await expect(a.query('SELECT 1', [], 'db\0x')).rejects.toThrow(/非法/);
     // 无 database → 主池（事务路由路径）
     await a.query('SELECT 1');
-    expect(createdDb.filter((d) => d !== 'gycwd')).toEqual(['postgres']);
+    expect(createdDb.filter((d) => d !== 'gycwd')).toEqual(['db']);
   });
 });

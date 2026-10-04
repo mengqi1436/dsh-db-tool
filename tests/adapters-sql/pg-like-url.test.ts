@@ -5,9 +5,11 @@
  * - createPgLikeAdapter 接线：多主机选台后主池/跨库池 connectionString、全败回退、postgresql 不 probe。
  */
 import { describe, expect, it } from 'vitest';
+import { createRequire } from 'node:module';
 import {
   createPgLikeAdapter,
   normalizeUrl,
+  pgCfgWithDatabase,
   pickHost,
   type PgLikeDriver,
   type PgLikePool,
@@ -180,6 +182,38 @@ describe('pickHost', () => {
   });
 });
 
+describe('pgCfgWithDatabase（覆盖库名：connectionString 解析值覆盖显式字段的驱动合并语义）', () => {
+  it('URL 形态：改写 path 段为目标库，scheme/userinfo/hosts/query 原样保留；无 path 时补 /db', () => {
+    expect(pgCfgWithDatabase({ connectionString: 'postgres://u:p@h1:5432/appdb', max: 10 }, 'other')).toEqual({
+      connectionString: 'postgres://u:p@h1:5432/other',
+      max: 10,
+    });
+    // 多台 hosts 与 query 原样保留（探测选定台后的 connectionString 形态）
+    expect(pgCfgWithDatabase({ connectionString: 'postgres://h1:5432,h2:5433/db?sslmode=require' }, 'x')).toEqual({
+      connectionString: 'postgres://h1:5432,h2:5433/x?sslmode=require',
+    });
+    expect(pgCfgWithDatabase({ connectionString: 'postgres://u:p@h1:5432' }, 'other')).toEqual({
+      connectionString: 'postgres://u:p@h1:5432/other',
+    });
+  });
+
+  it('写回库名 percent-encode，与驱动 parse 的 decodeURI 往返无损（pg/gaussdb 实测 parse(\'.../a%20b\') → \'a b\'）', () => {
+    const r = pgCfgWithDatabase({ connectionString: 'postgres://h1/db' }, 'a b');
+    expect(r.connectionString).toBe('postgres://h1/a%20b');
+    const parse = createRequire(import.meta.url)('pg-connection-string').parse as (s: string) => { database?: string };
+    expect(parse(String(r.connectionString)).database).toBe('a b');
+  });
+
+  it('字段形态：叠加 database；无 authority 的 connectionString 不产生垃圾改写', () => {
+    expect(pgCfgWithDatabase({ host: 'h', port: 5432 }, 'other')).toEqual({ host: 'h', port: 5432, database: 'other' });
+    expect(pgCfgWithDatabase({ connectionString: 'unix:/run/pg', max: 4 }, 'other')).toEqual({
+      connectionString: 'unix:/run/pg',
+      max: 4,
+      database: 'other',
+    });
+  });
+});
+
 /** createPgLikeAdapter 接线用的池：记录每次建池配置，其余行为最小化 */
 class SilentPool implements PgLikePool {
   on() {
@@ -258,13 +292,16 @@ describe('createPgLikeAdapter 多主机接线', () => {
     await a.close();
   });
 
-  it('postgresql 多主机不 probe：剥 jdbc: 后透传（pg 驱动原生 libpq failover）', async () => {
+  it('postgresql 多主机同样逐台探测（纯 JS pg 驱动无 libpq 多主机 failover：带端口多台 parse 抛 Invalid URL）', async () => {
     const { driver, configs, probeClients } = multiHostDriver([{ failConnect: true }]);
-    await createPgLikeAdapter('postgresql', driver, {
+    const a = await createPgLikeAdapter('postgresql', driver, {
       meta: { id: 'c4', kind: 'postgresql' },
-      url: 'jdbc:postgresql://h1:5432,h2:5432/db',
+      url: 'postgres://h1:5432,h2:5432/db',
     });
-    expect(probeClients.length).toBe(0);
-    expect(configs[0]!.connectionString).toBe('postgresql://h1:5432,h2:5432/db');
+    expect(probeClients.length).toBe(2); // 第 1 台失败换第 2 台
+    expect(probeClients[0]!.ended).toBe(1);
+    expect(probeClients[1]!.ended).toBe(1);
+    expect(configs[0]!.connectionString).toBe('postgres://h2:5432/db');
+    await a.close();
   });
 });

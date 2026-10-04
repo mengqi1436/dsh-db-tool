@@ -11,6 +11,11 @@ import { createPgLikeAdapter, type PgLikeDriver, type TxHandle } from '../sql-sh
 
 const require = createRequire(import.meta.url);
 
+/** 数据传输模块用的驱动加载入口（与适配器同一份 require 缓存） */
+export function getPgDriver(): PgLikeDriver {
+  return require('pg') as unknown as PgLikeDriver;
+}
+
 export async function createPostgresqlAdapter(
   conn: ResolvedConnection,
   opts?: { mode?: AccessMode },
