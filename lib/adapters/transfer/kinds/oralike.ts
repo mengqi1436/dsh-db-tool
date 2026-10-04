@@ -452,8 +452,10 @@ export function createOraLikeTransferWriter(
             written += res.rowsAffected ?? 0;
           }
         } else {
-          for (const r of rows) {
-            const res = await conn.execute(sql, r.map((v, i) => toOraBind(v, cols[i])), { autoCommit: false });
+          // executeMany 单往返批量（node-oracledb/DM 官方批量加载推荐）；≤1000 行/次防绑定数组溢出
+          for (let i = 0; i < rows.length; i += 1000) {
+            const chunk = rows.slice(i, i + 1000).map((r) => r.map((v, i2) => toOraBind(v, cols[i2])));
+            const res = await conn.execute(sql, chunk as unknown[], { autoCommit: false });
             written += res.rowsAffected ?? 0;
           }
         }

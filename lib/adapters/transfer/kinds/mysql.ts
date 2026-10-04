@@ -313,11 +313,17 @@ export function createMysqlTransferWriter(raw: MysqlRaw, writeMode: WriteMode = 
       const db = raw.database !== ''
         ? `${quoteIdent(assertIdent(raw.database, '库名'), '`')}.`
         : '';
-      const sql = `${prefix}${db}${quoteIdent(table.name, '`')} (${cols.map((c) => quoteIdent(c.name, '`')).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
+      // 多行 VALUES 单语句（官方示例形态）：一次往返写整批，较逐行快一个数量级；
+      // 每语句 ≤1000 行防 max_allowed_packet 溢出
+      const colList = cols.map((c) => quoteIdent(c.name, '`')).join(', ');
+      const rowHolders = `(${cols.map(() => '?').join(', ')})`;
       return withTx(async (conn) => {
         let written = 0;
-        for (const r of rows) {
-          const [result] = await conn.query(sql, r.map((v, i) => toMysqlBind(v, cols[i])));
+        for (let i = 0; i < rows.length; i += 1000) {
+          const chunk = rows.slice(i, i + 1000);
+          const sql = `${prefix}${db}${quoteIdent(table.name, '`')} (${colList}) VALUES ${chunk.map(() => rowHolders).join(', ')}`;
+          const binds = chunk.flatMap((r) => r.map((v, ci) => toMysqlBind(v, cols[ci])));
+          const [result] = await conn.query(sql, binds);
           const header = (Array.isArray(result) ? result[0] : result) as { affectedRows?: number } | undefined;
           written += header?.affectedRows ?? 0;
         }

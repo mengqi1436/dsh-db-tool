@@ -263,15 +263,21 @@ export function createPgTransferWriter(
       }
       const tbl = `${quoteIdent(schema)}.${quoteIdent(table.name)}`;
       const colList = cols.map((c) => quoteIdent(c.name)).join(', ');
-      const holders = cols.map((_, i) => `$${i + 1}`).join(', ');
-      const sql = `INSERT INTO ${tbl} (${colList}) VALUES (${holders})${action}`;
+      // 多行 VALUES 单语句（10-50x 于逐行）：pg 扩展协议硬上限 65535 绑定参数，
+      // 每语句行数 = min(批大小, floor(65535/列数))；事务包裹不变
+      const perStmt = Math.max(1, Math.floor(65535 / cols.length));
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
         try {
           let written = 0;
-          for (const r of rows) {
-            const res = await client.query(sql, r.map(toPgBind));
+          for (let i = 0; i < rows.length; i += perStmt) {
+            const chunk = rows.slice(i, i + perStmt);
+            const holders = chunk
+              .map((_, ri) => `(${cols.map((_, ci) => `$${ri * cols.length + ci + 1}`).join(', ')})`)
+              .join(', ');
+            const sql = `INSERT INTO ${tbl} (${colList}) VALUES ${holders}${action}`;
+            const res = await client.query(sql, chunk.flatMap((r) => r.map(toPgBind)));
             written += res.rowCount ?? 0;
           }
           await client.query('COMMIT');
