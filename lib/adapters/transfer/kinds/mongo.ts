@@ -311,16 +311,22 @@ export function createMongoTransferWriter(raw: MongoRaw, writeMode: WriteMode = 
         });
         if (!c.nullable) required.push(c.name);
       }
-      await db.createCollection(t.name, {
-        validator: {
-          $jsonSchema: {
-            bsonType: 'object',
-            ...(Object.keys(properties).length > 0 ? { properties } : {}),
-            ...(required.length > 0 ? { required } : {}),
+      // MongoDB 官方限制：admin/config/local 等内部库的集合不允许文档校验器
+      // （实测报「Document validators are not allowed ... in the admin internal database」）——
+      // 内部库直接建集合，结构与唯一性约束由写入端 bulkWrite 语义承担
+      const internal = ['admin', 'config', 'local'].includes(raw.db.databaseName);
+      await db.createCollection(t.name, internal
+        ? {}
+        : {
+          validator: {
+            $jsonSchema: {
+              bsonType: 'object',
+              ...(Object.keys(properties).length > 0 ? { properties } : {}),
+              ...(required.length > 0 ? { required } : {}),
+            },
           },
-        },
-        validationLevel: 'strict',
-      });
+          validationLevel: 'strict',
+        });
     },
 
     writeBatch: async (t, rows: TransferRow[]) => {
