@@ -2866,7 +2866,7 @@ window.__ModuleLoader__.load({
 			const [tableConcurrency, setTableConcurrency] = React.useState(4);
 			const [shardConcurrency, setShardConcurrency] = React.useState(4);
 			const [overwriteStructure, setOverwriteStructure] = React.useState(false);
-			const [subTab, setSubTab] = React.useState("live"); // live=实时进度 | history=传输历史
+			const [subTab, setSubTab] = React.useState("history"); // history=传输历史 | tlog=传输日志（同级子标签）
 			const [liveTasks, setLiveTasks] = React.useState(null); // 运行中任务快照（2s 轮询）
 			// 实时进度轮询：标签可见即轮（不依赖本视图发起的任务，重启/外部发起的传输也可见）
 			React.useEffect(() => {
@@ -3055,13 +3055,17 @@ window.__ModuleLoader__.load({
 
 			const toggle = (name) => setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : prev.concat(name)));
 			const [collapsed, setCollapsed] = React.useState({}); // 分组树折叠状态（{ [type]: true }）
-			const [history, setHistory] = React.useState(null); // 终态历史条目数组（打开 details 时懒加载）
+			const [history, setHistory] = React.useState(null); // 终态历史条目数组（子标签激活时懒加载）
 			const loadHistory = React.useCallback(() => {
 				if (!projectPath) return;
 				api("transfer-history" + qs({ limit: 30 }))
 					.then((list) => setHistory(Array.isArray(list) ? list : []))
 					.catch((e) => setError(String(e && e.message ? e.message : e)));
 			}, [projectPath]);
+			// 传输历史懒加载：子标签激活且顶级可见时拉取（默认激活子标签首次进入即加载，onClick 保持纯切换）
+			React.useEffect(() => {
+				if (visible && subTab === "history" && history === null) loadHistory();
+			}, [visible, subTab, history, loadHistory]);
 			// 清除确认走 askConfirm 通道（原生 confirm 已在库内移除：无 aria/焦点管理）
 			async function clearHistory() {
 				const yes = await props.askConfirm({
@@ -3275,14 +3279,18 @@ window.__ModuleLoader__.load({
 									f.table + (f.shard >= 0 ? " #" + f.shard : "") + ": " + f.error)))
 							: null)
 					: null,
-				// 传输历史（终态持久化：任何时候可查已传输/失败结果；可按项目清除防积累）
-				React.createElement(
-					"details",
-					{ className: "dbt-transfer-options", onToggle: (e) => { if (e.target.open && history === null) loadHistory(); } },
-					React.createElement("summary", null, t("trHistory")),
+				// 传输历史/传输日志：同级子标签（分段控件复用 .dbt-tabs），内容常驻挂载 + hidden 切换（切换不丢状态）
+				React.createElement("div", { className: "dbt-tabs", role: "tablist" },
+					[["history", t("trHistory")], ["tlog", t("viewTransferLog")]].map(([v, label]) =>
+						React.createElement("button", {
+							key: v, className: subTab === v ? "active" : "",
+							role: "tab", "aria-selected": subTab === v,
+							onClick: () => setSubTab(v),
+						}, label)),
+				),
+				React.createElement("div", { hidden: subTab !== "history" },
 					React.createElement("div", { className: "dbt-group" },
 						React.createElement("div", { className: "dbt-listrow" },
-							React.createElement("span", { className: "dbt-muted" }, t("trHistory")),
 							React.createElement("span", { style: { flex: 1 } }),
 							history !== null && history.length > 0
 								? React.createElement("button", { className: "dbt-btn", onClick: () => { clearHistory(); } }, t("trHistoryClear"))
@@ -3296,21 +3304,22 @@ window.__ModuleLoader__.load({
 									React.createElement("strong", { style: statusColor(h.status) }, historyStatus(h.status)),
 									React.createElement("span", { className: "dbt-tr-comment" },
 										((h.statement.match(/表\[[^\]]*\]/) || [""])[0].slice(0, 80))
-										+ " · " + (h.tables || []).filter((t2) => t2.status === "done").length + "✓/"
-										+ (h.tables || []).filter((t2) => t2.status === "failed").length + "✗"
-										+ ((h.failures || []).length > 0 ? " · " + t("trFailures") + " " + h.failures.length : ""))))),
+											+ " · " + (h.tables || []).filter((t2) => t2.status === "done").length + "✓/"
+											+ (h.tables || []).filter((t2) => t2.status === "failed").length + "✗"
+											+ ((h.failures || []).length > 0 ? " · " + t("trFailures") + " " + h.failures.length : ""))))),
 				),
+				// 传输日志：props 直取原始入参别名（2843-2846 行绑定），不经过本地遮蔽的 busy/error（那是传输任务自己的状态）；
+				// visible=顶级标签激活且当前在日志子标签（切走即停 5s 轮询）
+				React.createElement("div", { hidden: subTab !== "tlog" },
+					React.createElement(TransferLogView, { projectPath, visible: visible && subTab === "tlog", askConfirm })),
 			);
 		}
-		/* ---------------- 传输日志（独立标签：实时事件流，5s 自动刷新） ---------------- */
+		/* ---------------- 传输日志（「数据传输」内子标签：实时事件流，5s 自动刷新） ---------------- */
 		function TransferLogView(props) {
 			const projectPath = props.projectPath;
 			const [rows, setRows] = React.useState(null); // 日志条目数组
 			const [auto, setAuto] = React.useState(true);
 			const [error, setError] = React.useState("");
-			const timerRef = React.useRef(null);
-			const visibleRef = React.useRef(props.visible);
-			visibleRef.current = props.visible;
 
 			const load = React.useCallback(() => {
 				api("transfer-log" + qs({ project: projectPath, limit: 300 }))
@@ -3318,20 +3327,20 @@ window.__ModuleLoader__.load({
 					.catch((e) => setError(String(e && e.message ? e.message : e)));
 			}, [projectPath]);
 
-			// 标签可见时 5s 轮询；隐藏即停（不空转）
+			// 子标签可见时 5s 轮询；隐藏即真正清除定时器（切走即停），重进/进入时立即拉取一次
+			// （auto 关闭时这次拉取是唯一加载路径，等价替代已删除的手动刷新按钮）
 			React.useEffect(() => {
+				if (!props.visible) return undefined;
 				load();
 				if (!auto) return undefined;
-				timerRef.current = setInterval(() => {
-					if (visibleRef.current) load();
-				}, 5000);
-				return () => { if (timerRef.current) clearInterval(timerRef.current); };
-			}, [auto, load]);
+				const timer = setInterval(load, 5000);
+				return () => clearInterval(timer);
+			}, [props.visible, auto, load]);
 
 			async function clearLog() {
 				const yes = await props.askConfirm({
 					title: t("tlogClear"),
-					statement: t("tlog"),
+					statement: t("viewTransferLog"),
 					hint: t("tlogClearConfirm"),
 					confirmLabel: t("tlogClear"),
 					target: { conn: "", kind: "", db: "", mode: "" },
@@ -3348,13 +3357,11 @@ window.__ModuleLoader__.load({
 				"div",
 				{ className: "dbt-card" },
 				React.createElement("div", { className: "dbt-listrow" },
-					React.createElement("span", { className: "dbt-muted" }, t("viewTransferLog")),
 					React.createElement("label", { className: "dbt-listrow", style: { flex: "none" } },
 						React.createElement("input", { type: "checkbox", checked: auto, onChange: (e) => setAuto(e.target.checked) }),
 						React.createElement("span", { className: "dbt-muted" }, t("tlogAuto"))),
 					React.createElement("span", { style: { flex: 1 } }),
-					React.createElement("button", { className: "dbt-btn", onClick: () => { clearLog(); } }, t("tlogClear")),
-					React.createElement("button", { className: "dbt-btn", onClick: load }, t("trRefresh"))),
+					React.createElement("button", { className: "dbt-btn", onClick: () => { clearLog(); } }, t("tlogClear"))),
 				error ? React.createElement("div", { className: "dbt-err", role: "alert" }, error) : null,
 				rows === null
 					? React.createElement("div", { className: "dbt-muted" }, "…")
@@ -3446,7 +3453,6 @@ window.__ModuleLoader__.load({
 				grants: React.createElement(GrantsView, shared),
 				console: React.createElement(ConsoleView, shared),
 				transfer: React.createElement(TransferView, Object.assign({}, shared, { visible })),
-				tlog: React.createElement(TransferLogView, Object.assign({}, shared, { visible })),
 			};
 			return React.createElement(
 				"div",
@@ -3454,7 +3460,7 @@ window.__ModuleLoader__.load({
 				React.createElement(
 					"div",
 					{ className: "dbt-tabs", role: "tablist" },
-					[["manage", t("viewManage")], ["grants", t("viewGrants")], ["browse", t("viewBrowse")], ["console", t("viewConsole")], ["transfer", t("viewTransfer")], ["tlog", t("viewTransferLog")]].map(([v, label]) =>
+					[["manage", t("viewManage")], ["grants", t("viewGrants")], ["browse", t("viewBrowse")], ["console", t("viewConsole")], ["transfer", t("viewTransfer")]].map(([v, label]) =>
 						React.createElement("button", {
 							key: v, className: view === v ? "active" : "",
 							role: "tab", "aria-selected": view === v,
@@ -3504,7 +3510,7 @@ window.__ModuleLoader__.load({
 				// dbt-in 入场动画只在面板首次打开播一次（.dbt-view 类自带，常驻后不随 tab 重播）；
 				// browse 撑满面板剩余高度（BrowsePane 内详情栏才能钉在面板最底部），active 控制首次激活才拉树。
 				// .dbt-view 类的 display:flex 会盖过 hidden 的 UA 样式，故内联 display 同步切换
-				["manage", "grants", "browse", "console", "transfer", "tlog"].map((v) =>
+				["manage", "grants", "browse", "console", "transfer"].map((v) =>
 					React.createElement("div", {
 						key: v, className: "dbt-view", hidden: view !== v,
 						style: v === "browse"
@@ -3576,13 +3582,14 @@ window.__ModuleLoader__.load({
 		}
 		exports.apply = apply;
 		exports.inject = inject;
-		// 测试面：单元格写回 + 控制台工具纯函数 + ConsoleView（集成测试浅渲染元素树）
+		// 测试面：单元格写回 + 控制台工具纯函数 + ConsoleView（集成测试浅渲染元素树）+ Panel/TransferView/TransferLogView（传输日志降级结构断言）
 		exports.__testables = {
 			dialectOf, quoteIdent, parseCellText, isTruncatedCell, isBlobCell,
 			buildUpdate, buildRedisOp, buildMongoOp, renderStatementWithParams,
 			splitSqlStatements, fmtDialectOf, toCsv, toJson, fmtMs,
 			sortRows, slicePage, ResultSetGrid,
 			classifyHead, ConsoleView,
+			Panel, TransferView, TransferLogView,
 		};
 		return module.exports;
 	},
