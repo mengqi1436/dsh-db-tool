@@ -278,6 +278,10 @@ export async function createPgLikeAdapter(
 
   // 事务激活期间所有 query/execute 路由到同一 client
   let txClient: PgLikeClient | null = null;
+  /** close 幂等标志：pg-pool 的 end() 二次调用会抛 "Called end on pool more than once"，
+   *  而 manager 的 console 会话在授权复核失败路径会重复关闭同一适配器（见 manager 的
+   *  finish('rollback') 与外层 catch）——重复 close 须为 no-op。 */
+  let closed = false;
   const run = (sql: string, params?: unknown[]): Promise<PgLikeResult> =>
     txClient ? txClient.query(sql, params) : pool.query(sql, params);
 
@@ -490,6 +494,8 @@ export async function createPgLikeAdapter(
 
     close: () =>
       humanize(`${kind} 关闭连接`, async () => {
+        if (closed) return; // 幂等：重复 close 为 no-op（见 closed 声明处注释）
+        closed = true;
         await Promise.all([pool.end(), ...[...dbPools.values()].map((p) => p.end())]);
       }),
   };

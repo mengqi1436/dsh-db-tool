@@ -63,6 +63,15 @@ for (const mode of ['node', 'better'] as const) {
       rmSync(dir, { recursive: true, force: true });
     });
 
+    it('close 幂等：同一实例重复 close 不抛错', async () => {
+      // manager 的 runScript 超时路径会对同一会话适配器 close 两次
+      // （manager.ts:504 的 onTimeout 与 :516 的 finally）；node:sqlite 的
+      // DatabaseSync.close() 二次调用会抛 "database is not open"，故 close 必须幂等
+      const a = await createSqliteAdapter(conn());
+      await a.close();
+      await expect(a.close()).resolves.toBeUndefined();
+    });
+
     it('testConnect 返回版本', async () => {
       const r = await adapter.testConnect();
       expect(r.ok).toBe(true);

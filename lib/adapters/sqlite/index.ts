@@ -157,6 +157,10 @@ export async function createSqliteAdapter(
 ): Promise<DatabaseAdapter> {
   const readOnly = opts?.mode === 'ro';
   const { db, driver } = await openRaw(conn, readOnly);
+  /** close 幂等：node:sqlite 的 DatabaseSync.close() 二次调用抛 "database is not open"，
+   *  而 manager 的 runScript 超时路径会对同一会话适配器重复 close
+   *  （onTimeout 与 finally 各一次）——重复 close 必须为 no-op。 */
+  let closed = false;
 
   return {
     kind: 'sqlite',
@@ -238,6 +242,8 @@ export async function createSqliteAdapter(
 
     close: () =>
       humanize('sqlite 关闭连接', async () => {
+        if (closed) return; // 幂等：重复 close 为 no-op（见 closed 声明处注释）
+        closed = true;
         db.close();
       }),
   };

@@ -67,6 +67,10 @@ export interface Fixture {
   service: DbToolService;
   /** 记录工厂收到的 mode（验证会话级只读双保险透传） */
   seenMode: { mode?: 'ro' | 'rw' };
+  /** 每次适配器工厂调用的记录（connId + mode）——断言「一个连接同时有几个适配器/池」 */
+  factoryCalls: Array<{ connId: string; mode?: 'ro' | 'rw' }>;
+  /** 适配器 close 累计次数 */
+  closeCount: () => number;
   dispose: () => Promise<void>;
 }
 
@@ -80,10 +84,20 @@ export async function makeFixture(mode: 'ro' | 'rw', adapterOpts?: FakeAdapterOp
   store.grants.grant(normalizeProjectKey(projectA), CONN_ID, mode);
 
   const seenMode: { mode?: 'ro' | 'rw' } = {};
+  const factoryCalls: Array<{ connId: string; mode?: 'ro' | 'rw' }> = [];
+  let closes = 0;
   const service = new DbToolService(store, {
     adapterResolver: async () => (conn, opts) => {
       seenMode.mode = opts?.mode;
-      return Promise.resolve(fakeAdapter({ ...adapterOpts, connId: conn.meta.id }));
+      factoryCalls.push({ connId: conn.meta.id, mode: opts?.mode });
+      const base = fakeAdapter({ ...adapterOpts, connId: conn.meta.id });
+      return Promise.resolve({
+        ...base,
+        close: async () => {
+          closes += 1;
+          await base.close();
+        },
+      });
     },
     challenges: new ChallengeStore({ sweepIntervalMs: 0 }),
   });
@@ -94,6 +108,8 @@ export async function makeFixture(mode: 'ro' | 'rw', adapterOpts?: FakeAdapterOp
     store,
     service,
     seenMode,
+    factoryCalls,
+    closeCount: () => closes,
     dispose: async () => {
       await service.dispose();
       cleanupDir(home);
