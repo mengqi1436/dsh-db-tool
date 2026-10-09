@@ -151,8 +151,15 @@ export async function createTransferReader(rc: ResolvedConnection, loc?: Transfe
     const pool = kind === 'oracle'
       ? ((await (await import('../oracle/index.js')).openOraclePool(rc)) as unknown as import('./kinds/oralike.js').OraLikePool)
       : ((await (await import('../dmdb/index.js')).openDmPool(rc)) as unknown as import('./kinds/oralike.js').OraLikePool);
-    // owner = 定位第一层（oracle/dm 单库多 schema 模型），缺省连接用户
-    return oralike.createOraLikeTransferReader(kind, pool, loc?.database ?? oralike.ownerOfFromConn(rc));
+    // owner = 定位第一层（oracle/dm 单库多 schema 模型），缺省连接用户。
+    // owner 非法（超长/含 NUL 换行）或缺失在构造期同步抛错，此时池已建而无人持有 →
+    // 登记项永不释放（池泄漏）。故构造期任何抛错都要回收该池。
+    try {
+      return oralike.createOraLikeTransferReader(kind, pool, loc?.database ?? oralike.ownerOfFromConn(rc));
+    } catch (e) {
+      await pool.close().catch(() => {});
+      throw e;
+    }
   }
   if (kind === 'mongodb') {
     const { createMongoTransferReaderFromConn } = await import('./kinds/mongo.js');
@@ -187,8 +194,14 @@ export async function createTransferWriter(
     const pool = kind === 'oracle'
       ? ((await (await import('../oracle/index.js')).openOraclePool(rc)) as unknown as import('./kinds/oralike.js').OraLikePool)
       : ((await (await import('../dmdb/index.js')).openDmPool(rc)) as unknown as import('./kinds/oralike.js').OraLikePool);
-    // 写入 owner = 定位第一层，缺省连接用户默认 schema（写端以 owner 前缀显式限定）
-    return oralike.createOraLikeTransferWriter(kind, pool, writeMode, loc?.database ?? oralike.ownerOfFromConn(rc));
+    // 写入 owner = 定位第一层，缺省连接用户默认 schema（写端以 owner 前缀显式限定）。
+    // 与读端同理：owner 非法/缺失在构造期同步抛错，池已建而无人持有 → 必须回收。
+    try {
+      return oralike.createOraLikeTransferWriter(kind, pool, writeMode, loc?.database ?? oralike.ownerOfFromConn(rc));
+    } catch (e) {
+      await pool.close().catch(() => {});
+      throw e;
+    }
   }
   if (kind === 'mongodb') {
     const { createMongoTransferWriterFromConn } = await import('./kinds/mongo.js');
