@@ -11,6 +11,8 @@ declare module 'oracledb' {
       user?: string;
       password?: string;
       connectString: string;
+      /** 连接池别名：驱动按模块级 poolCache 登记，缺省 'default'，重名抛 NJS-046 */
+      poolAlias?: string;
       poolMin?: number;
       poolMax?: number;
       poolTimeout?: number;

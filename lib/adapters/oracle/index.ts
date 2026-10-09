@@ -2,8 +2,10 @@
  * Oracle 适配器（oracledb v7 thin 模式，DB 12.1+）。
  *
  * 设计要点（依据官方文档调研）：
- *  - oracledb.createPool({ user, password, connectString, poolMin: 1, poolMax: 10, poolTimeout: 60 })。
+ *  - oracledb.createPool({ user, password, connectString, poolAlias: <逐池唯一>,
+ *    poolMin: 1, poolMax: 10, poolTimeout: 60 })。
  *    禁止 SYSDBA 等特权连接（不透传 privilege）。
+ *  - poolAlias 显式传唯一值：不传则落到匿名池（不可经 getPool() 检索），见 createOraPool 注释。
  *  - CLOB 经全局 fetchAsString 转字符串；BLOB 经全局 fetchAsBuffer 转 Buffer。
  *    （fetchInfo 的键是【列名】而非类型名，按类型统一转换只能用全局 fetchXXX 属性——
  *    官方 connection.rst「fetchInfo」节：「Each column is specified by name」）
@@ -154,6 +156,38 @@ export interface OracleAdapterOptions {
   pool?: unknown;
 }
 
+/**
+ * 连接池别名：oracledb 的规则与 dmdb 不同——只有「显式传入的别名」或
+ * 「'default' 尚空闲时取到的缺省值」会登记进模块级 poolCache；两者都被占用时
+ * 驱动创建的是 poolAlias === undefined 的匿名池（不报错，也无法经 getPool() 检索），
+ * 只有显式重复别名才抛 NJS-046（lib/oracledb.js:640-649、lib/errors.js:352）。
+ * 本插件同进程内可并存多个池（连接的 ro/rw 各一份缓存、testConnection/testDraft 的
+ * 一次性池、控制台事务会话、数据传输独立池），故显式传唯一别名：每池身份可检索，
+ * 且不抢占 getPool() 的缺省键 'default'。回收靠 '_afterPoolClose' 事件（close 抛错则不触发）。
+ */
+let poolSeq = 0;
+function nextPoolAlias(conn: ResolvedConnection): string {
+  return `dsh-ora-${conn.meta.id}-${++poolSeq}`;
+}
+
+/** 建池（连接串解析、池参数与别名单点维护，供适配器与数据传输入口共用） */
+async function createOraPool(conn: ResolvedConnection): Promise<oracledb.Pool> {
+  const { user, password, connectString } = resolveOracleConn(conn);
+  try {
+    return await oracledb.createPool({
+      user,
+      password,
+      connectString,
+      poolAlias: nextPoolAlias(conn),
+      poolMin: 1,
+      poolMax: 10,
+      poolTimeout: 60,
+    });
+  } catch (e) {
+    throw humanizeOraError(e);
+  }
+}
+
 export async function createOracleAdapter(
   conn: ResolvedConnection,
   opts?: OracleAdapterOptions,
@@ -163,19 +197,7 @@ export async function createOracleAdapter(
   if (opts?.pool) {
     pool = opts.pool as oracledb.Pool;
   } else {
-    const { user, password, connectString } = resolveOracleConn(conn);
-    try {
-      pool = await oracledb.createPool({
-        user,
-        password,
-        connectString,
-        poolMin: 1,
-        poolMax: 10,
-        poolTimeout: 60,
-      });
-    } catch (e) {
-      throw humanizeOraError(e);
-    }
+    pool = await createOraPool(conn);
   }
 
   function requireRw(action: string): void {
@@ -455,19 +477,7 @@ export async function createOracleAdapter(
 
 export const factory: AdapterFactory = async (conn) => createOracleAdapter(conn);
 
-/** 数据传输读写端用的独立连接池（复用 resolveOracleConn 与错误包装） */
+/** 数据传输读写端用的独立连接池（别名逐池唯一，可与主连接池并存） */
 export async function openOraclePool(conn: ResolvedConnection): Promise<oracledb.Pool> {
-  const { user, password, connectString } = resolveOracleConn(conn);
-  try {
-    return await oracledb.createPool({
-      user,
-      password,
-      connectString,
-      poolMin: 1,
-      poolMax: 10,
-      poolTimeout: 60,
-    });
-  } catch (e) {
-    throw humanizeOraError(e);
-  }
+  return await createOraPool(conn);
 }

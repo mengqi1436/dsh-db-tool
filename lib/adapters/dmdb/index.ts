@@ -9,9 +9,10 @@
  *  - DM 事务隐式开始，无需 SET TRANSACTION。
  *
  * 驱动要点：
- *  - db.createPool({ connectString: 'dm://user:pass@host:5236', poolMin: 1, poolMax: 10,
- *    poolTimeout: 60, queueTimeout: 60000 })；不启用压缩（默认 compress=0，规避
- *    @napi-rs/snappy 跨平台坑）。
+ *  - db.createPool({ connectString: 'dm://user:pass@host:5236', poolAlias: <逐池唯一>,
+ *    poolMin: 1, poolMax: 10, poolTimeout: 60, queueTimeout: 60000 })；不启用压缩
+ *    （默认 compress=0，规避 @napi-rs/snappy 跨平台坑）。
+ *  - poolAlias 必须逐池唯一（不传即撞驱动缺省 'default' 并抛 [20006]；见 nextPoolAlias 注释）。
  *  - execute 必须显式 maxRows（默认 0=无限制）；autoCommit 显式传 true 使语义
  *    不依赖驱动默认（驱动连接属性默认已是自动提交：dmdb connection.js
  *    conn_prop_autoCommit = !0；d.ts 三级优先链 执行选项 > dmdb.autoCommit > 连接属性）。
@@ -106,6 +107,40 @@ export interface DmAdapterOptions {
   pool?: unknown;
 }
 
+/**
+ * 连接池别名：dmdb 把池登记在模块级全局 Map（dmdb.pools），key 即 poolAlias。
+ * 驱动缺省别名恒为 'default'（driver/pool.js `_poolAlias = "default"`，仅显式传参才覆盖），
+ * 且判重无条件执行 → 不传别名时第二个池必抛 [20006] 连接池别名已存在（src/dm.js:236）。
+ * 本插件同进程内可并存多个池（连接的 ro/rw 各一份缓存、testConnection/testDraft 的
+ * 一次性池、控制台事务会话、数据传输独立池），故必须逐池唯一。
+ * 别名同时是 close 的回收键：正常路径 driver/pool.js 会 `pools.delete(alias)`，
+ * 但 close 抛错的异常分支会跳过该删除（登记项残留，插件侧无可观测点）。
+ */
+let poolSeq = 0;
+function nextPoolAlias(conn: ResolvedConnection): string {
+  return `dsh-dm-${conn.meta.id}-${++poolSeq}`;
+}
+
+/** 建池（连接串解析、池参数与别名单点维护，供适配器与数据传输入口共用） */
+async function createDmPool(conn: ResolvedConnection): Promise<DmPoolLike> {
+  const { connectString } = resolveDmConn(conn);
+  try {
+    // 注意：实参对象不要直接包进 `as unknown as` 断言——变异工具不为该形态生成
+    // ObjectLiteral 变异体，「删掉 poolAlias」这类关键退化会在变异报告中不可见（已验证）。
+    const pool = await db.createPool({
+      connectString,
+      poolAlias: nextPoolAlias(conn),
+      poolMin: 1,
+      poolMax: 10,
+      poolTimeout: 60,
+      queueTimeout: 60000,
+    });
+    return pool as unknown as DmPoolLike;
+  } catch (e) {
+    throw humanizeDmError(e);
+  }
+}
+
 /** dmdb 池的最小结构（与 oracledb 一致：Pool 没有 execute，语句必须在 Connection 上执行） */
 export interface DmPoolLike {
   getConnection(): Promise<DmConnLike>;
@@ -132,18 +167,7 @@ export async function createDmAdapter(
   if (opts?.pool) {
     pool = opts.pool as DmPoolLike;
   } else {
-    const { connectString } = resolveDmConn(conn);
-    try {
-      pool = (await db.createPool({
-        connectString,
-        poolMin: 1,
-        poolMax: 10,
-        poolTimeout: 60,
-        queueTimeout: 60000,
-      })) as unknown as DmPoolLike;
-    } catch (e) {
-      throw humanizeDmError(e);
-    }
+    pool = await createDmPool(conn);
   }
 
   /** 默认 execute 选项：显式 maxRows（dmdb 默认 0=无限制，必须覆盖）+ 显式 autoCommit:true
@@ -414,18 +438,7 @@ export async function createDmAdapter(
 
 export const factory: AdapterFactory = async (conn) => createDmAdapter(conn);
 
-/** 数据传输读写端用的独立连接池 */
+/** 数据传输读写端用的独立连接池（别名逐池唯一，可与主连接池并存） */
 export async function openDmPool(conn: ResolvedConnection): Promise<DmPoolLike> {
-  const { connectString } = resolveDmConn(conn);
-  try {
-    return (await db.createPool({
-      connectString,
-      poolMin: 1,
-      poolMax: 10,
-      poolTimeout: 60,
-      queueTimeout: 60000,
-    })) as unknown as DmPoolLike;
-  } catch (e) {
-    throw humanizeDmError(e);
-  }
+  return await createDmPool(conn);
 }
