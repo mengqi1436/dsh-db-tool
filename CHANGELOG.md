@@ -1,5 +1,30 @@
 # Changelog — dsh-db-tool
 
+## 1.7.4
+
+修复 ro（只读）授权下一切数据库操作永久挂起——「设置数据源后表显示不出来」的直接根因（与 1.7.3 的授权键归一化为两个独立缺陷）。
+
+### 修复
+
+- **mysql ro 模式连接永久卡死**：ro 适配器在 `pool.on('connection')` 钩子里执行 `SET SESSION TRANSACTION READ ONLY` 时，经 `swallowSetError` 给返回的 Query 命令对象挂了 `.on('error')` 监听——该监听会打断 mysql2 池接管前的命令处理序列，连接状态机卡死，**该连接后续一切查询永挂**。由于 ro 适配器实例被服务层 `adapterCache` 缓存，ro 授权下列库/列表/表结构/预览全部永久 pending（侧边栏数据浏览树展开后只显示 …），DatabaseManager 工具同样挂起。
+- **完整故障矩阵（真机四象限复现，mysql2 3.24.4 + MariaDB 10.6）**：非回调式 query（原形态）挂；回调式 query + error 监听（首次修复方向）**同样挂**；唯「回调式 query + 空回调、不挂监听」正常。`swallowSetError` 已删除，`openMysqlRaw` 的机制注释一并更正。
+- 测试连接（`testConnection`/`testDraft`）不走 ro 钩子（`factory(rc)` 无 mode），故显示「连接成功」而数据浏览挂起——正是本缺陷的迷惑性所在。
+- 回归测试：真机门控新增 ro 模式 `listDatabases` 不得挂起 + ro query 白名单两用例（挂死形态会在 vitest 5s 超时失败）。
+
+## 1.7.3
+
+修复「设置数据源后表显示不出来」组合缺陷：Windows 路径大小写授权错位（根因）+ projectPath 为空时数据浏览静默失败 + 未授权文案缺少下一步引导。
+
+### 修复
+
+- **Windows 路径大小写授权错位（「表显示不出来」根因）**：`normalizeProjectKey` 此前仅把盘符小写、路径段保留原大小写——NTFS 大小写不敏感，`E:\GitHub\MyApp` 与 `e:\github\myapp` 是同一目录却被记成两条授权键。会话 cwd 大小写与授权时不一致（重启/不同入口的常见现象）即 `UNAUTHORIZED_PROJECT`，数据浏览树展开后无库无表。现在 win32 下全路径归一小写（POSIX 文件系统大小写敏感，保持原样；platform 参数仅供测试注入）。
+- **grants.json 存量键迁移**：读入时把「绝对路径形态」的大小写变体键统一归一并合并（同连接 rw 胜出、grantedAt 取较新，与 check 语义一致），下次 save 自然落盘为新键；非路径形态的键原样保留。修复后老授权不失效。
+- **GrantStore 纵深防御**：`grant/revoke/check/grantsFor` 入口统一 `normalizeProjectKey`（幂等）。此前归一化责任全在调用方（manager 层），任何绕过 manager 的调用都会以原始写法落盘/查询。
+- **数据浏览静默失败**：projectPath 为空时（scope.cwd 缺失且自动解析失败）`toggleConn/toggleDb/toggleSchema` 全部静默 no-op，点击展开零反馈。现在树顶显示醒目提示（zh/en，role=alert）指引用户填写项目路径。
+- **scope 兜底字段修正**：`SessionScope` 契约为 `{ sessionId, cwd?, repoRoot? }`，客户端读取的 `workspacePath` 字段不存在。cwd 是工作区容器时补 `repoRoot`（选中的 git 仓库）兜底。
+- **未授权错误文案引导**：`项目未授权该连接: x` → 追加「请切到『项目授权』面板……」；projectPath 为空文案追加「请先在面板顶部填写当前项目路径」。
+- 回归测试：路径段大小写变体授权放行（e2e）、grants 大小写变体键迁移合并（store）、win32 归一矩阵（normalize）。
+
 ## 1.6.0
 
 新增连接管理「导出 / 导入」：一键导出全部连接（含密码）为口令加密文件，跨机器迁移；导入按口令解密，冲突连接跳过不覆盖。

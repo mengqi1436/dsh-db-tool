@@ -1,17 +1,17 @@
 {
   "name": "dsh-db-tool",
-  "version": "1.7.2",
+  "version": "1.7.4",
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mengqi1436/dsh-db-tool.git"
+    "url": "git+https://github.com/a19920714liou/dsh-db-tool.git"
   },
   "bugs": {
-    "url": "https://github.com/mengqi1436/dsh-db-tool/issues"
+    "url": "https://github.com/a19920714liou/dsh-db-tool/issues"
   },
-  "homepage": "https://github.com/mengqi1436/dsh-db-tool#readme",
+  "homepage": "https://github.com/a19920714liou/dsh-db-tool#readme",
   "engines": {
     "node": ">=20",
     "dsh": ">=0.1.0-rc.6 <0.2.0-0 || 0.1.7-rc.2 || >=0.2.0-rc.1 <0.3.0-0"
