@@ -4,7 +4,7 @@ import { normalizeProjectKey } from '../../lib/store/normalize.js';
 describe('normalizeProjectKey', () => {
   it('同一目录不同写法归一化为同一 key（分隔符/尾分隔符）', () => {
     if (process.platform === 'win32') {
-      expect(normalizeProjectKey('C:\\Code\\Proj\\')).toBe('c:/Code/Proj');
+      expect(normalizeProjectKey('C:\\Code\\Proj\\')).toBe('c:/code/proj');
       expect(normalizeProjectKey('C:/Code/Proj')).toBe(normalizeProjectKey('c:\\Code\\Proj\\'));
     } else {
       expect(normalizeProjectKey('/tmp/proj/')).toBe('/tmp/proj');
@@ -12,11 +12,22 @@ describe('normalizeProjectKey', () => {
     }
   });
 
-  it('盘符大写归一为小写（路径段保留原大小写）', () => {
+  it('盘符与路径段统一小写（Windows 文件系统大小写不敏感，防授权错位）', () => {
     if (process.platform === 'win32') {
-      expect(normalizeProjectKey('D:\\Work\\App')).toBe('d:/Work/App');
-      expect(normalizeProjectKey('d:\\Work\\App')).toBe('d:/Work/App');
+      expect(normalizeProjectKey('D:\\Work\\App')).toBe('d:/work/app');
+      expect(normalizeProjectKey('d:\\Work\\App')).toBe('d:/work/app');
     }
+  });
+
+  it('win32：同一目录的路径段大小写变体归一为同一 key（回归：会话 cwd 与授权写法大小写不一致曾导致「项目未授权该连接」）', () => {
+    if (process.platform !== 'win32') return;
+    const a = normalizeProjectKey('E:\\GitHub\\MyApp');
+    const b = normalizeProjectKey('e:\\github\\myapp');
+    const c = normalizeProjectKey('E:/GitHub/MyApp/');
+    const d = normalizeProjectKey('e:/GitHub/MyApp');
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+    expect(a).toBe(d);
   });
 
   it('分隔符统一为 / 且去尾分隔符', () => {
@@ -63,13 +74,13 @@ describe('normalizeProjectKey', () => {
     expect(normalizeProjectKey('/')).toBe('/');
   });
 
-  it('win32 设备路径前缀（\\\\?\\）内的盘符不误转小写', () => {
+  it('win32 设备路径前缀（\\\\?\\）同样按大小写不敏感归一（NTFS 语义一致）', () => {
     if (process.platform !== 'win32') return;
-    expect(normalizeProjectKey('\\\\?\\C:\\x')).toBe('//?/C:/x');
+    expect(normalizeProjectKey('\\\\?\\C:\\x')).toBe('//?/c:/x');
   });
 
-  it('仅路径开头的盘符冒号转小写；中部大写冒号段不受影响（仅 win32 可构造）', () => {
+  it('仅路径开头的盘符冒号转小写；全路径小写对中部冒号段同样生效（仅 win32 可构造）', () => {
     if (process.platform !== 'win32') return;
-    expect(normalizeProjectKey('c:/x/D:y')).toBe('c:/x/D:y');
+    expect(normalizeProjectKey('c:/x/D:y')).toBe('c:/x/d:y');
   });
 });

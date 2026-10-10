@@ -710,11 +710,11 @@ export class DbToolService {
   ): Promise<{ key: string; mode: 'ro' | 'rw'; adapter: DatabaseAdapter }> {
     if (this.disposed) throw new DbToolError('INVALID_ARGUMENT', '服务已关闭');
     if (!projectPath || projectPath.trim() === '') {
-      throw new DbToolError('UNAUTHORIZED_PROJECT', '业务操作需要 projectPath（匿名项目仅可管理连接）');
+      throw new DbToolError('UNAUTHORIZED_PROJECT', '项目路径为空：请先在面板顶部填写当前项目路径（或重新打开侧边栏让插件自动解析），再进行数据浏览/查询');
     }
     const key = normalizeProjectKey(projectPath);
     const mode = this.store.grants.check(key, connId);
-    if (!mode) throw new DbToolError('UNAUTHORIZED_PROJECT', `项目未授权该连接: ${connId}`);
+    if (!mode) throw new DbToolError('UNAUTHORIZED_PROJECT', `项目未授权该连接: ${connId}（请切到「项目授权」面板，为当前项目勾选该连接的 ro/rw 授权后重试）`);
     if (needWrite && mode === 'ro') {
       throw new DbToolError('READ_ONLY', '该连接对本项目为只读授权（ro），拒绝写操作');
     }

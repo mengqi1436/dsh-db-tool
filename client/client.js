@@ -97,6 +97,7 @@ window.__ModuleLoader__.load({
 			newConn: "新建连接",
 			editConn: "编辑连接",
 			noConns: "还没有连接，点击「新建连接」添加。",
+			needProjectPath: "项目路径为空，数据浏览不可用：请在顶部输入框填写当前项目的绝对路径（如 E:\\Code\\my-app）后重试。",
 			connName: "名称 / 别名",
 			connId: "连接 ID",
 			urlMode: "URL 方式",
@@ -315,6 +316,7 @@ window.__ModuleLoader__.load({
 			newConn: "New Connection",
 			editConn: "Edit Connection",
 			noConns: "No connections yet. Click \"New Connection\" to add one.",
+			needProjectPath: "Project path is empty and browsing is unavailable: enter the current project's absolute path in the input above (e.g. /home/me/my-app), then retry.",
 			connName: "Name / alias",
 			connId: "Connection ID",
 			urlMode: "URL",
@@ -1869,6 +1871,9 @@ window.__ModuleLoader__.load({
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
+				// projectPath 为空时所有展开动作静默 no-op（toggleConn 等防御），必须就地说明原因，
+				// 否则用户点击连接无任何反馈（role=alert 使读屏播报，样式复用 dbt-err 醒目红字）
+				!projectPath ? React.createElement("div", { className: "dbt-err", role: "alert" }, t("needProjectPath")) : null,
 				// Navicat 式对象树：点击展开连接/库，点击表上报选中（由父组件就地预览）
 				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
 					React.createElement("div", { className: "dbt-group" },
@@ -3387,8 +3392,10 @@ window.__ModuleLoader__.load({
 			const visible = props.visible;
 			const scope = props.scope || {};
 			const [view, setView] = React.useState("manage");
-			const [projectPath, setProjectPath] = React.useState(scope.cwd || scope.workspacePath || "");
-			const [projectEdited, setProjectEdited] = React.useState(!(scope.cwd || scope.workspacePath));
+			// 项目路径初始值：scope.cwd 优先；cwd 是工作区容器时用选中的 git 仓库 repoRoot 兜底
+			//（SessionScope 契约字段：{ sessionId, cwd?, repoRoot? }；workspacePath 为历史遗留兜底）
+			const [projectPath, setProjectPath] = React.useState(scope.cwd || scope.repoRoot || scope.workspacePath || "");
+			const [projectEdited, setProjectEdited] = React.useState(!(scope.cwd || scope.repoRoot || scope.workspacePath));
 			const [conns, setConns] = React.useState([]);
 			const [grants, setGrants] = React.useState([]);
 			const [busy, setBusy] = React.useState("");
@@ -3409,7 +3416,7 @@ window.__ModuleLoader__.load({
 			// host 端以会话 header.cwd 为准归一化出 projectPathKey，前端不自拼 key。
 			// scope.cwd/sessionId 变化（切换会话）时自动重新解析；用户手填（projectEdited）时不覆盖。
 			const sessionKey = scope.sessionId || "";
-			const scopeCwd = scope.cwd || scope.workspacePath || "";
+			const scopeCwd = scope.cwd || scope.repoRoot || scope.workspacePath || "";
 			const resolvedRef = React.useRef("");
 			React.useEffect(() => {
 				if (!visible || projectEdited) return;

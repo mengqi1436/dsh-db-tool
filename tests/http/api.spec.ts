@@ -250,7 +250,8 @@ describe('handleDbToolRequest 直调（prefix 挂载形态 + trust）', () => {
     const r = await callHandler('POST', '/api/project-context', { host: '127.0.0.1:3080' }, cwd);
     expect(r.status).toBe(200);
     expect(r.body.data).toMatchObject(
-      win ? { projectPathKey: 'e:/Code/My-App', hasProject: true } : { projectPathKey: '/tmp/My-App', hasProject: true },
+      // Windows 全路径小写归一（NTFS 大小写不敏感）；POSIX 保留大小写
+      win ? { projectPathKey: 'e:/code/my-app', hasProject: true } : { projectPathKey: '/tmp/My-App', hasProject: true },
     );
   });
 
