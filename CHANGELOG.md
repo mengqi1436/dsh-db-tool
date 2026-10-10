@@ -1,5 +1,16 @@
 # Changelog — dsh-db-tool
 
+## 1.7.4
+
+修复 ro（只读）授权下一切数据库操作永久挂起——「设置数据源后表显示不出来」的直接根因（与 1.7.3 的授权键归一化为两个独立缺陷）。
+
+### 修复
+
+- **mysql ro 模式连接永久卡死**：ro 适配器在 `pool.on('connection')` 钩子里执行 `SET SESSION TRANSACTION READ ONLY` 时，经 `swallowSetError` 给返回的 Query 命令对象挂了 `.on('error')` 监听——该监听会打断 mysql2 池接管前的命令处理序列，连接状态机卡死，**该连接后续一切查询永挂**。由于 ro 适配器实例被服务层 `adapterCache` 缓存，ro 授权下列库/列表/表结构/预览全部永久 pending（侧边栏数据浏览树展开后只显示 …），DatabaseManager 工具同样挂起。
+- **完整故障矩阵（真机四象限复现，mysql2 3.24.4 + MariaDB 10.6）**：非回调式 query（原形态）挂；回调式 query + error 监听（首次修复方向）**同样挂**；唯「回调式 query + 空回调、不挂监听」正常。`swallowSetError` 已删除，`openMysqlRaw` 的机制注释一并更正。
+- 测试连接（`testConnection`/`testDraft`）不走 ro 钩子（`factory(rc)` 无 mode），故显示「连接成功」而数据浏览挂起——正是本缺陷的迷惑性所在。
+- 回归测试：真机门控新增 ro 模式 `listDatabases` 不得挂起 + ro query 白名单两用例（挂死形态会在 vitest 5s 超时失败）。
+
 ## 1.7.3
 
 修复「设置数据源后表显示不出来」组合缺陷：Windows 路径大小写授权错位（根因）+ projectPath 为空时数据浏览静默失败 + 未授权文案缺少下一步引导。

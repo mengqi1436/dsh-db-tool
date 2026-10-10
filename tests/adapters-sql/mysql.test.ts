@@ -80,3 +80,30 @@ suite('mysql 适配器（真机，DBT_TEST_MYSQL_URL 门控）', () => {
     expect(Number(qr.rows[0]?.[0])).toBe(1);
   });
 });
+
+/* ---------- ro 模式（独立适配器实例，验证 'connection' 钩子不卡连接） ---------- */
+
+suite('mysql ro 模式（真机，回归：connection 钩子 error 监听曾致连接永久卡死）', () => {
+  let roAdapter: DatabaseAdapter;
+  beforeAll(async () => {
+    // createMysqlAdapter 不经 opts 时 mode 为 undefined → 仍走同款钩子路径的 rw 实例；
+    // 这里显式 ro：触发 pool.on('connection') 的 SET SESSION TRANSACTION READ ONLY
+    roAdapter = await createMysqlAdapter(conn, { mode: 'ro' });
+  });
+  afterAll(async () => {
+    if (!roAdapter) return;
+    await roAdapter.close().catch(() => {});
+  });
+
+  it('ro listDatabases 不得挂起（vitest 默认 5s 超时即失败）', async () => {
+    const dbs = await roAdapter.listDatabases();
+    expect(dbs.length).toBeGreaterThan(0);
+  });
+
+  it('ro query 放行读语句、按白名单拦截写语句', async () => {
+    const qr = await roAdapter.query('SELECT 1 AS one');
+    expect(qr.rows[0]?.[0]).toBe(1);
+    // 适配器层双保险：ro 的 query 通道拒绝写语句（execute 的 ro 拦截在服务层 authorize）
+    await expect(roAdapter.query('CREATE TABLE dbt_ro_should_fail (id INT)')).rejects.toThrow(/只读/);
+  });
+});
