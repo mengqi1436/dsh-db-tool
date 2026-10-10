@@ -2,6 +2,9 @@
 
 [简体中文](README.md) | English
 
+> **This repository is a fix fork**: it fixes permanent hang of database browsing under ro (read-only) grants (mysql2 connection-hook error listener deadlocking the connection) and Windows path-case grant key mismatch — see [CHANGELOG](CHANGELOG.md) 1.7.3 / 1.7.4. The fix has been proposed upstream via PR; until merged, install **from this repository** to get the fixed build.
+> Upstream: [mengqi1436/dsh-db-tool](https://github.com/mengqi1436/dsh-db-tool)
+
 A DSH community plugin for operating databases safely from chat, with a sidebar management console and the `db-admin` skill. Architecture and interaction patterns follow [dsh-ssh-tunnel](https://github.com/thirsty5034/dsh-ssh-tunnel).
 
 ## Features
@@ -44,11 +47,12 @@ Drivers for all 8 databases ship with the npm package (SQLite prefers the built-
 The only one-time interaction comes from oracledb: pnpm blocks its install script by default, which makes the first install report a failure — click **"Allow these scripts and retry"** in the DSH plugin installation UI to finish (the script only checks the Node version and prints a banner, so approving is risk-free; the approval is persisted to the profile and upgrades won't prompt again).
 
 ```bash
-# npm (recommended)
-dsh plugin --profile web add dsh-db-tool
+# From GitHub source (recommended: installs this fork with the fixes)
+dsh plugin --profile web add "dsh-db-tool@github:a19920714liou/dsh-db-tool"
 
-# From GitHub source
-dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
+# npm: installs the upstream official package (without this fork's fixes;
+# until the fix is merged upstream, prefer the GitHub method above)
+dsh plugin --profile web add dsh-db-tool
 
 # Local development
 dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
@@ -59,10 +63,10 @@ dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 DSH Desktop 0.2.0-rc.2+ bundles the `dsh` command — no separate Node or pnpm required:
 
 1. **First use**: open the desktop menu bar, click **"Manage dsh command"**, and install the bundled CLI, which registers `dsh` on the system PATH.
-2. **Install the plugin** (always pin an exact version: `@latest` falls back to an older release due to release-age checks):
+2. **Install the plugin** (the npm method installs the upstream official package without this fork's fixes; for the fixed build use the GitHub-source method above. When installing from npm, always pin an exact version: `@latest` falls back to an older release due to release-age checks):
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.4.0 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add "dsh-db-tool@github:a19920714liou/dsh-db-tool"
    ```
 
    If you prefer an npm mirror, replace `--registry` with your mirror URL.
