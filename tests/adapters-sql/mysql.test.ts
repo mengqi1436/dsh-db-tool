@@ -64,6 +64,22 @@ suite('mysql 适配器（真机，DBT_TEST_MYSQL_URL 门控）', () => {
     expect(cols.find((c) => c.name === 'score')?.dataType).toBe('decimal(10,2)');
   });
 
+  it('searchTables：跨库模糊命中、限定库、LIKE 转义（% 不作通配符）', async () => {
+    const search = adapter.searchTables!.bind(adapter);
+    // 不带库：排除系统库，命中建表用例创建的 dbt_test_users
+    const hits = await search('dbt_test');
+    expect(hits.some((h) => h.name === 'dbt_test_users')).toBe(true);
+    const SYSTEM = ['information_schema', 'mysql', 'performance_schema', 'sys'];
+    expect(hits.every((h) => !SYSTEM.includes(h.database))).toBe(true);
+    // 限定库：命中全部落在该库
+    const dbName = decodeURIComponent(new URL(url as string).pathname.replace(/^\/+/, ''));
+    const scoped = await search('dbt_test', dbName);
+    expect(scoped.length).toBeGreaterThan(0);
+    expect(scoped.every((h) => h.database === dbName)).toBe(true);
+    // 字面 %：ESCAPE 失效时 '%' 会 LIKE 匹配全部表名 → 空结果即转义生效
+    await expect(search('%')).resolves.toEqual([]);
+  });
+
   it('previewRows clamp 50 + 注入串安全引用', async () => {
     const r = await adapter.previewRows('dbt_test_users', 100);
     expect(r.rowCount).toBeLessThanOrEqual(50);
@@ -78,5 +94,32 @@ suite('mysql 适配器（真机，DBT_TEST_MYSQL_URL 门控）', () => {
     await a.tx.commit();
     const qr = await adapter.query("SELECT COUNT(*) AS n FROM dbt_test_users WHERE name = 'tx-row'");
     expect(Number(qr.rows[0]?.[0])).toBe(1);
+  });
+});
+
+/* ---------- ro 模式（独立适配器实例，验证 'connection' 钩子不卡连接） ---------- */
+
+suite('mysql ro 模式（真机，回归：connection 钩子 error 监听曾致连接永久卡死）', () => {
+  let roAdapter: DatabaseAdapter;
+  beforeAll(async () => {
+    // createMysqlAdapter 不经 opts 时 mode 为 undefined → 仍走同款钩子路径的 rw 实例；
+    // 这里显式 ro：触发 pool.on('connection') 的 SET SESSION TRANSACTION READ ONLY
+    roAdapter = await createMysqlAdapter(conn, { mode: 'ro' });
+  });
+  afterAll(async () => {
+    if (!roAdapter) return;
+    await roAdapter.close().catch(() => {});
+  });
+
+  it('ro listDatabases 不得挂起（vitest 默认 5s 超时即失败）', async () => {
+    const dbs = await roAdapter.listDatabases();
+    expect(dbs.length).toBeGreaterThan(0);
+  });
+
+  it('ro query 放行读语句、按白名单拦截写语句', async () => {
+    const qr = await roAdapter.query('SELECT 1 AS one');
+    expect(qr.rows[0]?.[0]).toBe(1);
+    // 适配器层双保险：ro 的 query 通道拒绝写语句（execute 的 ro 拦截在服务层 authorize）
+    await expect(roAdapter.query('CREATE TABLE dbt_ro_should_fail (id INT)')).rejects.toThrow(/只读/);
   });
 });

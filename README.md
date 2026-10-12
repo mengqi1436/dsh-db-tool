@@ -2,6 +2,9 @@
 
 [English](README_EN.md) | 简体中文
 
+> **本仓库为修复 fork**：修复 ro（只读）授权下数据库浏览永久挂起（mysql2 连接钩子 error 监听致连接卡死）与 Windows 路径大小写授权错位（详见 [CHANGELOG](CHANGELOG.md) 1.7.3 / 1.7.4）。修复已向上游提 PR；在合并前，请从**本仓库**安装以获得修复版本。
+> 上游仓库：[mengqi1436/dsh-db-tool](https://github.com/mengqi1436/dsh-db-tool)
+
 DSH 社区插件：在聊天中安全操作数据库，配套侧边栏管理台与 `db-admin` skill。架构与交互模式对齐 [dsh-ssh-tunnel](https://github.com/thirsty5034/dsh-ssh-tunnel)。
 
 ## 功能
@@ -44,11 +47,11 @@ DSH 社区插件：在聊天中安全操作数据库，配套侧边栏管理台�
 唯一的一次性交互来自 oracledb：其 install 脚本会被 pnpm 默认拦截并使首次安装报告失败——在 DSH 插件安装界面点 **"Allow these scripts and retry"** 即可完成安装（该脚本仅做 Node 版本检查与横幅打印，批准无风险；批准持久化到 profile，后续升级不再提示）。
 
 ```bash
-# npm（推荐）
-dsh plugin --profile web add dsh-db-tool
+# GitHub 源码（推荐：安装本 fork 的修复版）
+dsh plugin --profile web add "dsh-db-tool@github:a19920714liou/dsh-db-tool"
 
-# GitHub 源码
-dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
+# npm：安装的是上游官方包（未含本 fork 修复，修复合并上游前请用上面的 GitHub 方式）
+dsh plugin --profile web add dsh-db-tool
 
 # 本地开发
 dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
@@ -59,13 +62,11 @@ dsh plugin --profile web add "link:E:\path\to\dsh-db-tool"
 DSH 桌面端 0.2.0-rc.2+ 捆绑了 `dsh` 命令，全程无需另装 Node 或 pnpm：
 
 1. **首次使用**：打开桌面端菜单栏，点 **"Manage dsh command"（管理 dsh 命令）**，安装捆绑的 CLI——该操作把 `dsh` 命令注册到系统 PATH。
-2. **安装插件**（必须钉精确版本：`@latest` 会因 release-age 校验回落到旧版）：
+2. **安装插件**（npm 方式安装的是上游官方包，未含本 fork 修复；修复版请用上文的 GitHub 源码方式。npm 安装必须钉精确版本：`@latest` 会因 release-age 校验回落到旧版）：
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.4.0 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add "dsh-db-tool@github:a19920714liou/dsh-db-tool"
    ```
-
-   已有 npm 镜像源偏好的用户，可把 `--registry` 替换为自己的镜像地址。
 3. **重启桌面端**生效。
 
 mongodb 驱动已 bundle 进发布包（`vendor/mongodb-driver.cjs`），依赖树不含 mongodb/punycode——桌面端宿主打包在 `app.asar` 内、无法应用宿主补丁，本插件免补丁可直接安装加载。

@@ -169,6 +169,36 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(pool.executed[0]?.params).toEqual(['public']);
   });
 
+  it('searchTables：库名限定 / db.schema 精确 / 跨库逐池 / ILIKE ~ 转义', async () => {
+    const { a, pool } = await make('postgresql');
+    // 库名（UI 库下拉传值）→ 该库全部用户 schema，单参数
+    pool.queue = [okRes([{ table_schema: 'public', table_name: 'users', table_type: 'BASE TABLE' }])];
+    expect(await a.searchTables!('use', 'mydb')).toEqual([
+      { database: 'mydb', schema: 'public', name: 'users', type: 'TABLE' },
+    ]);
+    expect(pool.executed.at(-1)?.params).toEqual(['%use%']);
+    expect(pool.executed.at(-1)?.sql).toContain("ILIKE $1 ESCAPE '~'");
+    expect(pool.executed.at(-1)?.sql).toContain("NOT LIKE 'pg\\_%'");
+    // "db.schema" → 精确单 schema，双参数
+    pool.queue = [okRes([])];
+    await a.searchTables!('use', 'mydb.app');
+    expect(pool.executed.at(-1)?.params).toEqual(['%use%', 'app']);
+    // 跨库：先列库再逐库查询；hit 按来源库标注
+    pool.queue = [
+      okRes([{ datname: 'db1' }, { datname: 'db2' }]),
+      okRes([{ table_schema: 'public', table_name: 'orders', table_type: 'BASE TABLE' }]),
+      okRes([{ table_schema: 'app', table_name: 'users', table_type: 'VIEW' }]),
+    ];
+    expect(await a.searchTables!('o')).toEqual([
+      { database: 'db1', schema: 'public', name: 'orders', type: 'TABLE' },
+      { database: 'db2', schema: 'app', name: 'users', type: 'VIEW' },
+    ]);
+    // 关键字含通配符/转义符 → 全部 ~ 转义，不作通配符
+    pool.queue = [okRes([])];
+    await a.searchTables!('a%b_c\\d~e', 'mydb');
+    expect(pool.executed.at(-1)?.params).toEqual(['%a~%b~_c~\\d~~e%']);
+  });
+
   it('describeTable：主键 PRI + 注释 + 类型长度拼接', async () => {
     const { a, pool } = await make('postgresql');
     pool.queue = [

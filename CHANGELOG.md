@@ -1,5 +1,50 @@
 # Changelog — dsh-db-tool
 
+## 1.7.5
+
+新增数据浏览「库筛选 + 跨库表名模糊搜索」：库多、表多时不必逐层展开找表。
+
+### 新增
+
+- **跨库表名模糊搜索**：每个连接展开后内嵌筛选行——库下拉（全部库/单库）+ 关键词输入框（回车或点「搜索」执行）。命中结果以平铺列表替代目录树展示（`库名.表名 · 注释`），点击直接打开该表的结构+数据预览，「×」返回目录树。
+- **适配器原生搜索优先**：`DatabaseAdapter` 新增可选 `searchTables(keyword, database?, limit?)`（返回 `TableSearchHit[]`：`{database, schema?, name, type?, comment?}`）。
+  - mysql：一条 `information_schema.TABLES` LIKE 查询跨库完成（转义符用 `|`，避开反斜杠在 SQL 字面量与 `NO_BACKSLASH_ESCAPES` 模式下的歧义；`% _ | \` 全转义，参数绑定无注入面；默认排除四系统库，给定库时精确限定）。
+  - postgresql / gaussdb：按库池化逐库查 `information_schema.tables`（`ILIKE` 大小写不敏感，转义符 `~`；`database` 参数兼容三种形态——库名（UI 下拉传值，该库全部用户 schema）/ `库名.schema`（精确单 schema）/ schema（当前库）），命中带 `schema` 字段，前端点击按库+schema 精确打开；排除 `information_schema` 与 `pg_*` 系。
+- **无原生实现的回退路径（按 kind 白名单）**：仅 `mysql/mongodb/sqlite`（`listTables(database)` 语义为库名）参与回退——给定库 `listTables` + 内存过滤；未给定逐库并发（批 8）拉取过滤，单库失败不拖垮整体。redis（listTables 忽略库名，逐库循环会重复返回同一批键）与 oracle/dmdb（database 语义为 owner，跨库回退会错标来源）不参与，直接返回空。过滤大小写不敏感，表名与注释均参与匹配。
+- **上限与审计**：limit 钳 1..200（默认 100）；服务端审计落 `search_tables`（statement 记关键词与库，rowsAffected 记命中数）。
+- HTTP 路由 `GET /api/search-tables`（project/connId/keyword 必填，database/limit 可选）。
+- 测试：manager 原生/回退两路径 + cap 钳制 + 审计断言 + 非白名单 kind 不回退；HTTP 路由契约（回退过滤/限定库/参数校验/未授权）；mysql 真机（跨库命中、限定库、LIKE 转义——字面 `%` 不作通配符）；pg-like mock 驱动（库名限定/`db.schema` 精确/跨库逐池/ILIKE 转义）。
+
+### 修复
+
+- 前端搜索失败反馈：错误行渲染与结果视图解耦（首次搜索失败也显示错误行并可点击重试，不再静默回到目录树）；筛选行补 React key（避免列表 key 警告与输入框重挂载丢焦点）。
+- **select 下拉弹出层白底白字**（第三方深色主题下）：option 弹层是原生控件，不继承面板背景——Windows Chromium 未声明 `color-scheme` 时固定白底，而 option 文字 `color:inherit` 在深色主题下是白字。现在 select 声明 `color-scheme:dark light`，option 显式配一套自带对比度的深/浅配色对（不透明——弹层是独立原生窗口，半透明会混入白底），随系统深浅切换，与外层主题解耦。
+
+## 1.7.4
+
+修复 ro（只读）授权下一切数据库操作永久挂起——「设置数据源后表显示不出来」的直接根因（与 1.7.3 的授权键归一化为两个独立缺陷）。
+
+### 修复
+
+- **mysql ro 模式连接永久卡死**：ro 适配器在 `pool.on('connection')` 钩子里执行 `SET SESSION TRANSACTION READ ONLY` 时，经 `swallowSetError` 给返回的 Query 命令对象挂了 `.on('error')` 监听——该监听会打断 mysql2 池接管前的命令处理序列，连接状态机卡死，**该连接后续一切查询永挂**。由于 ro 适配器实例被服务层 `adapterCache` 缓存，ro 授权下列库/列表/表结构/预览全部永久 pending（侧边栏数据浏览树展开后只显示 …），DatabaseManager 工具同样挂起。
+- **完整故障矩阵（真机四象限复现，mysql2 3.24.4 + MariaDB 10.6）**：非回调式 query（原形态）挂；回调式 query + error 监听（首次修复方向）**同样挂**；唯「回调式 query + 空回调、不挂监听」正常。`swallowSetError` 已删除，`openMysqlRaw` 的机制注释一并更正。
+- 测试连接（`testConnection`/`testDraft`）不走 ro 钩子（`factory(rc)` 无 mode），故显示「连接成功」而数据浏览挂起——正是本缺陷的迷惑性所在。
+- 回归测试：真机门控新增 ro 模式 `listDatabases` 不得挂起 + ro query 白名单两用例（挂死形态会在 vitest 5s 超时失败）。
+
+## 1.7.3
+
+修复「设置数据源后表显示不出来」组合缺陷：Windows 路径大小写授权错位（根因）+ projectPath 为空时数据浏览静默失败 + 未授权文案缺少下一步引导。
+
+### 修复
+
+- **Windows 路径大小写授权错位（「表显示不出来」根因）**：`normalizeProjectKey` 此前仅把盘符小写、路径段保留原大小写——NTFS 大小写不敏感，`E:\GitHub\MyApp` 与 `e:\github\myapp` 是同一目录却被记成两条授权键。会话 cwd 大小写与授权时不一致（重启/不同入口的常见现象）即 `UNAUTHORIZED_PROJECT`，数据浏览树展开后无库无表。现在 win32 下全路径归一小写（POSIX 文件系统大小写敏感，保持原样；platform 参数仅供测试注入）。
+- **grants.json 存量键迁移**：读入时把「绝对路径形态」的大小写变体键统一归一并合并（同连接 rw 胜出、grantedAt 取较新，与 check 语义一致），下次 save 自然落盘为新键；非路径形态的键原样保留。修复后老授权不失效。
+- **GrantStore 纵深防御**：`grant/revoke/check/grantsFor` 入口统一 `normalizeProjectKey`（幂等）。此前归一化责任全在调用方（manager 层），任何绕过 manager 的调用都会以原始写法落盘/查询。
+- **数据浏览静默失败**：projectPath 为空时（scope.cwd 缺失且自动解析失败）`toggleConn/toggleDb/toggleSchema` 全部静默 no-op，点击展开零反馈。现在树顶显示醒目提示（zh/en，role=alert）指引用户填写项目路径。
+- **scope 兜底字段修正**：`SessionScope` 契约为 `{ sessionId, cwd?, repoRoot? }`，客户端读取的 `workspacePath` 字段不存在。cwd 是工作区容器时补 `repoRoot`（选中的 git 仓库）兜底。
+- **未授权错误文案引导**：`项目未授权该连接: x` → 追加「请切到『项目授权』面板……」；projectPath 为空文案追加「请先在面板顶部填写当前项目路径」。
+- 回归测试：路径段大小写变体授权放行（e2e）、grants 大小写变体键迁移合并（store）、win32 归一矩阵（normalize）。
+
 ## 1.6.0
 
 新增连接管理「导出 / 导入」：一键导出全部连接（含密码）为口令加密文件，跨机器迁移；导入按口令解密，冲突连接跳过不覆盖。

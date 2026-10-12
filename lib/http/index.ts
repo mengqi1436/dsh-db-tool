@@ -266,6 +266,10 @@ async function route(
   if (path === '/api/tables' && req.method === 'GET') {
     return sendOk(res, await service.tables(projectOf(q), required(q, 'connId'), q.get('database') ?? undefined));
   }
+  if (path === '/api/search-tables' && req.method === 'GET') {
+    const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
+    return sendOk(res, await service.searchTables(projectOf(q), required(q, 'connId'), required(q, 'keyword'), q.get('database') ?? undefined, limit));
+  }
   if (path === '/api/schemas' && req.method === 'GET') {
     return sendOk(res, await service.schemas(projectOf(q), required(q, 'connId'), q.get('database') ?? undefined));
   }

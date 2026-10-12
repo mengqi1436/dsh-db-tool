@@ -250,7 +250,8 @@ describe('handleDbToolRequest 直调（prefix 挂载形态 + trust）', () => {
     const r = await callHandler('POST', '/api/project-context', { host: '127.0.0.1:3080' }, cwd);
     expect(r.status).toBe(200);
     expect(r.body.data).toMatchObject(
-      win ? { projectPathKey: 'e:/Code/My-App', hasProject: true } : { projectPathKey: '/tmp/My-App', hasProject: true },
+      // Windows 全路径小写归一（NTFS 大小写不敏感）；POSIX 保留大小写
+      win ? { projectPathKey: 'e:/code/my-app', hasProject: true } : { projectPathKey: '/tmp/My-App', hasProject: true },
     );
   });
 
@@ -364,6 +365,25 @@ describe('业务路由与确认流程', () => {
     expect((await get(`/api/schema?${q}&table=users`)).json.data).toHaveLength(1);
     expect((await get(`/api/preview?${q}&table=users&limit=999`)).json.ok).toBe(true);
     expect((await get(`/api/databases?project=${encodeURIComponent(fx.projectA)}`)).json.code).toBe('INVALID_ARGUMENT');
+  });
+
+  it('GET /api/search-tables：适配器无原生实现时走逐库回退过滤', async () => {
+    const { fx } = await ensureStarted();
+    const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
+    // fake adapter：app/test 两库各含 users 表 → 关键词命中两条，database 字段区分来源
+    const all = await get(`/api/search-tables?${q}&keyword=users`);
+    expect(all.json.ok).toBe(true);
+    expect(all.json.data).toEqual([
+      expect.objectContaining({ database: 'app', name: 'users', type: 'TABLE' }),
+      expect.objectContaining({ database: 'test', name: 'users', type: 'TABLE' }),
+    ]);
+    // 限定库：只搜 app
+    const one = await get(`/api/search-tables?${q}&keyword=users&database=app`);
+    expect(one.json.data).toEqual([expect.objectContaining({ database: 'app', name: 'users' })]);
+    // 关键词缺失 → INVALID_ARGUMENT；未授权项目 → UNAUTHORIZED_PROJECT
+    expect((await get(`/api/search-tables?${q}`)).json.code).toBe('INVALID_ARGUMENT');
+    const denied = await get(`/api/search-tables?project=${encodeURIComponent(fx.projectB)}&connId=${CONN_ID}&keyword=users`);
+    expect(denied.json.code).toBe('UNAUTHORIZED_PROJECT');
   });
 
   it('危险 execute → NEEDS_CONFIRMATION；携 challengeId 重发放行；重放被拒', async () => {

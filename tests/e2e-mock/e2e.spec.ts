@@ -176,6 +176,21 @@ describe('projectPath 归一化对抗', () => {
     const r = asQuery(await fx!.service.query(f.projectA + '/', CONN_ID, 'SELECT 1'));
     expect(r.rowCount).toBe(1);
   });
+
+  it('已授权项目的路径段大小写变体全部通过（回归：Windows 全路径归一，防「项目未授权该连接」）', async () => {
+    if (process.platform !== 'win32') return; // POSIX 文件系统大小写敏感，变体属不同目录，不适用
+    const f = await ensureFixture();
+    const variants = [
+      f.projectA.toUpperCase(),
+      f.projectA.toLowerCase(),
+      f.projectA.replace(/GitHub|Code|proj/i, (m) => m[0]!.toLowerCase() + m.slice(1)), // 单段大小写翻转
+    ];
+    for (const v of variants) {
+      expect(normalizeProjectKey(v)).toBe(normalizeProjectKey(f.projectA)); // 变体必须归一为同一 key
+    }
+    const r = asQuery(await fx!.service.query(f.projectA.toUpperCase(), CONN_ID, 'SELECT 1'));
+    expect(r.rowCount).toBe(1); // 授权放行（走到适配器而非 UNAUTHORIZED_PROJECT）
+  });
 });
 
 /* ---------- 3. challenge 并发与过期边界 ---------- */

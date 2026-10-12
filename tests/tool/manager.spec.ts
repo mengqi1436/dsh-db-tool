@@ -220,3 +220,60 @@ describe('DbToolService: 连接导出/导入', () => {
     }
   });
 });
+
+describe('DbToolService: searchTables 跨库表搜索', () => {
+  it('适配器原生 searchTables：透传 trim 后 keyword 与 database，limit 钳 1..200，审计落 search_tables', async () => {
+    const seen: { kw?: string; db?: string; limit?: number } = {};
+    const fx = await makeFixture('rw', {
+      searchTables: async (kw, database, limit) => {
+        seen.kw = kw;
+        seen.db = database;
+        seen.limit = limit;
+        return [
+          { database: database ?? 'app', name: 'orders', type: 'TABLE' },
+          { database: database ?? 'app', name: 'order_items', type: 'TABLE' },
+          { database: database ?? 'app', name: 'users', type: 'TABLE' },
+        ];
+      },
+    });
+    try {
+      const hits = await fx.service.searchTables(fx.projectA, CONN_ID, '  order  ', undefined, 9999);
+      expect(seen).toEqual({ kw: 'order', db: undefined, limit: 200 });
+      expect(hits).toHaveLength(3);
+      expect(hits[0]).toMatchObject({ database: 'app', name: 'orders' });
+      // 未传 limit → 默认 100
+      await fx.service.searchTables(fx.projectA, CONN_ID, 'order');
+      expect(seen.limit).toBe(100);
+      const last = fx.store.audit.tail(1)[0];
+      expect(last).toMatchObject({ action: 'search_tables', danger: 'none', ok: true });
+      expect(last?.statement).toContain('order');
+      expect(last?.rowsAffected).toBe(3);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('无原生实现 + 限定库 → listTables+filterTables 回退（大小写不敏感；空关键词 INVALID_ARGUMENT）', async () => {
+    const fx = await makeFixture('rw');
+    try {
+      const hits = await fx.service.searchTables(fx.projectA, CONN_ID, 'USERS', 'app');
+      expect(hits).toEqual([{ database: 'app', name: 'users', type: 'TABLE' }]);
+      expect(await fx.service.searchTables(fx.projectA, CONN_ID, 'nope', 'app')).toEqual([]);
+      await expect(fx.service.searchTables(fx.projectA, CONN_ID, '   ')).rejects.toMatchObject({
+        code: 'INVALID_ARGUMENT',
+      });
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('非白名单 kind（redis 语义不兼容）不走回退 → 返回空而非错标来源', async () => {
+    const fx = await makeFixture('rw', { kind: 'redis' });
+    try {
+      // 若误走回退，fake adapter 的 app/test 两库会各返回 users 两条；断言空即白名单生效
+      expect(await fx.service.searchTables(fx.projectA, CONN_ID, 'users')).toEqual([]);
+    } finally {
+      await fx.dispose();
+    }
+  });
+});

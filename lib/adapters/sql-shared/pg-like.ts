@@ -13,6 +13,7 @@ import type {
   QueryResult,
   ResolvedConnection,
   TableInfo,
+  TableSearchHit,
 } from '../types.js';
 import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent } from './common.js';
 
@@ -316,6 +317,44 @@ export async function createPgLikeAdapter(
     return f && typeof f.schema === 'string' && f.schema ? f.schema : 'public';
   };
 
+  /** 集群内可连接库名（listDatabases 与跨库 searchTables 共用） */
+  const listDbNames = async (): Promise<string[]> => {
+    const res = await pool.query(
+      'SELECT datname FROM pg_database WHERE datistemplate = false AND datallowconn = true ORDER BY datname',
+    );
+    return res.rows.map((r) => String(r.datname));
+  };
+
+  /** 单库内搜表：schema 给定精确限定，否则该库全部用户 schema（排除 information_schema 与 pg_* 系） */
+  const searchOneDb = async (
+    p: PgLikePool,
+    dbName: string,
+    pattern: string,
+    cap: number,
+    schema: string | null,
+  ): Promise<TableSearchHit[]> => {
+    const params = schema ? [pattern, schema] : [pattern];
+    const res = await p.query(
+      `SELECT table_schema, table_name, table_type
+       FROM information_schema.tables
+       WHERE table_name ILIKE $1 ESCAPE '~'
+         AND table_schema <> 'information_schema' AND table_schema NOT LIKE 'pg\\_%'
+         ${schema ? 'AND table_schema = $2' : ''}
+       ORDER BY table_schema, table_name
+       LIMIT ${cap}`,
+      params,
+    );
+    return res.rows.map((r): TableSearchHit => {
+      const rawType = String(r.table_type);
+      return {
+        database: dbName,
+        schema: String(r.table_schema),
+        name: String(r.table_name),
+        type: rawType === 'BASE TABLE' ? 'TABLE' : rawType,
+      };
+    });
+  };
+
   /** 浏览目标解析："db.schema"（跨库）| "schema"（当前库）| 空（当前库默认 schema）。
    *  PG 标识符不允许裸点，按第一个点切分安全；多余点由 assertIdent 拒绝。 */
   const parseBrowseTarget = (ref: string | undefined, what: string): { db: string | null; schema: string } => {
@@ -405,12 +444,7 @@ export async function createPgLikeAdapter(
       }),
 
     listDatabases: () =>
-      humanize(`${kind} 列出数据库`, async () => {
-        const res = await pool.query(
-          'SELECT datname FROM pg_database WHERE datistemplate = false AND datallowconn = true ORDER BY datname',
-        );
-        return res.rows.map((r) => String(r.datname));
-      }),
+      humanize(`${kind} 列出数据库`, async () => listDbNames()),
 
     // 库内 schema 清单（Navicat 官方层级：数据库 → 模式 → 表）。
     // database 参数 = 库名（UI 树第一层）；pg_* 前缀覆盖 pg_catalog/pg_toast/pg_temp 系。
@@ -442,6 +476,36 @@ export async function createPgLikeAdapter(
             database: db ? `${db}.${schema}` : schema,
           } satisfies TableInfo;
         });
+      }),
+
+    // 跨库搜表。database 语义（与 UI 库下拉一致）：'db'（该库全部用户 schema）|
+    // 'db.schema'（精确单 schema）| 'schema'（当前库）| 空（集群全部库逐池并发）。
+    // ILIKE 大小写不敏感；转义符 '~' 避开反斜杠歧义，% _ \ ~ 全转义，参数绑定无注入面。
+    searchTables: (keyword, database, limit) =>
+      humanize(`${kind} 搜索表`, async () => {
+        const cap = Math.max(1, Math.min(200, Math.floor(Number(limit) || 100)));
+        const pattern = '%' + keyword.replace(/[~%_\\]/g, (m) => `~${m}`) + '%';
+        if (database) {
+          const dot = database.indexOf('.');
+          const dbName = assertIdent(dot >= 0 ? database.slice(0, dot) : database, '数据库');
+          const schema = dot >= 0 ? assertIdent(database.slice(dot + 1), 'schema') : null;
+          return searchOneDb(poolFor(dbName), dbName, pattern, cap, schema);
+        }
+        const dbNames = await listDbNames();
+        const hits: TableSearchHit[] = [];
+        for (let i = 0; i < dbNames.length && hits.length < cap; i += 8) {
+          const batch = await Promise.all(
+            dbNames.slice(i, i + 8).map(async (dbName) => {
+              try {
+                return await searchOneDb(poolFor(dbName), dbName, pattern, cap, null);
+              } catch {
+                return []; // 个别库不可连接（权限/模板库）不拖垮整体搜索
+              }
+            }),
+          );
+          hits.push(...batch.flat());
+        }
+        return hits.slice(0, cap);
       }),
 
     describeTable: (table, database) =>

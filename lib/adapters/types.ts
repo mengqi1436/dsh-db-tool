@@ -51,6 +51,17 @@ export interface TableInfo {
   database?: string;
 }
 
+/** 跨库表搜索命中（searchTables 返回）：database 必带，便于前端定位跳转 */
+export interface TableSearchHit {
+  /** 所属库（mysql=TABLE_SCHEMA；单库语义适配器为连接默认库） */
+  database: string;
+  /** 库内 schema（PG/GaussDB 三层语义时提供） */
+  schema?: string;
+  name: string;
+  type?: string;
+  comment?: string;
+}
+
 export interface ColumnInfo {
   name: string;
   /** 官方类型名（如 varchar(255)、NUMBER、ObjectId） */
@@ -125,6 +136,11 @@ export interface DatabaseAdapter {
 
   /** 表结构 / 集合字段推断（Mongo 用抽样推断并标注） / Redis 键类型+编码+长度 */
   describeTable(table: string, database?: string): Promise<ColumnInfo[]>;
+
+  /** 可选：跨库表名模糊搜索（子串匹配，大小写不敏感跟随各库 collation）。
+   *  database 省略时搜索全部库；limit 由服务层钳制。未实现的适配器由服务层
+   *  回退为「逐库 listTables + 内存过滤」。 */
+  searchTables?(keyword: string, database?: string, limit?: number): Promise<TableSearchHit[]>;
 
   /** 预览行（SQL: LIMIT/OFFSET 或 FETCH；上限 50 由服务层强制）。
    *  offset 为行偏移（默认 0）实现真翻页；无偏移语义的 KV 型（Redis）可忽略。 */
