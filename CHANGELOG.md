@@ -1,5 +1,19 @@
 # Changelog — dsh-db-tool
 
+## 1.9.1
+
+依赖安全与维护性升级（无代码改动，仅 `package-lock.json`）。
+
+### 安全
+
+- **`fast-uri` 3.1.8 → 3.1.9**：修复 4 个 URI 解析/规范化漏洞——URI scheme 伪造（百分号编码 scheme 不再被解码为活跃 scheme，CVE-2026-110306）、域名规范化时的 host 混淆（CVE-2026-110180）、相对引用规范化语义错误（CVE-2026-110095）、后缀引用中的 scheme 注入（CVE-2026-110725）。该包经 `ajv` ← `@stryker-mutator/core` 引入，仅用于变异测试，不在运行时代码路径中；项目自身的连接串解析使用原生 `new URL()`，不经过 fast-uri。实测确认修复生效：`%68ttp%3A%2F%2F...` 不再被解析出 scheme。
+
+### 杂项
+
+- **`vitest` 4.1.11 → 4.1.12**：mocker 加固手动与重定向 mock。
+- **`vite` 8.3.1 → 8.3.5**：修复 build 阶段的 chunk import map 与 preload 依赖处理。
+- **`@azure/msal-node` 6.0.1 → 7.1.2 / `@azure/identity` 4.13.3 → 4.14.1**：主版本跳跃，新增依赖 `is-in-ssh`、`powershell-utils`（均由 sindresorhus 维护）。该链路经 `tedious` → `@azure/identity` 引入；本项目仅支持 SQL 认证、不支持 Azure AD 认证，故运行时不会走到，升级属跟随上游维护。
+
 ## 1.9.0
 
 前端挂载点迁移到 DSH 官方右侧栏，摆脱第三方 `dsh-better-sidebar` 依赖。
