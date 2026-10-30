@@ -21,6 +21,7 @@ import type {
   QueryResult,
   ResolvedConnection,
   TableInfo,
+  TableSearchHit,
 } from '../types.js';
 import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent, validPort } from '../sql-shared/common.js';
 import type { TxHandle } from '../sql-shared/pg-like.js';
@@ -28,23 +29,9 @@ import type { TxHandle } from '../sql-shared/pg-like.js';
 /** ro 模式下 query 允许的读语句首词白名单 */
 const RO_READ_PREFIX = /^(select|show|desc|describe|explain|use|help|table)\b/i;
 
-/**
- * 吞掉 'connection' 回调里会话级 SET 的失败（ro / time_zone 仅是增强，失败不应拖垮连接与进程）。
- * mysql2 promise 池的 'connection' 事件由核心池 emit、经 lib/promise/inherit_events.js
- * 原样转发参数，回调收到的是 callback 版 PoolConnection：其 query() 返回 Query 命令
- * 对象（EventEmitter，无 onResult 时错误走 emit('error')，lib/commands/command.js），
- * 无监听会抛 uncaughtException 崩溃进程——.catch 防御对它恒不生效，必须挂 error 监听。
- * 若驱动版本改为返回 Promise，则走 .catch 吞 rejection（双分支防御）。
- */
-function swallowSetError(r: unknown): void {
-  if (r && typeof (r as Promise<unknown>).catch === 'function') {
-    void (r as Promise<unknown>).catch(() => {});
-    return;
-  }
-  if (r && typeof (r as NodeJS.EventEmitter).on === 'function') {
-    (r as NodeJS.EventEmitter).on('error', () => {});
-  }
-}
+// 【历史教训，勿回退】'connection' 钩子里 SET 的失败处理只能走回调参数吞掉，
+// 不得给返回的 Query 命令挂 error 监听防 uncaughtException——
+// 该监听会打断池接管前的命令处理序列并使连接永久卡死（1.7.4 真机复现，见 ro 钩子处注释）。
 
 function connOptions(conn: ResolvedConnection): mysql.PoolOptions {
   const base: mysql.PoolOptions = {
@@ -112,12 +99,19 @@ export async function createMysqlAdapter(
   };
 
   /** ro 模式：每个新底层连接自动设为只读会话（应用层另有 query 白名单双保险）。
-   *  回调收到的是 callback 版 PoolConnection，query() 返回 Query 命令对象（EventEmitter）：
-   *  吞掉 SET 失败防 uncaughtException（见 swallowSetError）。主池与跨库池共用同一注册。 */
+   *  mysql2 promise 池 'connection' 回调拿到的是 callback 版连接；SET 必须回调式执行，
+   *  且绝不能对返回的 Query 命令对象挂 error 监听——swallowSetError 的 .on('error') 会
+   *  打断池接管前的命令处理序列，连接状态机卡死，该连接后续一切查询永挂
+   *  （真机复现：ro 模式列库/列表/预览全部永久 pending，即「表显示不出来」直接根因；
+   *  非回调式与「回调式+error 监听」两种形态均挂，唯「回调式+空回调」正常）。
+   *  主池与跨库池共用同一注册。 */
   const attachReadOnly = (p: mysql.Pool): void => {
     if (!readOnly) return;
     p.on('connection', (c) => {
-      swallowSetError(c.query('SET SESSION TRANSACTION READ ONLY') as unknown);
+      (c.query as unknown as (sql: string, cb: (err: unknown) => void) => void)(
+        'SET SESSION TRANSACTION READ ONLY',
+        () => {},
+      );
     });
   };
   attachReadOnly(pool);
@@ -271,6 +265,33 @@ export async function createMysqlAdapter(
         });
       }),
 
+    searchTables: (keyword, database, limit) =>
+      humanize('mysql 搜索表', async () => {
+        // 以 | 为 LIKE 转义符（避开反斜杠在 SQL 字面量/NO_BACKSLASH_ESCAPES 模式下的歧义）：
+        // % _ | \ 四字符全部转义后子串匹配，命中值经参数绑定传输、无注入面
+        const esc = keyword.replace(/[\\%_|]/g, (m) => `|${m}`);
+        const cap = Math.max(1, Math.min(200, Math.floor(Number(limit) || 100)));
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, TABLE_COMMENT
+           FROM information_schema.TABLES
+           WHERE TABLE_NAME LIKE CONCAT('%', ?, '%') ESCAPE '|'
+             ${database ? 'AND TABLE_SCHEMA = ?' : "AND TABLE_SCHEMA NOT IN ('information_schema','mysql','performance_schema','sys')"}
+           ORDER BY TABLE_SCHEMA, TABLE_NAME
+           LIMIT ${cap}`,
+          database ? [esc, database] : [esc],
+        );
+        return rows.map((r): TableSearchHit => {
+          const rawType = String(r.TABLE_TYPE);
+          const comment = r.TABLE_COMMENT;
+          return {
+            database: String(r.TABLE_SCHEMA),
+            name: String(r.TABLE_NAME),
+            type: rawType === 'BASE TABLE' ? 'TABLE' : rawType,
+            comment: comment != null && comment !== '' ? String(comment) : undefined,
+          };
+        });
+      }),
+
     describeTable: (table, database) =>
       humanize('mysql 查看表结构', async () => {
         const db = database ? assertIdent(database, '库名') : defaultDb();
@@ -336,8 +357,10 @@ export interface MysqlRaw {
 export async function openMysqlRaw(conn: ResolvedConnection): Promise<MysqlRaw> {
   const opts = connOptions(conn);
   const pool = mysql.createPool({ ...opts, dateStrings: true });
-  // 回调式 query（带 err 回调吞错）。必须用回调式：非回调式返回的 Query 命令对象与
-  // promise 池连接状态机冲突 → 该连接所有后续 query 永挂（真机实证 mysql2 3.24.4）
+  // 回调式 query（带 err 回调吞错）。两点缺一不可（1.7.4 真机复现）：
+  // 1) 必须回调式——非回调式命令无 onResult，与 promise 池连接建立序列冲突；
+  // 2) 绝不能对返回的 Query 命令挂 error 监听——会打断池接管前的命令处理，
+  //    连接状态机卡死 → 该连接所有后续 query 永挂（mysql2 3.24.4）
   pool.on('connection', (c) => {
     // 运行时 c 是 callback 版连接（promise 池类型标注不反映），按回调式调用
     (c.query as unknown as (sql: string, cb: (err: unknown) => void) => void)(
