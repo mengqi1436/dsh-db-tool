@@ -556,6 +556,12 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		// 官方右侧栏 guide 入口的 icon 是 React 组件（宿主按 <Icon size className /> 渲染），
+		// 这里把既有 icon(size) 适配成组件形态，保持同一枚数据库图标。
+		function DbIcon(props) {
+			return icon(props && props.size);
+		}
+
 		let styleEl = null;
 		function ensureStyles() {
 			if (styleEl) return;
@@ -3859,7 +3865,7 @@ window.__ModuleLoader__.load({
 						order: 45,
 						title: function () { return t("tabTitle"); },
 						description: function () { return t("tabDesc"); },
-						icon: function (p) { return icon(p && p.size ? p.size : 16); },
+						icon: DbIcon,
 					}],
 				});
 			}, "dsh-db-tool: register tab type");
