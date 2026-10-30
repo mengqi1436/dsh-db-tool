@@ -147,11 +147,28 @@ Both are contract behaviours of the official right sidebar and are easy to mista
 
 Covers SQL Server 2005 (9.0) through 2025 (17.0) and Azure SQL Database.
 
-**Connection URL parameters** (also supported by the field-by-field form):
+**For normal use you only fill in host, port, user and password** (plus the database). Encryption and certificate parameters are not your problem. The form shows only those four required fields; everything else lives in a collapsed **Advanced options** section you open only when troubleshooting.
+
+### Default encryption policy: prefer plaintext, upgrade automatically when the server insists
+
+New connections default to `encrypt=auto` (the default option in the form's encryption field):
+
+1. Connect **without encryption** first — instances that do not force encryption (typically self-hosted, on an intranet) connect right away, no longer blocked by a self-signed certificate or an extra TLS layer.
+2. If the server **forces encryption** (`EENCRYPT` / "server requires encryption", e.g. `Force Encryption=Yes` or Azure SQL), retry **once** with `encrypt=true` + `trustServerCertificate=true`. The user does not see this.
+
+**Boundaries of the automatic retry (deliberately narrow — not an unlimited safety net)**:
+
+- **Exactly one retry.** No retry chains; on failure the original error is surfaced.
+- **Only for the "server forces encryption" cause.** Certificate-validation failures, TLS-version negotiation failures, bad credentials and everything else do **not** trigger a retry — blind retrying would bury the real cause and send troubleshooting in the wrong direction.
+- **No retry at all when `encrypt` is set explicitly** to `true` / `false` / `strict`. The policy you specify is final; the tool does not second-guess it.
+
+**On a server that does not force encryption, `auto` behaves exactly like `encrypt=false`, i.e. cleartext transmission** — that is the cost of this default; see "What `encrypt=false` really does" below. Do not skip it.
+
+**Connection URL parameters** (for advanced users and troubleshooting — **not needed** for everyday connections; the field-by-field form supports the same set):
 
 | Parameter | Values | Default |
 |---|---|---|
-| `encrypt` | `true` / `false` / `strict` | `true` |
+| `encrypt` | `auto` / `true` / `false` / `strict` | `auto` (unencrypted first; upgrade with certificate trust when the server forces encryption — one retry only) |
 | `trustServerCertificate` | `true` / `false` | `false` |
 | `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4` (negotiated down automatically; normally leave unset) |
 | `tlsMinVersion` | `TLSv1` / `TLSv1.1` / `TLSv1.2` | unset (Node default TLSv1.2) |
@@ -159,6 +176,8 @@ Covers SQL Server 2005 (9.0) through 2025 (17.0) and Azure SQL Database.
 | `caCert` | PEM file path or certificate text | unset (use the system trust store) |
 | `instanceName` | Named instance (mutually exclusive with port) | — |
 | `useUTC` | `true` / `false` | `true` |
+
+`caCert` / `serverName` / `trustServerCertificate` / `tlsMinVersion` / `tdsVersion` all live in the **Advanced options** section of the form (collapsed by default); they exist for certificate and legacy-instance troubleshooting and are not needed for normal connections.
 
 **You do not need to pick a TDS version**: the client always declares `7.4` and the server negotiates down to what it supports (2005→7.2, 2008→7.3.A, 2008 R2→7.3.B). This is mandated by [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) (when the client declares a higher version, the server **must** use the highest version it supports). `tdsVersion` remains only as a troubleshooting override.
 
@@ -175,7 +194,13 @@ TLS 1.2 support by version: 2016+ has it natively; 2012 SP4 / 2014 SP2 and later
 - When the server **does** force encryption (`Force Encryption=Yes`, Azure SQL), `encrypt=false` is rejected ("server requires encryption"), so encryption is still mandatory there.
 - Microsoft's "the login packet is always encrypted" statement applies **only when the server forces encryption or the client sets `encrypt=true`**; it must not be generalised into "`encrypt=false` still performs a TLS handshake".
 
-The default `encrypt=true` is therefore the secure setting; treat `encrypt=false` as an explicit downgrade.
+Setting `encrypt=true` explicitly is therefore the secure setting; treat `encrypt=false` as an explicit downgrade.
+
+**The same paragraph defines what the default `encrypt=auto` means for security**: the first step of `auto` is an unencrypted connection, so against a server that does not force encryption it behaves **exactly** like `encrypt=false` — credentials in cleartext. `auto` only upgrades to TLS when the server refuses plaintext; it is not "automatically encrypt for you", it is "try unencrypted first, encrypt only when rejected". Therefore:
+
+- The default is fine on a **trusted intranet**; when the SQL Server is reached over the public internet or an untrusted segment, set `encrypt=true` explicitly (and use `caCert` / `serverName` for certificate issues) instead of relying on `auto`.
+- Set `encrypt=true` explicitly when you need a guaranteed secure setting: explicit values never retry, so behaviour is fully predictable.
+- Treat both `encrypt=false` and `encrypt=auto` as an **explicit downgrade**, not as "just left the advanced options closed".
 
 **`encrypt=strict` (TDS 8.0)**: only supported by SQL Server 2022+ instances with Force Strict Encryption enabled. In this mode TLS completes before the login packet, so **`trustServerCertificate` has no effect at all** (the driver omits `rejectUnauthorized` and validation is mandatory); use `caCert` or `serverName` instead.
 
@@ -208,7 +233,7 @@ DSH desktop 0.2.0-rc.2+ bundles the `dsh` command:
 2. Install the plugin (npm installs must pin an exact version — `@latest` falls back to an older release due to release-age checks):
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.3 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.4 --registry=https://registry.npmjs.org/
    ```
 
 3. **Restart the desktop app** to load it

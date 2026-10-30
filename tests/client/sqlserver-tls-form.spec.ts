@@ -121,16 +121,34 @@ beforeAll(() => {
 	probe = mod.__probe;
 });
 
+/** 上一次挂载的表单 props：供 rerenderForm 复用（模拟 React 的重新渲染） */
+let lastProps: any = null;
+
 /** 渲染 sqlserver 的 ConnForm（分字段模式），返回树 */
 function renderForm(initial?: any): El {
 	reactStub.reset();
-	return reactStub.render(T.ConnForm, {
-		// 不传 initial 时 freshForm() 的 kind 默认是 mysql，故必须显式给 sqlserver 才会渲染专有控件
+	// 不传 initial 时 freshForm() 的 kind 默认是 mysql，故必须显式给 sqlserver 才会渲染专有控件
+	lastProps = {
 		initial: initial ?? { ...T.EMPTY_FORM, kind: 'sqlserver', mode: 'fields' },
 		busy: false,
 		onSubmit: () => {},
 		onCancel: () => {},
-	});
+	};
+	return reactStub.render(T.ConnForm, lastProps);
+}
+
+/** 保留 React 状态槽重渲染：用于「点击展开/收起后再断言」（stub 的 setState 只改槽不自动渲染） */
+function rerenderForm(): El {
+	return reactStub.render(T.ConnForm, lastProps);
+}
+
+/** 点击「高级选项」入口展开，返回展开后的树（高级区默认收起，断言前必须显式展开） */
+function renderExpandedForm(initial?: any): El {
+	const tree = renderForm(initial);
+	const toggle = byLabel(tree, probe.t('advancedTls'));
+	if (!toggle) throw new Error('未找到「高级选项」入口');
+	toggle.props.onClick();
+	return rerenderForm();
 }
 
 /** 按 aria-label 找控件 */
@@ -138,32 +156,69 @@ function byLabel(tree: El, label: string): El | undefined {
 	return collect(tree).find((n) => n.props && n.props['aria-label'] === label);
 }
 
-describe('1 表单控件存在性：加密参数必须有入口', () => {
-	it('sqlserver 分字段表单渲染 encrypt / tlsMinVersion / trustServerCertificate / serverName / caCert', () => {
+describe('1 高级区默认收起：sqlserver 分字段表单不再平铺 TLS 参数', () => {
+	it('默认收起：只留「高级选项」入口，五个高级控件与 tlsHint 都不渲染', () => {
 		const tree = renderForm();
+		const toggle = byLabel(tree, probe.t('advancedTls'));
+		expect(toggle, '缺「高级选项」入口').toBeDefined();
+		expect(toggle!.type).toBe('button');
+		expect(toggle!.props['aria-expanded']).toBe(false);
+		expect(byLabel(tree, probe.t('fieldsEncrypt')), '收起时不应渲染 encrypt 控件').toBeUndefined();
+		expect(byLabel(tree, probe.t('fieldsTlsMinVersion'))).toBeUndefined();
+		expect(byLabel(tree, probe.t('fieldsTrustCert'))).toBeUndefined();
+		expect(byLabel(tree, probe.t('fieldsServerName'))).toBeUndefined();
+		expect(byLabel(tree, probe.t('fieldsCaCert'))).toBeUndefined();
+		expect(collect(tree).map((n) => flatText(n)).join('|')).not.toContain(probe.t('tlsHint'));
+	});
+
+	it('展开后：aria-expanded=true，五个控件 + tlsHint 全部出现', () => {
+		const tree = renderExpandedForm();
+		expect(byLabel(tree, probe.t('advancedTls'))!.props['aria-expanded']).toBe(true);
 		expect(byLabel(tree, probe.t('fieldsEncrypt')), '缺 encrypt 控件').toBeDefined();
 		expect(byLabel(tree, probe.t('fieldsTlsMinVersion')), '缺 tlsMinVersion 控件').toBeDefined();
 		expect(byLabel(tree, probe.t('fieldsTrustCert')), '缺 trustServerCertificate 控件').toBeDefined();
 		expect(byLabel(tree, probe.t('fieldsServerName')), '缺 serverName 控件').toBeDefined();
 		expect(byLabel(tree, probe.t('fieldsCaCert')), '缺 caCert 控件').toBeDefined();
+		expect(collect(tree).map((n) => flatText(n)).join('|')).toContain(probe.t('tlsHint'));
 	});
 
-	it('encrypt 下拉提供 默认/true/false/strict 四个选项（strict 是 TDS 8.0 的入口，不能缺）', () => {
-		const tree = renderForm();
+	it('折叠是双向的：展开后再次点击可收起', () => {
+		const expanded = renderExpandedForm();
+		expect(byLabel(expanded, probe.t('fieldsCaCert'))).toBeDefined();
+		byLabel(expanded, probe.t('advancedTls'))!.props.onClick();
+		const collapsed = rerenderForm();
+		expect(byLabel(collapsed, probe.t('advancedTls'))!.props['aria-expanded']).toBe(false);
+		expect(byLabel(collapsed, probe.t('fieldsCaCert'))).toBeUndefined();
+	});
+
+	it('编辑已有连接且存过高级字段 → 默认展开（让用户看到自己存过什么）', () => {
+		const tree = renderForm({ ...T.EMPTY_FORM, kind: 'sqlserver', mode: 'fields', serverName: 'db.corp.local' });
+		expect(byLabel(tree, probe.t('advancedTls'))!.props['aria-expanded']).toBe(true);
+		expect(byLabel(tree, probe.t('fieldsServerName'))).toBeDefined();
+	});
+
+	it('只存了 encrypt=auto（默认策略）不算高级配置 → 仍然默认收起', () => {
+		const tree = renderForm({ ...T.EMPTY_FORM, kind: 'sqlserver', mode: 'fields', encrypt: 'auto' });
+		expect(byLabel(tree, probe.t('advancedTls'))!.props['aria-expanded']).toBe(false);
+	});
+
+	it('encrypt 下拉：auto 置首项，其后 true/false/strict（strict 是 TDS 8.0 的入口，不能缺）', () => {
+		const tree = renderExpandedForm();
 		const sel = byLabel(tree, probe.t('fieldsEncrypt'))!;
 		const values = collect(sel).filter((n) => n.type === 'option').map((n) => n.props.value);
-		expect(values).toEqual(['', 'true', 'false', 'strict']);
+		expect(values).toEqual(['auto', 'true', 'false', 'strict']);
 	});
 
 	it('tdsVersion 不再出现在表单里（协议层天然降级，不把驱动已处理的问题转嫁用户）', () => {
-		const tree = renderForm();
+		const tree = renderExpandedForm();
 		const all = collect(tree).map((n) => flatText(n)).join('|');
 		expect(all).not.toContain('tdsVersion');
 		expect(all).not.toContain('TDS 版本');
 	});
 
-	it('非 sqlserver 库（如 mysql）不渲染这些 sqlserver 专有控件', () => {
+	it('非 sqlserver 库（如 mysql）连「高级选项」入口都不渲染', () => {
 		const tree = renderForm({ ...T.EMPTY_FORM, kind: 'mysql', mode: 'fields', host: 'h', user: 'u' });
+		expect(byLabel(tree, probe.t('advancedTls'))).toBeUndefined();
 		expect(byLabel(tree, probe.t('fieldsTrustCert'))).toBeUndefined();
 		expect(byLabel(tree, probe.t('fieldsCaCert'))).toBeUndefined();
 	});
@@ -212,7 +267,38 @@ describe('2 提交：draftBody 必须带出这些参数', () => {
 		const empty = await submittedOf({ ...T.EMPTY_FORM, kind: 'sqlserver', mode: 'fields', host: 'h', user: 'sa' });
 		expect('serverName' in empty.fields).toBe(false);
 		expect('caCert' in empty.fields).toBe(false);
-		expect('encrypt' in empty.fields).toBe(false);
+		// encrypt 默认已是 'auto'（不再是空串）：默认就要把自动策略发给适配器，
+		// 否则适配器会退回 encrypt=true，Navicat 式「开箱即连」失效
+		expect(empty.fields.encrypt).toBe('auto');
+	});
+
+	it('收起高级区不影响提交：已存的高级配置照样带出（绝不因隐藏丢配置）', async () => {
+		reactStub.reset();
+		fetchCalls.length = 0;
+		lastProps = {
+			initial: {
+				...T.EMPTY_FORM, kind: 'sqlserver', mode: 'fields', host: 'h', user: 'sa',
+				serverName: 'db.corp.local', caCert: '/tmp/ca.pem', trustServerCertificate: true, tlsMinVersion: 'TLSv1.2', encrypt: 'strict',
+			},
+			busy: false, onSubmit: () => {}, onCancel: () => {},
+		};
+		// 编辑已存高级配置 → 默认展开；这里显式收起，模拟用户点了「收起」后直接保存/测试
+		const tree = reactStub.render(T.ConnForm, lastProps);
+		byLabel(tree, probe.t('advancedTls'))!.props.onClick();
+		const collapsed = rerenderForm();
+		expect(byLabel(collapsed, probe.t('advancedTls'))!.props['aria-expanded']).toBe(false);
+		expect(byLabel(collapsed, probe.t('fieldsCaCert')), '收起后控件确实不渲染').toBeUndefined();
+		const testBtn = collect(collapsed).find((n) => n.type === 'button' && flatText(n) === probe.t('test'));
+		if (!testBtn) throw new Error('未找到「测试」按钮');
+		await testBtn.props.onClick();
+		const call = fetchCalls.find((c) => String(c.url).includes('test-draft'));
+		if (!call) throw new Error('未发出 test-draft 请求');
+		// 折叠只是不渲染，form 里的值原样提交
+		expect(call.body.fields.serverName).toBe('db.corp.local');
+		expect(call.body.fields.caCert).toBe('/tmp/ca.pem');
+		expect(call.body.fields.trustServerCertificate).toBe(true);
+		expect(call.body.fields.tlsMinVersion).toBe('TLSv1.2');
+		expect(call.body.fields.encrypt).toBe('strict');
 	});
 
 	it('非 sqlserver 库不提交这些键（避免无关库收到未知参数）', async () => {
@@ -224,11 +310,13 @@ describe('2 提交：draftBody 必须带出这些参数', () => {
 });
 
 describe('3 编辑回填：buildEditForm 必须还原已存配置', () => {
-	it('encrypt 三态回填：布尔转字符串、strict 保持 strict、缺省为空串（=不注入）', () => {
+	it('encrypt 四态回填：布尔转字符串、strict/auto 原样保留、缺省为 auto', () => {
 		expect(T.buildEditForm({ id: 'a', kind: 'sqlserver', mode: 'fields', encrypt: true }).encrypt).toBe('true');
 		expect(T.buildEditForm({ id: 'a', kind: 'sqlserver', mode: 'fields', encrypt: false }).encrypt).toBe('false');
 		expect(T.buildEditForm({ id: 'a', kind: 'sqlserver', mode: 'fields', encrypt: 'strict' }).encrypt).toBe('strict');
-		expect(T.buildEditForm({ id: 'a', kind: 'sqlserver', mode: 'fields' }).encrypt).toBe('');
+		// auto 必须能回填：否则编辑一次已存连接就把自动策略悄悄换成 encrypt=true
+		expect(T.buildEditForm({ id: 'a', kind: 'sqlserver', mode: 'fields', encrypt: 'auto' }).encrypt).toBe('auto');
+		expect(T.buildEditForm({ id: 'a', kind: 'sqlserver', mode: 'fields' }).encrypt).toBe('auto');
 	});
 
 	it('trustServerCertificate / serverName / caCert 回填', () => {

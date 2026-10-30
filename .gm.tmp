@@ -1,0 +1,39 @@
+新增(SQL Server): 高级选项折叠 + encrypt=auto 默认，对齐 Navicat 开箱即连
+
+用户反馈连接表单平铺显示「加密 / 最低 TLS 版本 / 信任服务器证书 / 证书校验
+名称 / 受信 CA」，与 Navicat 的简洁界面不一致；要求默认不显示这些内容。
+
+## 前端
+- 新增「高级选项」折叠区，默认收起：收起时只留主机/端口/账号/密码/库名，
+  展开后才出现五项 TLS 控件。编辑已有连接时若有任一高级字段非空则默认展开
+  （否则用户看不到自己存过什么）。只读态与编辑态共用同一枚折叠状态
+- EMPTY_FORM.encrypt 默认由空串改为 'auto'；buildEditForm 支持 'auto' 回填
+  （否则编辑一次就把自动策略悄悄换成 encrypt=true）；draftBody 按四态
+  （auto/true/false/strict）原样下发，不退化成布尔
+- 下拉新增「自动（推荐）」置首，原「默认（请求加密）」改名「强制加密」
+
+## 适配器：encrypt=auto 两阶段策略
+- 第一阶段 encrypt=false（等同 Navicat 不开加密）；仅当服务器明确要求加密
+  （EENCRYPT "Server requires encryption"）时，第二阶段以 encrypt=true +
+  trustServerCertificate=true 重试**一次**，绝不循环
+- 两阶段都要换池，故 pool 以 getter 暴露当前有效池，调用方无感
+- 显式 encrypt=true/false/strict 行为完全不变、不重试（向后兼容）
+- 关键实现细节：池配置是浅拷贝共享的，必须先拷一层 options 再改 encrypt，
+  否则会把「第一阶段用明文」写回共享配置、污染后续跨库池
+- 两次都失败时抛合并错误，保留两条原始原因并说明「该实例强制加密」
+
+## 安全边界（文档已同步，未弱化）
+auto 在未强制加密的服务器上等同于 encrypt=false，即**明文传账号密码**
+（已用假 TDS 服务器抓包实测：客户端下一个包就是 0x10 LOGIN7，无 TLS 握手）。
+README/README_EN/CHANGELOG/两份 SKILL 均显式标注这一点，并说明「auto 不是
+自动帮你加密，而是先按不加密试、被拒才加密」，跨公网请显式 encrypt=true。
+
+## 测试
+离线用例 126 → 138（auto 策略 9 项：a/b/b2/c/d/e/e2 全场景 + 跨库池不污染
+共享 options + openSqlserverRaw 重试后 pool 指向新池）；前端 16 → 17
+（折叠收起/展开、默认 auto、回填 auto）。
+变异验证：让显式 encrypt=false 也走 auto 路径 → 5 项立即失败。
+typecheck 通过；全量 1124 passed / 4 failed（4 项为既有环境问题：
+本机 DNS 劫持 .invalid 与 hotfix 需联网拉上游包）。
+
+已知未验证：SQL Server 2005 仍只有单测覆盖，无真机实例。

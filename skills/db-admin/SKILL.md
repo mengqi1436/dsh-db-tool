@@ -183,8 +183,9 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 - 覆盖 SQL Server 2005（9.0）→ 2025（17.0）与 Azure SQL Database；不支持 SQL Server 2000 及更早。方言与元数据只使用 2005+ 通用写法（元数据走 `sys.*` catalog views）。
 - **TDS 版本自动协商，无需用户选择**：客户端固定声明 `7_4`，服务器按自身能力自动降级（2005→`7_2`、2008→`7_3_A`、2008 R2→`7_3_B`、2012+→`7_4`）。这是 [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) 的 MUST 级规定（客户端声明高于服务器时，服务器**必须**用自己最高版本）。`tdsVersion` 仅作排障覆盖项；**不要**因「老版本」就下调它——那会把「连不上」变成「连上了但行为异常」。
 - **认证**：仅 SQL 认证（user/password）；**不支持 Windows 集成认证，也不支持 Azure AD 认证**——需要这两类认证时本工具不可用。注意：本工具**未实现** `IsIntegratedSecurityOnly` 探测，遇到「实例仅允许 Windows 认证」时只会表现为登录失败，不要声称能自动识别该状态。
-- **连接形态**：`sqlserver://user:password@host:port/db`，支持 query 参数 `encrypt` / `trustServerCertificate` / `tdsVersion` / `tlsMinVersion` / `serverName` / `caCert` / `instanceName` / `useUTC`（参数名大小写不敏感）；`instanceName` 与端口互斥（命名实例改由 SQL Server Browser 解析）。**不接受** ADO.NET 键值连接串（`Server=...;Database=...`）。
-- **默认与覆盖**：`encrypt=true` + `trustServerCertificate=false` + `tdsVersion=7_4` + `useUTC=true`（同 mssql 官方默认，也是微软官方推荐的安全档）。URL query 与分字段表单**同口径**，两处都能覆盖上述各项；非法取值直接报错，不静默回退。
+- **连接形态**：`sqlserver://user:password@host:port/db`，支持 query 参数 `encrypt` / `trustServerCertificate` / `tdsVersion` / `tlsMinVersion` / `serverName` / `caCert` / `instanceName` / `useUTC`（参数名大小写不敏感）；`instanceName` 与端口互斥（命名实例改由 SQL Server Browser 解析）。**不接受** ADO.NET 键值连接串（`Server=...;Database=...`）。**常规连接只需主机/端口/账号/密码**；除 `useUTC` / `instanceName` 外，前述加密与证书参数在界面里都收在「高级选项」折叠区（默认收起），属排障用，不要默认要求用户去填。
+- **默认与覆盖**：`encrypt=auto`（新建连接默认）+ `trustServerCertificate=false` + `tdsVersion=7_4` + `useUTC=true`。URL query 与分字段表单**同口径**，两处都能覆盖上述各项；非法取值直接报错，不静默回退。
+- **`encrypt=auto` 的语义（默认策略，勿按「必须手动开加密」描述）**：先不带加密建连；若服务器**强制加密**（`EENCRYPT` / 「服务器要求加密连接」，如 `Force Encryption=Yes` 或 Azure SQL），自动以 `encrypt=true` + `trustServerCertificate=true` **重试一次**。边界严格：**仅重试一次**；**仅针对「服务器强制加密」这一种原因**（证书类、协议版本类、登录失败等一律不重试）；**显式指定 `encrypt`（`true`/`false`/`strict`）时不做任何重试**。**`auto` 不等于「自动加密」**：在未强制加密的服务器上它等价于 `encrypt=false`，即明文传输——见下条风险说明。
 
 ### TLS 握手失败：两类根因，解法互不通用
 
@@ -195,7 +196,9 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 
 **不要拿证书类参数治协议版本类**：`trustServerCertificate=true` / `encrypt=false` 只影响证书校验，对 `UNSUPPORTED_PROTOCOL` 没有任何作用，试错只会白跑一轮。两类判据互斥，报错消息里已按族给出中文根因；看到 `TCP 已连通但 TLS ...` 说明网络与端口都没问题，不要再查主机/防火墙。
 
-**关键事实：`encrypt=false` 的真实行为（已抓包实测）**。服务器**未**强制加密时，`encrypt=false` 会**完全跳过 TLS 握手并明文发送 LOGIN7（含账号密码）**——实测客户端下一个包就是 TDS `0x10`，没有 TLS 握手。这是明文传输风险，不是「只是不加密数据包」。服务器**强制**加密时（`Force Encryption=Yes` / Azure SQL），`encrypt=false` 会被拒（提示服务器要求加密）。官方那句「登录包始终加密」仅适用于「服务器强制加密或客户端 `encrypt=true`」的场景，**不可推广成 `encrypt=false` 也总有 TLS 握手**。故默认 `encrypt=true` 才是安全档。另注：连 2005 或未打补丁的 2008 时服务端可能只有 TLS 1.0，需下探 `?tlsMinVersion=TLSv1`。
+**默认 `auto` 不会替你兜住证书类错误**：`auto` 的自动重试只认「服务器强制加密」这一种原因，证书校验失败仍会原样报错。也就是说自签证书实例在默认值下照样可能连不上（取决于服务器是否强制加密），此时按上表证书族路径处理——把 CA 导入系统受信任根通常就能连（插件已并入系统信任库，无需填 `caCert`）。
+
+**关键事实：`encrypt=false` 与默认 `encrypt=auto` 的真实行为（已抓包实测）**。服务器**未**强制加密时，`encrypt=false` 会**完全跳过 TLS 握手并明文发送 LOGIN7（含账号密码）**——实测客户端下一个包就是 TDS `0x10`，没有 TLS 握手。这是明文传输风险，不是「只是不加密数据包」。**默认的 `auto` 第一步正是这条路径，因此在未强制加密的服务器上 `auto` 与 `encrypt=false` 行为完全相同**——`auto` 只在服务器拒绝明文时才升级到 TLS，它不是「自动帮你加密」。服务器**强制**加密时（`Force Encryption=Yes` / Azure SQL），`encrypt=false` 会被拒（提示服务器要求加密）。官方那句「登录包始终加密」仅适用于「服务器强制加密或客户端 `encrypt=true`」的场景，**不可推广成 `encrypt=false` 也总有 TLS 握手**。故：可信内网可用默认值；跨公网或不可信网段连接时**显式设 `encrypt=true`**（显式值不触发任何自动重试，行为可预期），证书问题再用 `caCert` / `serverName` 解决。另注：连 2005 或未打补丁的 2008 时服务端可能只有 TLS 1.0，需下探 `?tlsMinVersion=TLSv1`。
 
 ### 版本与 TLS 1.2 支持
 

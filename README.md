@@ -147,11 +147,28 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 
 覆盖 SQL Server 2005（9.0）→ 2025（17.0）与 Azure SQL Database。
 
-**连接 URL 参数**（分字段表单同样支持）：
+**常规使用只需要填主机、端口、账号、密码**（外加库名）就能连上，加密与证书参数一律不用管。表单默认只显示这四个必填项，其余参数收在「高级选项」折叠区里，需要排障时再展开。
+
+### 默认加密策略：不加密优先，被拒后自动升级
+
+新建连接默认 `encrypt=auto`（表单加密一栏的默认档）：
+
+1. 先**不带加密**建连——服务器没强制加密的实例（内网自建居多）直接连上，不再因为自签证书或多一层 TLS 卡住。
+2. 若服务器**强制加密**（报 `EENCRYPT` / 提示「服务器要求加密连接」，如开启 `Force Encryption=Yes` 或 Azure SQL），自动改用 `encrypt=true` + `trustServerCertificate=true` **重试一次**，用户无感。
+
+**自动重试的边界（有意收窄，不要理解成「无限自动兜底」）**：
+
+- **只重试一次**，不会连环重试，失败就把原始错误报给用户。
+- **只针对「服务器强制加密」这一种原因**。证书校验失败、TLS 版本协商失败、账号密码错误等其他失败**不会**触发重试——盲目重试只会把这些错误的真实原因盖掉，把排障引向错误方向。
+- **显式写 `encrypt=true` / `false` / `strict` 时不做任何重试**。你指定的策略就是最终策略，工具不替你改主意。
+
+**`auto` 在未强制加密的服务器上等同于 `encrypt=false`，也就是明文传输**——这是默认策略的代价，风险说明见下文「`encrypt=false` 的真实语义」，别跳过。
+
+**连接 URL 参数**（高级用户与排障时用，日常连接**无需**填这些；分字段表单同样支持）：
 
 | 参数 | 取值 | 默认 |
 |---|---|---|
-| `encrypt` | `true` / `false` / `strict` | `true` |
+| `encrypt` | `auto` / `true` / `false` / `strict` | `auto`（先不加密，服务器强制加密时自动升级并信任其证书，仅重试一次） |
 | `trustServerCertificate` | `true` / `false` | `false` |
 | `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4`（服务器自动降级，通常无需设置） |
 | `tlsMinVersion` | `TLSv1` / `TLSv1.1` / `TLSv1.2` | 不设置（Node 默认 TLSv1.2） |
@@ -159,6 +176,8 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 | `caCert` | PEM 文件路径或证书文本 | 不设置（用系统信任库） |
 | `instanceName` | 命名实例名（与 port 互斥） | — |
 | `useUTC` | `true` / `false` | `true` |
+
+`caCert` / `serverName` / `trustServerCertificate` / `tlsMinVersion` / `tdsVersion` 都在表单的**「高级选项」**折叠区里（默认收起），专供证书与老版本实例排障；正常连接不需要展开它。
 
 **TDS 版本不需要手动选**：客户端固定声明 `7.4`，服务器会按自身能力自动降级（2005→7.2、2008→7.3.A、2008 R2→7.3.B）。这是 [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) 规定的行为（客户端声明高于服务器时，服务器**必须**使用自己最高的版本）。`tdsVersion` 仅作排障覆盖项保留。
 
@@ -175,7 +194,11 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 - 服务器**强制**加密（`Force Encryption=Yes` 或 Azure SQL）时，`encrypt=false` 会被拒绝（提示「服务器要求加密连接」）——此时仍必须开加密。
 - 微软文档中「登录包始终加密」指的是**服务器强制加密或客户端 `encrypt=true` 时**的语义，不能推广成「`encrypt=false` 也总有 TLS 握手」。
 
-因此默认 `encrypt=true` 才是安全档；`encrypt=false` 应视为明确的降级选择。
+**这段也是默认 `encrypt=auto` 的安全含义**：`auto` 的第一步就是「不加密建连」，落到未强制加密的服务器上时，行为与 `encrypt=false` **完全相同**——明文传账号密码。`auto` 只在服务器拒绝明文时才升级到 TLS，它不是「自动帮你加密」，而是「先按不加密试，被拒才加密」。因此：
+
+- 在**可信内网**用默认值没问题；跨公网、跨不可信网段连 SQL Server 时，请显式设 `encrypt=true`（并在需要时用 `caCert` / `serverName` 解决证书问题），不要依赖 `auto`。
+- 需要强制安全档时显式写 `encrypt=true`：显式值不做任何自动重试，行为完全可预期。
+- `encrypt=false` 与 `encrypt=auto` 都应视为**明确的降级选择**，不是「只是没开高级选项」。
 
 **`encrypt=strict`（TDS 8.0）**：仅 SQL Server 2022+ 且开启 Force Strict Encryption 的实例支持。该模式下 TLS 在登录包之前就完成握手，因此 **`trustServerCertificate` 完全不生效**（驱动不传 `rejectUnauthorized`，证书强制校验），只能靠 `caCert` 或 `serverName`。
 
@@ -208,7 +231,7 @@ DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令：
 2. 安装插件（npm 安装须钉精确版本，`@latest` 会因 release-age 校验回落）：
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.3 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.4 --registry=https://registry.npmjs.org/
    ```
 
 3. **重启桌面端**生效

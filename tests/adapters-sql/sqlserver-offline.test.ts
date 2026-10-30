@@ -60,11 +60,20 @@ class FakePool implements SqlPool {
   failWith: unknown;
   /** 按请求顺序注入错误（先于 failWith；数组耗尽后回落 failWith）：模拟「仅某一次请求失败」 */
   failSeq: unknown[] = [];
+  /**
+   * 按建连顺序注入错误：优先取本池自己的 connectFailSeq，耗尽后取 harness 级共享队列
+   * （scriptedConnectFails）。共享队列是必需的——encrypt=auto 的加密池是在首次建连失败后
+   * 才 new 出来的，测试没有办法在它创建之前往它自己的队列里塞错误。
+   */
+  connectFailSeq: unknown[] = [];
   connectCalls = 0;
   closed = 0;
   errorHandlers: Array<(...args: never[]) => void> = [];
 
-  constructor(readonly config: Record<string, unknown>) {}
+  constructor(
+    readonly config: Record<string, unknown>,
+    private readonly sharedConnectFails?: unknown[],
+  ) {}
 
   request(): SqlRequest {
     const fail = this.failSeq.length > 0 ? this.failSeq.shift() : this.failWith;
@@ -75,6 +84,8 @@ class FakePool implements SqlPool {
 
   async connect(): Promise<unknown> {
     this.connectCalls++;
+    const seq = this.connectFailSeq.length > 0 ? this.connectFailSeq : (this.sharedConnectFails ?? []);
+    if (seq.length > 0) throw seq.shift();
     return this;
   }
 
@@ -125,12 +136,15 @@ interface Harness {
   txs: FakeTransaction[];
   configs: Array<Record<string, unknown>>;
   types: Record<string, unknown>;
+  /** 所有池共享的建连失败队列（encrypt=auto 的加密池后建，只能从这里注入失败） */
+  connectFails: unknown[];
 }
 
 function harness(): Harness {
   const pools: FakePool[] = [];
   const txs: FakeTransaction[] = [];
   const configs: Array<Record<string, unknown>> = [];
+  const connectFails: unknown[] = [];
   const types: Record<string, unknown> = {
     Decimal: { t: 'Decimal' },
     Numeric: { t: 'Numeric' },
@@ -139,7 +153,7 @@ function harness(): Harness {
   };
   const driver = {
     ConnectionPool: function (config: Record<string, unknown>) {
-      const p = new FakePool(config ?? {});
+      const p = new FakePool(config ?? {}, connectFails);
       configs.push(config ?? {});
       pools.push(p);
       return p;
@@ -151,7 +165,7 @@ function harness(): Harness {
     },
     TYPES: types,
   } as unknown as SqlDriver;
-  return { driver, pools, txs, configs, types };
+  return { driver, pools, txs, configs, types, connectFails };
 }
 
 /** 构造带 columns 元数据的结果集（真实 mssql 把 columns 挂在 recordset 数组上） */
@@ -547,6 +561,234 @@ describe('sqlserver 加密与证书配置', () => {
     // 但下限保持不设置：启用系统 CA 不代表要改动 TLS 版本下限
     expect('minVersion' in ccd!).toBe(false);
     await a.close();
+  });
+});
+
+/* ---------------- 手法 B：encrypt=auto（Navicat 式自动协商） ---------------- */
+
+describe('sqlserver encrypt=auto（先明文，服务器强制加密才升级重试一次）', () => {
+  /** tedious 在「服务器回 ON/REQ 而客户端 encrypt=false」时的真实错误形态 */
+  const REQUIRES_ENCRYPT = () =>
+    mssqlErr('ConnectionError', 'EENCRYPT', {
+      message: "Server requires encryption, set 'encrypt' config property to true.",
+    });
+
+  it('URL ?encrypt=auto 与 fields.encrypt=auto 同口径：都解析为 auto，但建池时已展开为 false（字面量绝不交给驱动）', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(connByUrl(`${BASE_URL}?encrypt=auto`), { driver: h.driver });
+    // 关键：configs 记录的是「实际交给驱动的配置」，auto 已在 makePoolBox 展开为第一阶段 false。
+    // 若这里仍是 'auto'，说明展开放错了层级——tedious 对未知取值无定义行为。
+    expect(h.configs[0]!.options).toMatchObject({ encrypt: false });
+    await a.close();
+
+    const h2 = harness();
+    const a2 = await createSqlserverAdapter(connByFields({ host: 'h', user: 'u', password: 'p', encrypt: 'AUTO' }), {
+      driver: h2.driver,
+    });
+    expect(h2.configs[0]!.options).toMatchObject({ encrypt: false });
+    await a2.close();
+  });
+
+  it('a) 服务器不协商加密：一次即连通，不重试、不创建第二个池，字面量 auto 绝不交给驱动', async () => {
+    const { a, h, pool } = await make('ro', `${BASE_URL}?encrypt=auto`);
+    pool.queue = [rec([{ n: 1 }], cols('n'))];
+    await a.query('SELECT 1');
+
+    expect(h.pools).toHaveLength(1);
+    expect(pool.connectCalls).toBe(1);
+    // 首阶段必须是明文（等同 Navicat 不开加密）；trustServerCertificate 保持原值，不擅自放宽
+    expect(h.configs[0]!.options).toMatchObject({ encrypt: false, trustServerCertificate: false });
+    await a.close();
+  });
+
+  it('b) 服务器强制加密：自动以 encrypt=true + trustServerCertificate=true 重试一次并成功', async () => {
+    const { a, h, pool } = await make('ro', `${BASE_URL}?encrypt=auto`);
+    // 加密池是在首次建连失败之后才 new 出来的，只能往共享队列里注入
+    h.connectFails.push(REQUIRES_ENCRYPT());
+
+    // 请求在重试后的加密池上执行（不抛错即证明整条链路自愈）
+    await expect(a.query('SELECT 1')).resolves.toBeDefined();
+
+    // 恰好两个池：明文池先建、加密池随后；明文池必须被关掉（不留半死连接）
+    expect(h.pools).toHaveLength(2);
+    expect(h.configs[0]!.options).toMatchObject({ encrypt: false });
+    expect(h.configs[1]!.options).toMatchObject({ encrypt: true, trustServerCertificate: true });
+    expect(pool.closed).toBe(1);
+    // 请求落在加密池上（明文池已废）
+    expect(h.pools[1]!.requests).toHaveLength(1);
+    expect(h.pools[0]!.requests).toHaveLength(0);
+    await a.close();
+  });
+
+  it('b2) 重试只发生一次：加密池也失败时不再试第三次', async () => {
+    const { a, h } = await make('ro', `${BASE_URL}?encrypt=auto`);
+    h.connectFails.push(REQUIRES_ENCRYPT(), new Error('加密连接也失败：self signed certificate'));
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    expect(msgOf(err)).toMatch(/强制加密/);
+    // 只有两个池：明文池 + 加密池，没有第三次尝试
+    expect(h.pools).toHaveLength(2);
+    expect(h.pools[1]!.connectCalls).toBe(1);
+    await a.close();
+  });
+
+  it('c) 两次都失败：抛错含「强制加密」与两条原始原因，且不追加证书族建议', async () => {
+    const { a, h } = await make('ro', `${BASE_URL}?encrypt=auto`);
+    // 加密侧失败原文故意带 self signed certificate：重试已带 trustServerCertificate=true，
+    // 证书族建议若被追加出来就是把人引向「再关一次校验」，必须抑制
+    h.connectFails.push(REQUIRES_ENCRYPT(), new Error('self signed certificate in certificate chain'));
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/强制加密/);
+    expect(msg).toMatch(/原始原因①/);
+    expect(msg).toMatch(/原始原因②/);
+    // 两条原始原因都在：明文侧的 EENCRYPT 原文 + 加密侧的失败原文
+    expect(msg).toMatch(/Server requires encryption/);
+    expect(msg).toMatch(/self signed certificate/);
+    expect(msg).toMatch(/sqlserver 查询失败/);
+    // 不追加证书族建议（已带 trustServerCertificate=true，重复指引等于反向误导）
+    expect(msg).not.toMatch(/官方推荐先在客户端装 CA/);
+    expect(msg).not.toMatch(/caCert=/);
+    await a.close();
+  });
+
+  it('d) 显式 encrypt=false + 服务器强制加密：直接报错，绝不自动重试（向后兼容）', async () => {
+    const { a, h, pool } = await make('ro', `${BASE_URL}?encrypt=false`);
+    pool.connectFailSeq = [REQUIRES_ENCRYPT()];
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/服务器要求加密/);
+    expect(msg).toMatch(/encrypt=true/);
+    // 只建了一个池，connect 只尝试一次
+    expect(h.pools).toHaveLength(1);
+    expect(pool.connectCalls).toBe(1);
+    await a.close();
+  });
+
+  it('e) 显式 encrypt=true：行为不变（配置原样下发，失败不重试）', async () => {
+    const { a, h, pool } = await make('ro', `${BASE_URL}?encrypt=true`);
+    expect(h.configs[0]!.options).toMatchObject({ encrypt: true, trustServerCertificate: false });
+    pool.connectFailSeq = [REQUIRES_ENCRYPT()];
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    expect(msgOf(err)).toMatch(/服务器要求加密|强制执行/);
+    expect(h.pools).toHaveLength(1);
+    expect(pool.connectCalls).toBe(1);
+    await a.close();
+  });
+
+  // e2) 显式 encrypt=true + 服务器未协商加密：走原有「未协商加密」分诊，不被 auto 逻辑吞掉
+  it('e2) 显式 encrypt=true 且服务器未协商加密：仍是原有「未协商加密」文案，不重试', async () => {
+    const { a, h, pool } = await make('ro', `${BASE_URL}?encrypt=true`);
+    pool.connectFailSeq = [
+      mssqlErr('ConnectionError', 'EENCRYPT', {
+        message:
+          "Server did not negotiate encryption, but the 'encrypt' config option is set to `true`. Set 'encrypt' to `false` to allow unencrypted connections.",
+      }),
+    ];
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    expect(msgOf(err)).toMatch(/未协商加密/);
+    expect(h.pools).toHaveLength(1);
+    await a.close();
+  });
+
+  it('auto 但服务器未协商加密（反方向 EENCRYPT）：不当作「强制加密」→ 不重试，报原文诊', async () => {
+    const { a, h, pool } = await make('ro', `${BASE_URL}?encrypt=auto`);
+    // auto 首阶段是 encrypt=false，正常不会撞这条；但若被中间层改成 true 就会撞。
+    // 关键是 isServerRequiresEncryption 必须排除反方向文案，否则会白跑一次加密重试。
+    pool.connectFailSeq = [
+      mssqlErr('ConnectionError', 'EENCRYPT', {
+        message:
+          "Server did not negotiate encryption, but the 'encrypt' config option is set to `true`. Set 'encrypt' to `false` to allow unencrypted connections.",
+      }),
+    ];
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    expect(msgOf(err)).toMatch(/未协商加密/);
+    expect(h.pools).toHaveLength(1);
+    await a.close();
+  });
+
+  it('auto 的加密重试不污染共享 options：跨库池仍按自己的阶段配置建池', async () => {
+    const { a, h, pool } = await make('ro', `${BASE_URL}?encrypt=auto`);
+    // 只让主池的首次建连失败（它自己重试一次后成功），跨库池不注入失败
+    pool.connectFailSeq = [REQUIRES_ENCRYPT()];
+
+    // 先让主池完成 auto 重试（此时 明文池 + 加密池）
+    await a.testConnect();
+    expect(h.pools).toHaveLength(2);
+
+    // 再建跨库池：它必须自己重新走 auto 首阶段（明文），不能继承主池重试后的 encrypt=true
+    await a.query('SELECT 1', [], 'otherdb');
+
+    expect(h.pools).toHaveLength(3);
+    const crossCfg = h.configs[2]!;
+    expect(crossCfg.options).toMatchObject({ encrypt: false, trustServerCertificate: false });
+    await a.close();
+  });
+
+  it('openSqlserverRaw：auto 重试后 pool 指向新池（传输端在 ready 前就取 pool）', async () => {
+    const h = harness();
+    const raw = await openSqlserverRaw(connByUrl(`${BASE_URL}?encrypt=auto`), h.driver);
+    const firstPool = raw.pool;
+    h.pools[0]!.connectFailSeq = [REQUIRES_ENCRYPT()];
+    await raw.ready();
+    expect(raw.pool).not.toBe(firstPool);
+    expect(h.configs[1]!.options).toMatchObject({ encrypt: true, trustServerCertificate: true });
+    expect(h.pools[0]!.closed).toBe(1);
+    await raw.pool.close();
+  });
+
+  it('conn.ssl=true 覆盖 auto：用户显式要求加密时不退回明文首阶段', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(
+      { meta: { id: 'sqlserver-offline', kind: 'sqlserver' }, url: `${BASE_URL}?encrypt=auto`, ssl: true },
+      { driver: h.driver },
+    );
+    // ssl=true 语义是「必须加密」，auto 的首阶段明文必须让位（poolConfig 里 encrypt !== 'strict' 就置 true）
+    expect(h.configs[0]!.options).toMatchObject({ encrypt: true });
+    await a.close();
+  });
+
+  it('非法 encrypt 取值（非 true/false/strict/auto）：提示里包含 auto 这一合法选项', async () => {
+    const h = harness();
+    const err = await createSqlserverAdapter(connByUrl(`${BASE_URL}?encrypt=autom`), { driver: h.driver }).then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/非法/);
+    expect(msg).toMatch(/auto/);
+    expect(h.configs).toHaveLength(0);
   });
 });
 

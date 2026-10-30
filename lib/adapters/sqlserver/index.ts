@@ -178,11 +178,15 @@ function applyTdsVersion(options: Record<string, unknown>, raw: unknown, source:
 }
 
 /**
- * 加密模式（URL ?encrypt= 与 fields.encrypt 同口径）：true / false / strict 三态。
+ * 加密模式（URL ?encrypt= 与 fields.encrypt 同口径）：true / false / strict / auto 四态。
  *
  * strict 是 tedious 对 TDS 8.0 的支持：TLS 在登录包之前就完成握手（ALPN=tds/8.0），仅 SQL Server
  * 2022+ 开启 Force Strict Encryption 的实例可用；老实例必然拒绝，故非法值必须 fail-closed 报清
- * 三态，不能把拼错的 'stric' 之类静默当成 true（加密强度是安全承诺，连错不报是安全事故）。
+ * 四态，不能把拼错的 'stric' 之类静默当成 true（加密强度是安全承诺，连错不报是安全事故）。
+ *
+ * auto 是 Navicat 式「只填地址账号密码就能连」：先按 encrypt=false 连（等同 Navicat 不开加密），
+ * 只有服务器在预登录回 ON/REQ（tedious 抛 EENCRYPT「Server requires encryption」）时才自动以
+ * encrypt=true + trustServerCertificate=true 重试一次，见 makePoolBox。显式三态绝不触发重试。
  */
 function applyEncrypt(options: Record<string, unknown>, raw: unknown, source: string): void {
   if (raw === undefined || raw === null || String(raw).trim() === '') return;
@@ -203,8 +207,12 @@ function applyEncrypt(options: Record<string, unknown>, raw: unknown, source: st
     options.encrypt = 'strict';
     return;
   }
+  if (s === 'auto') {
+    options.encrypt = 'auto';
+    return;
+  }
   throw new Error(
-    `sqlserver 连接${source}的 encrypt 取值非法：${JSON.stringify(raw)}（只接受 true/false/strict；strict 表示 TDS 8.0 强制加密，仅 SQL Server 2022 及以上并开启 Force Strict Encryption 的实例支持）`,
+    `sqlserver 连接${source}的 encrypt 取值非法：${JSON.stringify(raw)}（只接受 true/false/strict/auto；strict 表示 TDS 8.0 强制加密，仅 SQL Server 2022 及以上并开启 Force Strict Encryption 的实例支持；auto 表示先按明文连接，服务器强制加密时自动以 encrypt=true 并信任服务器证书重试一次）`,
   );
 }
 
@@ -536,6 +544,7 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
 
   // conn.ssl 是通用字段（mysql/pg 适配器同样处理）：语义上等价要求加密信道。
   // 已显式选 strict（TDS 8.0）时不降级为 true——strict 是更强的加密承诺，降级会悄悄削弱安全要求。
+  // auto 也要让位：ssl=true 是用户显式要求加密，不能因为 auto 的首阶段是明文就退回明文。
   if (conn.ssl && options.encrypt !== 'strict') options.encrypt = true;
 
   // 未显式给 caCert 时把系统信任库并入默认校验：Node 默认只信任内置 bundle，不读操作系统信任库，
@@ -935,6 +944,9 @@ function mssqlReason(e: unknown): string {
     case 'ECANCEL':
       base = `请求已取消（${detail}）`;
       break;
+    // encrypt=auto 的合并错误：文案本身已含「该实例强制加密」与两条原始原因，原样透出即可。
+    // 不做任何族建议——重试已带 trustServerCertificate=true，而原始原因②常含 self signed
+    // certificate / TLS 字样，让证书族建议跟上来会把人引向「再关一次校验」，那是错误方向。
     case 'EREQUEST': {
       base = `SQL 执行错误${num !== undefined ? `（错误号 ${num}${sev !== undefined ? `、严重级 ${sev}` : ''}${line !== undefined ? `、第 ${line} 行` : ''}）` : ''}：${knownHint === undefined ? detail : `${knownHint}。服务器原文：${detail}`}`;
       break;
@@ -947,8 +959,10 @@ function mssqlReason(e: unknown): string {
   // 已知错误号已经给出了针对性诊断时，抑制 TLS 族建议：这类错误的服务器原文常含 certificate /
   // encryption 字样（如 17819 的「TLS certificate is not configured to accept strict」），会被下面的
   // 正则命中；但真因是服务端配置/协议问题，客户端装 CA、关校验一律无效，叠加只会给出互相矛盾的药方。
-  if (knownHint !== undefined) {
-    // 已由 EREQUEST_HINTS 给出单一出口，此处不再追加任何族建议
+  // EAUTOENCRYPT（encrypt=auto 两次都失败）同理：原始原因②常带 self signed certificate / TLS
+  // 字样，而重试已经带了 trustServerCertificate=true，再追加证书族建议等于让人重复做同一件事。
+  if (knownHint !== undefined || code === 'EAUTOENCRYPT') {
+    // 已由 EREQUEST_HINTS / EAUTOENCRYPT 给出单一出口，此处不再追加任何族建议
   } else if (tlsProtoish) {
     // 顺序即优先级：服务端升级是正解（一次性、对所有客户端生效），客户端下探是权宜（仍受限于
     // 服务端实际支持的版本）。第③条显式点名「跳过证书校验」是先发制人——用户看到 TLS 报错的第一
@@ -1073,18 +1087,102 @@ interface PoolBox {
   major(): Promise<number>;
 }
 
+/**
+ * 建连失败是否「服务器强制加密」（encrypt=auto 的重试判据）。
+ *
+ * tedious 在 PRELOGIN 响应为 ON/REQ 而客户端 encrypt=false 时抛
+ * `EENCRYPT: Server requires encryption, set 'encrypt' config option to true.`。
+ * 同一个 EENCRYPT 还有反方向的一种成因（客户端要加密但服务器回了 OFF/NOT_SUP，文案是
+ * "Server did not negotiate encryption"）——那种情形重试加密毫无意义，必须排除，否则会把
+ * 「服务器不支持加密」误判成「服务器强制加密」而白跑一次。
+ */
+function isServerRequiresEncryption(e: unknown): boolean {
+  const err = (e ?? {}) as MssqlErrLike;
+  const text = `${errText(e)} ${errText(err.originalError)} ${errText(err.cause)}`;
+  if (/did not negotiate encryption/i.test(text)) return false;
+  // code 存在时必须是 EENCRYPT；缺失时（被上层重新包装过）按服务器原文特征判定
+  const code = typeof err.code === 'string' ? err.code : '';
+  if (code !== '' && code !== 'EENCRYPT') return false;
+  return /Server requires encryption/i.test(text);
+}
+
+/**
+ * encrypt=auto 两次都失败时的合并错误。
+ *
+ * 必须保留两条原始原因：用户要判断的是「服务器确实强制加密」还是「加密路径本身有别的问题」，
+ * 只留最后一条会把明文侧的拒绝原因吞掉。code 标成未被 tedious 使用的 EAUTOENCRYPT，让
+ * mssqlReason 走专门分支直接输出本条完整文案，不做族建议——重试已经带了
+ * trustServerCertificate=true，再往证书方向引（原始原因里常有 "self signed certificate"）
+ * 只会让人白排查一轮。
+ */
+function autoEncryptFailure(first: unknown, second: unknown): Error {
+  const err = new Error(
+    `该实例强制加密：encrypt=auto 先按明文连接被服务器拒绝（服务器要求加密），已自动改用 encrypt=true 并信任服务器证书重试一次，仍然失败。` +
+      `原始原因①（明文连接）：${errText(first)}；原始原因②（加密连接）：${errText(second)}`,
+  );
+  Object.assign(err, { code: 'EAUTOENCRYPT' });
+  return err;
+}
+
 function makePoolBox(Driver: SqlDriver, cfg: Record<string, unknown>): PoolBox {
-  const pool = new Driver.ConnectionPool(cfg);
+  // encrypt=auto 只在本层展开，绝不把字面量 'auto' 交给 tedious（它对未知取值没有定义行为）。
+  // 池配置是浅拷贝共享的（跨库池 { ...cfg, database } 的 options 仍指向同一对象），故这里必须
+  // 先拷一层 options 再改 encrypt，否则会把「第一阶段用明文」写回共享配置、污染后续池。
+  const baseOptions = (cfg.options ?? {}) as Record<string, unknown>;
+  const autoEncrypt = baseOptions['encrypt'] === 'auto';
+  const initialCfg: Record<string, unknown> = autoEncrypt
+    ? { ...cfg, options: { ...baseOptions, encrypt: false } }
+    : cfg;
+  // 第二阶段配置（仅 auto 存在）：encrypt=true + 信任服务器证书，等价 Navicat 勾「加密+信任证书」
+  const retryCfg: Record<string, unknown> | undefined = autoEncrypt
+    ? { ...cfg, options: { ...baseOptions, encrypt: true, trustServerCertificate: true } }
+    : undefined;
+
   // 无条件兜底：mssql 的 ConnectionPool 在 acquire 失败（空闲连接被服务器断开等）时会
   // emit('error', err)，EventEmitter 无监听器时直接抛 → 崩掉宿主进程。这里只留痕不中断请求。
-  pool.on('error', (e: unknown) => {
-    console.error('[sqlserver] 连接池错误（不影响后续请求，连接将按需重建）:', e instanceof Error ? e.message : e);
-  });
+  const attachErrorTrap = (p: SqlPool): void => {
+    p.on('error', (e: unknown) => {
+      console.error('[sqlserver] 连接池错误（不影响后续请求，连接将按需重建）:', e instanceof Error ? e.message : e);
+    });
+  };
+
+  // auto 重试会换池，故 pool 必须以 getter 暴露当前有效池：调用方（query/close）拿到的永远是
+  // 正在用的那个，不需要知道发生过重试。
+  let pool = new Driver.ConnectionPool(initialCfg);
+  attachErrorTrap(pool);
+
+  /**
+   * 单次建连；auto 模式下服务器强制加密时换一次池并重试，绝不循环。
+   * 顺序即语义：先明文（等同 Navicat 不开加密）→ 仅「服务器明确要求加密」才升级到加密+信任证书。
+   */
+  const connectOnce = async (): Promise<void> => {
+    try {
+      await pool.connect();
+      return;
+    } catch (e) {
+      if (retryCfg === undefined || !isServerRequiresEncryption(e)) throw e;
+      const first = e;
+      // 明文池已废：不关会留下半死连接（其 socket 监听仍在），失败也不得掩盖真正的成因
+      try {
+        await pool.close();
+      } catch {
+        /* 关闭失败不影响重试判据 */
+      }
+      const next = new Driver.ConnectionPool(retryCfg);
+      attachErrorTrap(next);
+      pool = next;
+      try {
+        await pool.connect();
+      } catch (second) {
+        throw autoEncryptFailure(first, second);
+      }
+    }
+  };
 
   let connecting: Promise<void> | undefined;
   const ready = (): Promise<void> => {
     if (connecting === undefined) {
-      connecting = Promise.resolve(pool.connect()).then(
+      connecting = connectOnce().then(
         () => undefined,
         (e: unknown) => {
           connecting = undefined; // 失败不缓存：允许下次重试
@@ -1113,7 +1211,13 @@ function makePoolBox(Driver: SqlDriver, cfg: Record<string, unknown>): PoolBox {
     return majorPromise;
   };
 
-  return { pool, ready, major };
+  return {
+    get pool() {
+      return pool;
+    },
+    ready,
+    major,
+  };
 }
 
 /* ============================ 适配器 ============================ */
@@ -1470,10 +1574,13 @@ export async function createSqlserverAdapter(
 
 /** 传输层等内部调用用的工厂（注意：会丢弃 opts.mode，服务层注册表不得使用） */
 export const factory: AdapterFactory = (conn) => createSqlserverAdapter(conn);
-
 /**
  * 数据传输端复用的独立原始池（绕过展示化转换，保真搬运）。
  * 库名与主连接一致（跨库由调用方在 conn 上覆盖 database）。
+ *
+ * pool 是 getter：encrypt=auto 的重试会换掉底层池，而传输端是在 ready() 之前就抓住 pool 的
+ * （createSqlserverTransferReaderFromConn 先取 raw.pool 再 await raw.ready()），
+ * 固定字段会把重试后的新池挡在外面、继续用那个已关闭的明文池。
  */
 export async function openSqlserverRaw(
   conn: ResolvedConnection,
@@ -1483,5 +1590,12 @@ export async function openSqlserverRaw(
   const cfg = poolConfig(conn);
   const box = makePoolBox(Driver, cfg);
   const database = typeof cfg.database === 'string' ? cfg.database : '';
-  return { pool: box.pool, ready: box.ready, database, driver: Driver };
+  return {
+    get pool() {
+      return box.pool;
+    },
+    ready: box.ready,
+    database,
+    driver: Driver,
+  };
 }
