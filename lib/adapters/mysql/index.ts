@@ -77,12 +77,20 @@ function connOptions(conn: ResolvedConnection): mysql.PoolOptions {
   return base;
 }
 
+/** 测试用最小驱动面：只需 createPool（生产路径仍走真实 mysql2/promise 默认导出） */
+export interface MysqlDriver {
+  createPool: (opts: mysql.PoolOptions) => mysql.Pool;
+}
+
 export async function createMysqlAdapter(
   conn: ResolvedConnection,
-  opts?: { mode?: AccessMode },
+  opts?: { mode?: AccessMode; driver?: MysqlDriver },
 ): Promise<DatabaseAdapter & { tx: TxHandle }> {
   const baseOpts = connOptions(conn);
-  const pool = mysql.createPool(baseOpts);
+  // 驱动注入与 sqlserver 对齐（opts?.driver ?? 真实模块）：让 ro 钩子这类
+  // 「注册形态」契约能在离线测试里断言，不依赖真实 MySQL 实例。
+  const Driver: MysqlDriver = opts?.driver ?? (mysql as unknown as MysqlDriver);
+  const pool = Driver.createPool(baseOpts);
   const readOnly = opts?.mode === 'ro';
 
   // 跨库（Navicat 式）：按库名缓存独立池。mysql2 官方多库方案即多池管理——池上
@@ -122,7 +130,8 @@ export async function createMysqlAdapter(
     let p = dbPools.get(db);
     if (!p) {
       // connOptions 已把 URL/fields 拆成纯字段，覆盖 database 即建出目标库的池
-      p = mysql.createPool({ ...baseOpts, database: db });
+      // （用注入的 Driver，保证离线测试能覆盖跨库池的 ro 钩子注册）
+      p = Driver.createPool({ ...baseOpts, database: db });
       dbPools.set(db, p);
       attachReadOnly(p);
     }
