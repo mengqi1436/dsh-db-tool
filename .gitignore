@@ -24,6 +24,7 @@ dsh-boot-diag*.txt
 out/
 .tmp-*
 .impeccable/
-docs/
+docs/*
+!docs/sidebar-right-migration.md
 DESIGN.md
 PRODUCT.md

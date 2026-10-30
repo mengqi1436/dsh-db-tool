@@ -2,7 +2,7 @@
 
 [English](README_EN.md) | 简体中文
 
-在 DSH 聊天中安全操作数据库：9 种数据库、项目级细粒度授权、危险操作确认、全量审计，配套侧边栏管理台与 SQL 控制台。
+在 DSH 聊天中安全操作数据库：9 种数据库、项目级细粒度授权、危险操作确认、全量审计，配套右侧栏管理台与 SQL 控制台。
 
 ## 功能流程
 
@@ -67,7 +67,7 @@ DDL、`FLUSHALL`、`dropDatabase` 等语句先返回 `NEEDS_CONFIRMATION`，不�
 
 ### 全量审计
 
-每次执行（包括被拒绝的请求）都追加一行到 `audit.jsonl`：语句、危险级别、是否经过确认、结果与耗时。侧边栏可实时查看。
+每次执行（包括被拒绝的请求）都追加一行到 `audit.jsonl`：语句、危险级别、是否经过确认、结果与耗时。右侧栏可实时查看。
 
 ### 数据浏览
 
@@ -77,7 +77,7 @@ DDL、`FLUSHALL`、`dropDatabase` 等语句先返回 `NEEDS_CONFIRMATION`，不�
 
 ### SQL 控制台
 
-Navicat 风格的侧边栏多标签编辑器（CodeMirror 6）：
+Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 
 - **多标签**：每标签独立保存 SQL、结果与历史（50 条上限，点击回填）
 - **语法高亮与补全**：按方言自动切换（MySQL / PostgreSQL / SQLite / PL/SQL / T-SQL），表列元数据注入补全
@@ -109,7 +109,7 @@ Navicat 风格的侧边栏多标签编辑器（CodeMirror 6）：
 
 ## 右侧栏
 
-通过 DSH **官方右侧栏**（`@deepseek-ai/dsh-client-ui-sidebar-right`）注册一个页签，不依赖任何第三方侧边栏。右侧栏展开时，「数据库」随侧边栏空态页（入口页）的卡片出现，可与其他官方页签并排、拆分或浮动；页签内含五个面板（中英双语）：
+通过 DSH **官方右侧栏**（`@deepseek-ai/dsh-client-ui-sidebar-right`）注册一个页签，不依赖任何第三方侧边栏。右侧栏展开时，「数据库」随侧边栏空态页（入口页）的卡片出现，可与其他官方页签并排、拆分或浮出为浮窗；页签内含五个面板（中英双语）：
 
 | 面板 | 用途 |
 |---|---|
@@ -118,6 +118,13 @@ Navicat 风格的侧边栏多标签编辑器（CodeMirror 6）：
 | 数据浏览 | 树形浏览库表、搜索、预览数据 |
 | SQL 控制台 | 多标签编辑器、事务、历史、结果网格 |
 | 数据传输 | 库表级数据迁移，批量/并行与写入模式可选，附传输日志 |
+
+### 使用须知
+
+两条都是官方右侧栏的契约行为，容易误判为插件缺陷：
+
+- **未选择会话时，右侧栏不显示数据库面板。** 官方右侧栏的布局状态按会话 id 键控，没有会话就没有停靠面，也就没有入口卡片与页签——先选一个会话再展开右侧栏。
+- **若当前 DSH 就绪的入口卡片只有一个，「+」新建格会直接打开数据库页签而不是引导页。** 这是官方默认页规则（入口恰为一个时直接打开该页；没有入口或多个入口时打开引导页），不是跳过引导页的异常。
 
 ---
 
@@ -183,7 +190,7 @@ DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令：
 2. 安装插件（npm 安装须钉精确版本，`@latest` 会因 release-age 校验回落）：
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.8.9 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.0 --registry=https://registry.npmjs.org/
    ```
 
 3. **重启桌面端**生效
@@ -235,9 +242,9 @@ lib/          插件主体
   store/      连接/授权/审计/密钥存储
   guard/      语句风险分级
   manager.ts  业务编排（授权、分派、确认、审计）
-  http/       侧边栏 HTTP 路由
+  http/       右侧栏 HTTP 路由
   script/     run_script 沙箱与子进程
-client/       侧边栏单文件产物
+client/       右侧栏单文件产物
 skills/       db-admin skill
 scripts/      构建与工具脚本
 patches/      DSH 宿主热修复补丁

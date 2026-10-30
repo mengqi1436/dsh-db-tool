@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | English
 
-Operate databases safely from DSH chat: 9 database engines, project-scoped grants, dangerous-operation confirmation, full audit logging, plus a sidebar console and SQL editor.
+Operate databases safely from DSH chat: 9 database engines, project-scoped grants, dangerous-operation confirmation, full audit logging, plus a right-sidebar console and SQL editor.
 
 ## Feature flow
 
@@ -67,7 +67,7 @@ Confirmation comes through chat for model calls and through a dialog in the SQL 
 
 ### Full audit logging
 
-Every execution — including rejected requests — appends one line to `audit.jsonl`: statement, danger level, whether it was confirmed, result and duration. The sidebar tails it live.
+Every execution — including rejected requests — appends one line to `audit.jsonl`: statement, danger level, whether it was confirmed, result and duration. The right sidebar tails it live.
 
 ### Data browsing
 
@@ -77,7 +77,7 @@ Every execution — including rejected requests — appends one line to `audit.j
 
 ### SQL console
 
-A Navicat-style multi-tab editor in the sidebar (CodeMirror 6):
+A Navicat-style multi-tab editor in the right sidebar (CodeMirror 6):
 
 - **Multiple tabs**: each keeps its own SQL, results and history (50 entries, click to refill)
 - **Highlighting and completion**: dialect switches automatically (MySQL / PostgreSQL / SQLite / PL/SQL / T-SQL), with table/column metadata injected into completion
@@ -109,7 +109,7 @@ Export all connections (including passwords) to a passphrase-encrypted file for 
 
 ## Right sidebar
 
-One tab registered through the official DSH right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) — no third-party sidebar required. When the panel is expanded, **Databases** appears as a card on the sidebar's guide (empty-state) page and can sit next to, split with, or float alongside any other official tab. The tab holds five panels (bilingual):
+One tab registered through the official DSH right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) — no third-party sidebar required. When the panel is expanded, **Databases** appears as a card on the sidebar's guide (empty-state) page and can sit next to, split with, or float out as a floating window alongside any other official tab. The tab holds five panels (bilingual):
 
 | Panel | Purpose |
 |---|---|
@@ -118,6 +118,13 @@ One tab registered through the official DSH right sidebar (`@deepseek-ai/dsh-cli
 | Browse | Tree navigation, search and data preview |
 | SQL Console | Multi-tab editor, transactions, history, result grid |
 | Transfer | Table-level data migration with batch/parallelism and write modes, plus a transfer log |
+
+### Notes
+
+Both are contract behaviours of the official right sidebar and are easy to mistake for plugin defects:
+
+- **Without a selected session the right sidebar shows no database panel.** The official right sidebar keys its layout state by session id, so with no session there is no docking surface — hence no guide card and no tab. Select a session first, then expand the right sidebar.
+- **If the only ready entry card is the database one, the "+" new-pane button opens the database tab directly instead of the guide page.** This is the official default-page rule (exactly one entry opens that page; zero or several entries open the guide), not a failure to show the guide.
 
 ---
 
@@ -183,7 +190,7 @@ DSH desktop 0.2.0-rc.2+ bundles the `dsh` command:
 2. Install the plugin (npm installs must pin an exact version — `@latest` falls back to an older release due to release-age checks):
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.8.9 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.0 --registry=https://registry.npmjs.org/
    ```
 
 3. **Restart the desktop app** to load it
@@ -235,9 +242,9 @@ lib/          plugin core
   store/      connection / grant / audit / secret storage
   guard/      statement risk classification
   manager.ts  business orchestration (auth, dispatch, confirm, audit)
-  http/       sidebar HTTP routes
+  http/       right-sidebar HTTP routes
   script/     run_script sandbox and child process
-client/       sidebar single-file bundle
+client/       right-sidebar single-file bundle
 skills/       db-admin skill
 scripts/      build and tooling scripts
 patches/      DSH host hotfix patches

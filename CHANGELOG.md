@@ -1,16 +1,33 @@
 # Changelog — dsh-db-tool
 
-## Unreleased
+## 1.9.0
+
+前端挂载点迁移到 DSH 官方右侧栏，摆脱第三方 `dsh-better-sidebar` 依赖。
 
 ### 变更
 
-- **改用 DSH 官方右侧栏，移除 `dsh-better-sidebar` 依赖**：客户端不再调用 `ctx.betterSidebar.registerTab(...)`，改为官方两段式公开注册路径——
+- **改用 DSH 官方右侧栏**：前端挂载点从第三方 `dsh-better-sidebar` 换成 DSH 官方右侧栏 `@deepseek-ai/dsh-client-ui-sidebar-right`，不再调用 `ctx.betterSidebar.registerTab(...)`，改走两段式公开注册路径——
   1. `ctx.sidebarRightTabs.register({ id, kind, title, guide })` 声明页签类型 `dsh-db-tool`（`guide` 条目 order 45，右侧栏空态页显示「数据库」入口卡片）；
   2. `ctx.slots.inject("sidebar.right.pane.tab", …)` 按类型 `id` 注册面板正文；
   3. `ctx.slots.inject("sidebar.right.pane.tab.title", …)` 注册页签胶囊标题。
   正文的会话 `cwd` 改经宿主标准 props `useSessions(s => s.byId[sessionId]?.cwd)` 读取，`visible` 取自 `useTabInfo().tab.visible`（已同时表达「页签激活」与「右侧栏展开 / 非后台会话」，折叠时照旧停轮询）。
-- **获得官方右侧栏能力**：与官方页签同处一个页签系统，可并排、上下拆分、拖出为浮动面板、全屏，布局按会话持久化；这些都由宿主提供，无需本插件维护。
-- **依赖清理**：`package.json` 移除 `dsh-better-sidebar`（devDependencies / peerDependencies），`dsh.client.inject` 增加 `@deepseek-ai/dsh-client-ui-sidebar-right` 作为加载前置；`package-lock.json` 移除该包及其独占的传递依赖；同步更新 README / README_EN / client README，并补齐 `tabDesc` 中英词条（入口卡片副标题）。
+- **获得官方页签能力**：与官方页签同处一个页签系统，可并排、上下拆分、拖出为浮动面板、全屏，布局按会话持久化；这些都由宿主提供，无需本插件维护。
+- **面板数修正为五个**：入口与文档此前按四个面板描述，补上「数据传输」后与实现一致。
+
+### 修复
+
+- **补 `keepMounted: true` 声明**：官方右侧栏默认按需卸载未激活页签的正文，而本插件面板状态（连接列表、项目路径、控制台多标签与结果、传输日志）全部存在 React 本地 state 中，不声明就会在切标签 / 切会话 / 收起右栏时全部归零。第三方 `dsh-better-sidebar` 是硬编码 `keepMounted: true` 全量保活的，迁移后该行为不再由宿主默认提供，必须在页签类型声明里显式补上。
+- **删除绑定语言的 React `key`**：原先 `key` 随语言变化，切语言会重建整棵面板组件树，导致未提交的输入丢失。官方右侧栏的做法是文案走 thunk 在渲染时重新取词，不需要靠重挂载来换文案；`key` 因此只保留会话维度。
+- **修 `t()` 读取链**：原先语言快照只在 `apply` 时读一次并闭包捕获，切语言后 `t()` 仍返回旧快照，文案实际不更新（页面看着语言变了、插件面板没变）。改为每次取词现读 locale 快照，语言切换即时生效。
+- **显式声明 `priority: "extension"`**：本插件是页类型、不带 `patterns`，不参与宿主资源路由排序；声明只为让注册意图更可读，不改变行为。
+- **右侧栏服务缺失时打印 warn**：原先服务取不到时静默 `return`，挂载失败无任何痕迹、排查只能靠猜；改为打印 `warn` 指明缺失的服务名。
+
+### 清理
+
+- 移除 `devDependencies` 与 `peerDependencies` 中的 `dsh-better-sidebar`，`package-lock.json` 一并移除该包及其独占的传递依赖（重新生成，未升级任何已有依赖）。
+- 删除 Panel 中 `scope.repoRoot` / `scope.workspacePath` 的死兜底——`scope` 实际只有 `{ sessionId, cwd }` 两个字段，这些兜底分支永远不会命中。
+- 清理全部沿用旧名词（side-bar / betterSidebar）的注释。
+- `files` 白名单加回 `docs`：本次新增 `docs/sidebar-right-migration.md` 需随包发布（1.8.9 移除该条目是因当时目录为空，现已重新存在）。
 
 ## 1.8.9
 

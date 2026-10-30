@@ -476,13 +476,27 @@ window.__ModuleLoader__.load({
 		};
 
 		let activeLocale = "zh";
+		// 持有 locale 服务引用：切语言时不会重新 apply，故 t() 必须每次现读快照，
+		// activeLocale 仅作取不到服务时的兜底（apply 期写入一次即过期）。
+		let localeService = null;
 		function attachLocale(locale) {
 			try {
+				if (locale && typeof locale.getSnapshot === "function") localeService = locale;
 				activeLocale = (locale && locale.getSnapshot && locale.getSnapshot().active) || "zh";
 			} catch (e) { /* 保持默认 */ }
 		}
+		// 当前语言：优先读 locale 服务实时快照，读不到才回落 apply 期缓存值
+		function currentLocale() {
+			try {
+				if (localeService) {
+					const snapshot = localeService.getSnapshot();
+					if (snapshot && snapshot.active) return snapshot.active;
+				}
+			} catch (e) { /* 回落缓存值 */ }
+			return activeLocale;
+		}
 		function t(key, params) {
-			let text = (activeLocale === "en" ? en[key] : undefined) || zh[key] || en[key] || key;
+			let text = (currentLocale() === "en" ? en[key] : undefined) || zh[key] || en[key] || key;
 			if (params !== undefined && params !== null) {
 				for (const [name, value] of Object.entries(params)) {
 					text = String(text).split("{" + name + "}").join(String(value));
@@ -3631,10 +3645,9 @@ window.__ModuleLoader__.load({
 			const visible = props.visible;
 			const scope = props.scope || {};
 			const [view, setView] = React.useState("manage");
-			// 项目路径初始值：scope.cwd 优先；cwd 是工作区容器时用选中的 git 仓库 repoRoot 兜底
-			//（SessionScope 契约字段：{ sessionId, cwd?, repoRoot? }；workspacePath 为历史遗留兜底）
-			const [projectPath, setProjectPath] = React.useState(scope.cwd || scope.repoRoot || scope.workspacePath || "");
-			const [projectEdited, setProjectEdited] = React.useState(!(scope.cwd || scope.repoRoot || scope.workspacePath));
+			// 项目路径初始值取 scope.cwd；scope 由本文件构造为 { sessionId, cwd }，cwd 缺失时留空等下方异步解析或手填
+			const [projectPath, setProjectPath] = React.useState(scope.cwd || "");
+			const [projectEdited, setProjectEdited] = React.useState(!scope.cwd);
 			const [conns, setConns] = React.useState([]);
 			const [grants, setGrants] = React.useState([]);
 			const [busy, setBusy] = React.useState("");
@@ -3655,7 +3668,7 @@ window.__ModuleLoader__.load({
 			// host 端以会话 header.cwd 为准归一化出 projectPathKey，前端不自拼 key。
 			// scope.cwd/sessionId 变化（切换会话）时自动重新解析；用户手填（projectEdited）时不覆盖。
 			const sessionKey = scope.sessionId || "";
-			const scopeCwd = scope.cwd || scope.repoRoot || scope.workspacePath || "";
+			const scopeCwd = scope.cwd || "";
 			const resolvedRef = React.useRef("");
 			React.useEffect(() => {
 				if (!visible || projectEdited) return;
@@ -3773,21 +3786,21 @@ window.__ModuleLoader__.load({
 
 		function DbToolRoot(props) {
 			const ctx = props.ctx;
-			// DSH locale 切换时重渲染（订阅宿主 locale 服务，官方右侧栏同款做法）
-			const localeKey = React.useSyncExternalStore(
+			// 订阅宿主 locale 服务只为在语言切换时触发重渲染；文案由 t() 每次现读快照，
+			// 因此不再把语言拼进 key —— 那会重建整棵面板，丢掉所有本地状态。
+			React.useSyncExternalStore(
 				React.useCallback(function (cb) {
 					if (!ctx.locale || typeof ctx.locale.subscribe !== "function") return function () {};
 					return ctx.locale.subscribe(cb);
 				}, [ctx]),
 				React.useCallback(function () {
 					try {
-						return ctx.locale && ctx.locale.getSnapshot ? ctx.locale.getSnapshot().active : activeLocale;
-					} catch (e) { return activeLocale; }
+						return ctx.locale && ctx.locale.getSnapshot ? ctx.locale.getSnapshot().active : currentLocale();
+					} catch (e) { return currentLocale(); }
 				}, [ctx]),
 				function () { return "zh"; },
 			);
 			return React.createElement(Panel, {
-				key: "db-tool-" + String(localeKey || "zh"),
 				visible: props.visible,
 				scope: props.scope,
 				ctx: ctx, // 宿主 ctx 下传，Panel 透传给 BrowsePane
@@ -3814,7 +3827,10 @@ window.__ModuleLoader__.load({
 			}
 			// 官方右侧栏两段式注册：先声明页签类型，再在席位里按类型 id 挂正文与标题。
 			// 类型 id 同时是席位 key（宿主用 definition.id 作 entryKey），故正文/标题与 id 一致。
-			if (!ctx.sidebarRightTabs || !ctx.slots) return;
+			if (!ctx.sidebarRightTabs || !ctx.slots) {
+				console.warn("[dsh-db-tool] 宿主未提供 sidebarRightTabs / slots 服务，右侧栏面板不会挂载");
+				return;
+			}
 
 			// 页签正文：宿主注入标准 props { sessionId, useTabInfo, useSessions? }。
 			// useTabInfo().tab.visible 同时表达「页签激活」与「右侧栏展开/非后台会话」，可直接当 visible 用。
@@ -3834,21 +3850,21 @@ window.__ModuleLoader__.load({
 			}
 
 			// 页签标题（chip）：数据库图标 + 当前语言标题，随语言切换重渲染。
+			// 文案走 thunk（每次渲染现读 t()），不把语言拼进 key，避免切语言重建节点。
 			function DbToolTitle() {
-				const localeKey = React.useSyncExternalStore(
+				React.useSyncExternalStore(
 					React.useCallback(function (cb) {
 						if (!ctx.locale || typeof ctx.locale.subscribe !== "function") return function () {};
 						return ctx.locale.subscribe(cb);
 					}, []),
 					React.useCallback(function () {
 						try {
-							return ctx.locale && ctx.locale.getSnapshot ? ctx.locale.getSnapshot().active : activeLocale;
-						} catch (e) { return activeLocale; }
+							return ctx.locale && ctx.locale.getSnapshot ? ctx.locale.getSnapshot().active : currentLocale();
+						} catch (e) { return currentLocale(); }
 					}, []),
 					function () { return "zh"; },
 				);
 				return React.createElement("span", {
-					key: "db-tool-title-" + String(localeKey || "zh"),
 					style: { display: "inline-flex", alignItems: "center", gap: 6 },
 				}, icon(16), t("tabTitle"));
 			}
@@ -3857,6 +3873,13 @@ window.__ModuleLoader__.load({
 				return ctx.sidebarRightTabs.register({
 					id: TAB_ID,
 					kind: TAB_ID,
+					// 页签正文在切换页签 / 切会话 / 收起右侧栏时保持挂载：
+					// Panel 的 view/projectPath/conns/grants 与 ConsoleView、TransferView 的状态全在 React 本地，
+					// 默认的 keepMounted=false 会卸载正文，切回来就全丢。
+					keepMounted: true,
+					// 页签类型优先级：本插件无 patterns（不认领资源地址、是页类型），
+					// priority 不参与路由排序，省略即 extension；显式声明只为可读性。
+					priority: "extension",
 					title: function () { return t("tabTitle"); },
 					// guide 条目：右侧栏空态（无页签）时显示成入口卡片，点一下即打开本页签；
 					// order 45 与旧侧边栏排序一致，保持工具栏里的相对位置。
