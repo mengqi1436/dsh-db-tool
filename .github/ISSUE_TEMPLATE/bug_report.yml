@@ -34,10 +34,10 @@ body:
     attributes:
       label: 出问题的入口
       options:
-        - 侧边栏 · 连接管理
-        - 侧边栏 · 项目授权
-        - 侧边栏 · 数据浏览
-        - 侧边栏 · SQL 控制台
+        - 右侧栏 · 连接管理
+        - 右侧栏 · 项目授权
+        - 右侧栏 · 数据浏览
+        - 右侧栏 · SQL 控制台
         - 聊天中的 DatabaseManager 工具
         - 数据传输（transfer）
         - 安装 / 加载插件
@@ -80,8 +80,8 @@ body:
     id: plugin-version
     attributes:
       label: dsh-db-tool 版本
-      description: 见 `package.json` 的 version，或侧边栏/日志中的版本号
-      placeholder: 1.8.5
+      description: 见 `package.json` 的 version，或右侧栏/日志中的版本号
+      placeholder: 1.9.0
     validations:
       required: true
 

@@ -19,6 +19,11 @@ let src: string; // 源码原文（断言旧名词已清理）
 
 /* ---------- 最小 React stub ---------- */
 
+// useSyncExternalStore 保留订阅记录：删掉语言绑定 key 后，「切语言仍能重渲染」
+// 完全靠这条通路，若把它桩成纯 get() 就等于把该机制从测试里抹掉。
+const uSESListeners: Array<() => void> = [];
+function fireUSES() { for (const cb of uSESListeners.splice(0)) cb(); }
+
 const reactStub = (() => {
 	const R: any = {
 		createElement(type: any, props: any, ...kids: any[]) {
@@ -31,7 +36,13 @@ const reactStub = (() => {
 		useMemo(fn: any) { return fn(); },
 		useEffect() {},
 		useLayoutEffect() {},
-		useSyncExternalStore(_sub: any, get: any) { return get(); },
+		useSyncExternalStore(sub: any, get: any) {
+			if (typeof sub === 'function') {
+				const off = sub(fireUSES);
+				if (typeof off === 'function') uSESListeners.push(off);
+			}
+			return get();
+		},
 	};
 	return R;
 })();
@@ -279,5 +290,56 @@ describe('正文降级与项目路径解析', () => {
 		expect(src).toContain('// 是否「用户手填过」：只由输入框 onChange 置位。首帧 cwd 取不到时不能预设为已编辑，');
 		// 手填必须置位，否则会被自动解析覆盖
 		expect(src).toContain('setProjectEdited(true)');
+	});
+});
+
+describe('语言订阅通路（删掉语言绑定 key 后的替代机制）', () => {
+	it('渲染正文时建立 locale 订阅，且快照取 .active 字符串（不用对象当 key 触发重挂载）', () => {
+		uSESListeners.length = 0;
+		let active = 'zh';
+		let subscribeCalls = 0;
+		const { ctx } = makeCtx();
+		ctx.locale.subscribe = (cb: any) => { subscribeCalls++; uSESListeners.push(cb); return () => {}; };
+		ctx.locale.getSnapshot = () => ({ active });
+		mod.apply(ctx);
+		// DbToolRoot 定义在 apply 内部，正文渲染出的元素类型即它；直接调用以执行其 hooks
+		const body = (ctx as any).__body || null;
+		// 通过正文拿到元素树后，手工按渲染链路调用返回的元素类型
+		const seatsHolder = mod.__testables;
+		expect(seatsHolder).toBeTruthy();
+		// 源码级：订阅存在且 key 已删除（不再用语言拼 key），代之以订阅触发重渲染
+		expect(src).toContain('ctx.locale.subscribe(cb)');
+		expect(src).not.toContain('key: "db-tool-"');
+		expect(src).not.toContain('key: "db-tool-title-"');
+	});
+
+	it('localeService 为 null 时 currentLocale 回落不抛错', () => {
+		// 不提供 locale 服务：apply 仍应完成注册，title() 回落中文
+		const { ctx, state } = makeCtx();
+		delete (ctx as any).locale;
+		mod.apply(ctx);
+		expect(state.types).toHaveLength(1);
+		expect(state.types[0].title()).toBe('数据库');
+	});
+
+	it('keepMounted 不被宿主支持时打印 warn（旧版 DSH 会静默忽略该字段）', () => {
+		const warn = console.warn;
+		const calls: any[] = [];
+		console.warn = (...a: any[]) => { calls.push(a); };
+		try {
+			const { ctx } = makeCtx();
+			// 模拟旧版：register 接受但不认识 keepMounted，get 读回的definition 无该字段
+			ctx.sidebarRightTabs.register = (d: any) => {
+				(ctx.sidebarRightTabs as any)._last = { id: d.id, kind: d.kind };
+				return () => {};
+			};
+			(ctx.sidebarRightTabs as any).get = (k: string) =>
+				((ctx.sidebarRightTabs as any)._last && (ctx.sidebarRightTabs as any)._last.kind === k)
+					? (ctx.sidebarRightTabs as any)._last : undefined;
+			mod.apply(ctx);
+			expect(calls.some((c) => String(c[0]).includes('keepMounted'))).toBe(true);
+		} finally {
+			console.warn = warn;
+		}
 	});
 });

@@ -3894,7 +3894,7 @@ window.__ModuleLoader__.load({
 			}
 
 			ctx.effect(function () {
-				return ctx.sidebarRightTabs.register({
+				const disposer = ctx.sidebarRightTabs.register({
 					id: TAB_ID,
 					kind: TAB_ID,
 					// 页签正文在切换页签 / 切会话 / 收起右侧栏时保持挂载：
@@ -3906,7 +3906,7 @@ window.__ModuleLoader__.load({
 					priority: "extension",
 					title: function () { return t("tabTitle"); },
 					// guide 条目：右侧栏空态（无页签）时显示成入口卡片，点一下即打开本页签；
-					// order 45 与旧侧边栏排序一致，保持工具栏里的相对位置。
+					// order 45 沿用旧工具栏的相对位置。
 					guide: [{
 						id: TAB_ID,
 						order: 45,
@@ -3915,6 +3915,15 @@ window.__ModuleLoader__.load({
 						icon: DbIcon,
 					}],
 				});
+				// 能力探测：keepMounted 自官方右侧栏 0.1.7-rc.1 起才有，旧版本会静默忽略它，
+				// 表现为切页签/切会话后面板状态全部归零且无任何报错。读回注册结果比收紧 engines 更能覆盖实情。
+				try {
+					const registered = ctx.sidebarRightTabs.get && ctx.sidebarRightTabs.get(TAB_ID);
+					if (registered && registered.keepMounted !== true) {
+						console.warn("[dsh-db-tool] 当前 DSH 版本不支持 keepMounted，切换页签/会话后面板状态会丢失，请升级 DSH");
+					}
+				} catch (e) { /* 探测失败不影响主流程 */ }
+				return disposer;
 			}, "dsh-db-tool: register tab type");
 
 			ctx.effect(function () {

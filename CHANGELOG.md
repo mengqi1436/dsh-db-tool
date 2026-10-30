@@ -27,7 +27,13 @@
 - 移除 `devDependencies` 与 `peerDependencies` 中的 `dsh-better-sidebar`，`package-lock.json` 一并移除该包及其独占的传递依赖（重新生成，未升级任何已有依赖）。
 - 删除 Panel 中 `scope.repoRoot` / `scope.workspacePath` 的死兜底——`scope` 实际只有 `{ sessionId, cwd }` 两个字段，这些兜底分支永远不会命中。
 - 清理全部沿用旧名词（side-bar / betterSidebar）的注释。
-- `files` 白名单加回 `docs`：本次新增 `docs/sidebar-right-migration.md` 需随包发布（1.8.9 移除该条目是因当时目录为空，现已重新存在）。
+- `files` 白名单收录 `docs/sidebar-right-migration.md`（精确路径而非 `docs` 目录：npm 打包不看 `.gitignore`，目录级条目会把本地被忽略的草稿一并发布）。
+
+### 兼容性
+
+- `engines.dsh` 下限抬到 `0.1.7-rc.2`：`keepMounted` 字段自官方右侧栏 `0.1.7-rc.1` 起才存在，更早版本（含 `0.1.0-rc.6`、`0.1.5`/`0.1.6` 系）会静默忽略它，表现为切页签/切会话后面板状态归零且无报错，故不再宣称兼容。
+- `apply` 增加能力探测：注册后读回该页签类型，若宿主未接受 `keepMounted` 则打印 warn 提示升级 DSH——收紧 `engines` 挡不住「旧 profile 已装好继续用」的情形。
+- issue 模板的入口名与版本占位符同步为「右侧栏」与 `1.9.0`。
 
 ## 1.8.9
 
