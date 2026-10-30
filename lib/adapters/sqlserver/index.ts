@@ -125,6 +125,15 @@ function vendor(): SqlDriver {
 /** tedious 支持的 TDS 协议版本（默认 7_4） */
 const TDS_VERSIONS = new Set(['7_4', '7_3_A', '7_3_B', '7_2', '7_1']);
 
+/**
+ * 可显式下探的最低 TLS 版本（默认不设置，沿用 Node 默认下限 TLSv1.2）。
+ *
+ * 刻意不含 TLSv1.3：tedious message-io.js 在调用方未给 maxVersion 时硬性补成 'TLSv1.2'，
+ * 于是 minVersion=TLSv1.3 会变成 min>max，握手直接抛 ERR_SSL_NO_PROTOCOLS_AVAILABLE
+ * （已实测）——那是个 100% 失败的配置，放进白名单只会把用户引到另一条死路。
+ */
+const TLS_MIN_VERSIONS = ['TLSv1', 'TLSv1.1', 'TLSv1.2'] as const;
+
 /** URLSearchParams 取值（参数名大小写不敏感，URL 里常见 camelCase 与全小写混写） */
 function queryParam(sp: URLSearchParams, name: string): string | undefined {
   const lower = name.toLowerCase();
@@ -142,6 +151,53 @@ function boolParam(sp: URLSearchParams, name: string, dflt: boolean): boolean {
   if (s === 'true' || s === '1' || s === 'yes') return true;
   if (s === 'false' || s === '0' || s === 'no') return false;
   throw new Error(`sqlserver 连接 URL 的 ${name} 取值非法：${JSON.stringify(v)}（只接受 true/false）`);
+}
+
+/** fields 分支的布尔取值：分字段表单以字符串提交，故与 URL 同口径归一；非法值同样 fail-closed */
+function boolField(v: unknown, name: string, dflt: boolean): boolean {
+  if (v === undefined || v === null || v === '') return dflt;
+  if (typeof v === 'boolean') return v;
+  const s = String(v).trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'no') return false;
+  throw new Error(`sqlserver 连接配置的 ${name} 取值非法：${JSON.stringify(v)}（只接受 true/false）`);
+}
+
+/** TDS 版本白名单（URL 与 fields 共用，避免两套文案漂移） */
+function applyTdsVersion(options: Record<string, unknown>, raw: unknown, source: string): void {
+  if (raw === undefined || raw === null || String(raw) === '') return;
+  const v = String(raw);
+  if (!TDS_VERSIONS.has(v)) {
+    throw new Error(
+      `sqlserver 连接${source}的 tdsVersion 取值非法：${JSON.stringify(raw)}（可选 ${[...TDS_VERSIONS].join('/')}，默认 7_4）`,
+    );
+  }
+  options.tdsVersion = v;
+}
+
+/**
+ * 最低 TLS 版本（URL ?tlsMinVersion= 与 fields.tlsMinVersion 同口径）。
+ *
+ * 只写 cryptoCredentialsDetails.minVersion，刻意不提供 ciphers / maxVersion 开关：
+ *  - Electron 内置 Node 是 BoringSSL，OpenSSL 专有的 cipher 串（如 DEFAULT@SECLEVEL=0）会直接抛
+ *    INVALID_COMMAND；而「连 2008/2008R2 只有 TLS 1.0」这个场景只需把下限从默认的 TLSv1.2 放开即可。
+ *  - tedious message-io 自己会把 maxVersion 补成 TLSv1.2（未指定时），故上限天然封顶在 1.2；
+ *    这里再写 maxVersion 反而会削弱安全性，保持只设下限。
+ *
+ * 取值区分大小写、不做归一化（与 Node tls 官方 API 语义一致：'tlsv1' / 'TLSv1_0' 均会被底层拒绝）。
+ * 非法值 fail-closed：静默回退到 Node 默认下限会让用户以为已下探，实际握手仍按 TLS 1.2 起步，
+ * 白白多一轮失败排查。
+ */
+function applyTlsMinVersion(options: Record<string, unknown>, raw: unknown, source: string): void {
+  if (raw === undefined || raw === null || String(raw) === '') return;
+  const v = String(raw);
+  const hit = TLS_MIN_VERSIONS.find((x) => x === v);
+  if (hit === undefined) {
+    throw new Error(
+      `sqlserver 连接${source}的 tlsMinVersion 取值非法：${JSON.stringify(raw)}（可选 ${TLS_MIN_VERSIONS.join('/')}，默认不设置=沿用 Node 默认 TLSv1.2；TLSv1.3 不可选：底层 tedious 把 TLS 上限封顶在 1.2，设 1.3 会导致最小版本大于最大版本而握手失败）`,
+    );
+  }
+  options.cryptoCredentialsDetails = { minVersion: hit };
 }
 
 function decodeCred(raw: string): string {
@@ -213,13 +269,8 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
     options.encrypt = boolParam(u.searchParams, 'encrypt', true);
     options.trustServerCertificate = boolParam(u.searchParams, 'trustServerCertificate', false);
     options.useUTC = boolParam(u.searchParams, 'useUTC', true);
-    const tds = queryParam(u.searchParams, 'tdsVersion');
-    if (tds !== undefined && tds !== '') {
-      if (!TDS_VERSIONS.has(tds)) {
-        throw new Error(`sqlserver 连接 URL 的 tdsVersion 取值非法：${JSON.stringify(tds)}（可选 ${[...TDS_VERSIONS].join('/')}，默认 7_4）`);
-      }
-      options.tdsVersion = tds;
-    }
+    applyTdsVersion(options, queryParam(u.searchParams, 'tdsVersion'), ' URL ');
+    applyTlsMinVersion(options, queryParam(u.searchParams, 'tlsMinVersion'), ' URL ');
     const instance = queryParam(u.searchParams, 'instanceName');
     // instanceName 与 port 互斥：mssql 层在建连前会 delete 掉 port（tedious 对两者共存直接抛
     // 互斥 Error），端口改由 SQL Server Browser（UDP 1434）按实例名解析
@@ -237,6 +288,18 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
     if (f.password != null) cfg.password = String(f.password);
     if (f.database != null && String(f.database) !== '') cfg.database = String(f.database);
     if (f.instanceName != null && String(f.instanceName) !== '') options.instanceName = String(f.instanceName);
+    // 分字段表单此前完全读不到这几个键：用户在表单里关掉加密/信任证书、选 TDS 版本或下探
+    // TLS 下限都不生效（连接仍按 URL 默认值走），排障时会误以为参数没被实现。此处与 URL 分支
+    // 同口径补齐，默认值仍取自 options 初始值（encrypt=true / trustServerCertificate=false /
+    // tdsVersion=7_4 / useUTC=true）。
+    options.encrypt = boolField(f.encrypt, 'encrypt', options.encrypt as boolean);
+    options.trustServerCertificate = boolField(
+      f.trustServerCertificate,
+      'trustServerCertificate',
+      options.trustServerCertificate as boolean,
+    );
+    applyTdsVersion(options, f.tdsVersion, '配置');
+    applyTlsMinVersion(options, f.tlsMinVersion, '配置');
   } else {
     throw new Error('sqlserver 连接缺少 url 或 fields 配置');
   }
@@ -479,20 +542,33 @@ function mssqlReason(e: unknown): string {
   const sev = typeof err.severity === 'number' ? err.severity : undefined;
   const line = typeof err.lineNumber === 'number' ? err.lineNumber : undefined;
 
-  // TLS/证书类失败（自签证书、链不可验证、协议版本不符）在 SQL Server 2008/2008 R2 上很常见。
-  // 默认 encrypt=true + trustServerCertificate=false 与 mssql 官方一致（不改默认值），但必须：
-  //  1) 不把「TCP 已连通、TLS 校验失败」误报成网络不可达（会把用户引向错误排查方向）；
-  //  2) 把「怎么连上」写清楚（URL 加 ?trustServerCertificate=true / ?encrypt=false）。
+  // TLS 失败在 SQL Server 2008/2008 R2 上很常见，但根因分两族、解法正交，必须分开给：
+  //  - 证书族（自签/链不可验证）：证书校验阶段失败 → trustServerCertificate=true / encrypt=false；
+  //  - 协议族（无共同 TLS 版本）：版本协商阶段就失败，证书校验根本没执行 → 只能升服务端 TLS 1.2
+  //    或让客户端下探 ?tlsMinVersion=。给它 trustServerCertificate 是开错药方（用户会白跑一轮）。
+  // 默认 encrypt=true + trustServerCertificate=false 与 mssql 官方一致（不改默认值），且无论哪族
+  // 都不能把「TCP 已连通、TLS 失败」误报成网络不可达（会把用户引向错误排查方向）。
   // tedious 建连期把底层 socket/TLS 错误用 ES cause 选项挂在 err.cause（originalError 是 mssql 事务
   // abort 专用，建连场景恒 undefined），message 已聚合底层原文但读 cause 更稳，一并纳入特征文本。
   const causeText = errText(err.cause);
   const tlsText = `${detail} ${errText(err.originalError)} ${causeText}`;
-  // 特征族来源：OpenSSL/BoringSSL 原生错误串（SSL routines/OPENSSL_internal/UNSUPPORTED_PROTOCOL、
-  // handshake_*.c）、Node ERR_SSL_NO_PROTOCOLS_AVAILABLE 的 message、服务器 alert 拒绝握手/版本。
-  // 刻意不加 ECONNRESET/socket hang up/ENOTFOUND——与真实网络故障不可区分，误加会让 ECONNREFUSED
-  // 场景被套上 TLS 指引。
+  // 协议族：BoringSSL/OpenSSL 的「没有共同协议版本」家族。UNSUPPORTED_PROTOCOL = SSL_R_UNSUPPORTED_PROTOCOL，
+  // 在 ClientHello/ServerHello 版本协商阶段就返回，握手从未走到证书校验；`no protocols available` 是 Node
+  // 侧同一语义的表述（ERR_SSL_NO_PROTOCOLS_AVAILABLE 亦含此串）。SSL routines 单独出现不足以判族
+  // （证书错误也带该前缀），故要求同时含 UNSUPPORTED。
+  const tlsProtoish =
+    /UNSUPPORTED_PROTOCOL|no protocols available|alert protocol version|(?:SSL[ -_]?routines|OPENSSL_internal)[\s\S]{0,80}?UNSUPPORTED/i.test(
+      tlsText,
+    );
+  // 证书族：证书本身不可信（自签、链断、主机名不符、已过期）
+  const tlsCertish = /self[ -]?signed|certificate|unable to verify|CERT_/i.test(tlsText);
+  // 兜底「确实是 TLS 层失败」的通用前缀：只用于把 base 从「网络不可达」纠正为「TCP 已连通」，
+  // 不据此给任何具体药方（族未定就不该猜）。刻意不加 ECONNRESET/socket hang up/ENOTFOUND——
+  // 与真实网络故障不可区分，误加会让 ECONNREFUSED 场景被套上 TLS 指引。
   const tlsish =
-    /self[ -]?signed|certificate|unable to verify|wrong version number|ERR_SSL|EPROTO|CERT_|UNSUPPORTED_PROTOCOL|SSL[ -_]?routines|OPENSSL_internal|handshake[ _-]?(failure|client|server)|TLSV1_ALERT|SSLV3_ALERT|alert protocol version|alert handshake failure|no protocols available/i.test(
+    tlsProtoish ||
+    tlsCertish ||
+    /ERR_SSL|EPROTO|SSL[ -_]?routines|OPENSSL_internal|handshake[ _-]?(failure|client|server)|TLSV1_ALERT|SSLV3_ALERT|alert handshake failure/i.test(
       tlsText,
     );
 
@@ -508,10 +584,13 @@ function mssqlReason(e: unknown): string {
           : `请求超时：语句执行超过 requestTimeout，请拆小查询或调大超时（${detail}）`;
       break;
     case 'ESOCKET':
-      // 保留「网络不可达」字样（既有断言与用户检索习惯依赖），但 TLS 特征时先说明 TCP 已连通
-      base = tlsish
-        ? `TCP 已连通但 TLS 握手/证书校验失败（不是网络不可达：网络不可达指主机/端口不可达或连接被拒，此处 TCP 已建立）（${detail}）`
-        : `网络不可达：无法与服务器建立 TCP 连接，请检查主机名、端口与网络；端口确认可达仍反复出现时，也可能是服务器在 TLS 握手阶段主动断开（如老实例仅支持 TLS 1.0）（${detail}）`;
+      // 保留「网络不可达」字样（既有断言与用户检索习惯依赖），但 TLS 特征时先说明 TCP 已连通。
+      // 协议族与证书族分开表述：前者是版本协商失败，与证书无关。
+      base = tlsProtoish
+        ? `TCP 已连通但 TLS 协议版本协商失败：客户端与服务端没有共同的 TLS 协议版本（UNSUPPORTED_PROTOCOL 出现在版本协商阶段，此时证书校验尚未执行，故与证书是否受信无关）（${detail}）`
+        : tlsish
+          ? `TCP 已连通但 TLS 握手/证书校验失败（不是网络不可达：网络不可达指主机/端口不可达或连接被拒，此处 TCP 已建立）（${detail}）`
+          : `网络不可达：无法与服务器建立 TCP 连接，请检查主机名、端口与网络；端口确认可达仍反复出现时，也可能是服务器在 TLS 握手阶段主动断开（如老实例仅支持 TLS 1.0）（${detail}）`;
       break;
     // 服务器强制加密（SQL Server 2022 / Azure SQL 默认）而客户端 encrypt=false：tedious 抛英文原文，
     // 不映射则中文界面里只剩英文，故单列一条给出可直接照做的改法。
@@ -536,7 +615,20 @@ function mssqlReason(e: unknown): string {
   }
 
   const trail: string[] = [];
-  if (tlsish) {
+  if (tlsProtoish) {
+    // 顺序即优先级：服务端升级是正解（一次性、对所有客户端生效），客户端下探是权宜（仍受限于
+    // 服务端实际支持的版本）。第③条显式点名「跳过证书校验」是先发制人——用户看到 TLS 报错的第一
+    // 反应通常就是去信任证书，明说无效比沉默更省一轮排查；措辞必须是否定式，不得写成可尝试项。
+    trail.push(
+      '修复优先级：① 首选在服务端启用 TLS 1.2（SQL Server 2008 R2 SP3 装 KB4057113、SQL Server 2008 SP4 装 KB4057114，之后重启实例）——这是根治，且对所有客户端生效',
+    );
+    trail.push(
+      '② 若暂时无法动服务端，可在连接 URL 追加 ?tlsMinVersion=TLSv1 让客户端把最低 TLS 版本下探到 1.0（本插件已支持；上限仍由 tedious 封顶在 TLS 1.2）',
+    );
+    trail.push(
+      '③ 注意：跳过证书校验（信任任意证书）对这类错误无效——它只影响证书校验阶段，而此处是协议版本协商失败，证书校验根本没执行',
+    );
+  } else if (tlsCertish) {
     trail.push(
       '若目标是 SQL Server 2008/2008 R2 或使用自签名证书的实例，可在连接 URL 追加 ?trustServerCertificate=true（或 ?encrypt=false，前提是服务器未强制加密）',
     );

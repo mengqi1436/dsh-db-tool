@@ -1,5 +1,16 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+SQL Server TLS 协议版本失败的误诊修复 + 新增 `?tlsMinVersion=` 客户端下探参数（真实案例驱动：老实例仅支持 TLS 1.0 时报 `UNSUPPORTED_PROTOCOL`，被误给了 `trustServerCertificate=true` 这张对不上病因的药方）。
+
+### 修复
+
+- **TLS 失败按根因分两族，解法不再混用**：`mssqlReason()` 原先把证书类与协议类错误塞进同一条 `tlsish` 正则，统一提示「追加 `?trustServerCertificate=true`」。但 `UNSUPPORTED_PROTOCOL`（`SSL_R_UNSUPPORTED_PROTOCOL`）表示客户端与服务端**没有共同的 TLS 协议版本**，发生在版本协商阶段，证书校验根本没执行——该参数对它完全无效，用户照做只会白跑一轮。现拆为 `tlsCertish`（自签/链不可验证/`CERT_`）与 `tlsProtoish`（`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`）：协议族文案改为「TCP 已连通但 TLS 协议版本协商失败」并给出修复优先级（① 服务端启用 TLS 1.2，2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114；② 客户端 `?tlsMinVersion=TLSv1` 下探；③ 明说跳过证书校验无效）；证书族保留原有 `trustServerCertificate=true` / `encrypt=false` / 2008 提示。两族互斥，证书族不再推销协议版本建议。`wrong version number`（对端根本不是 TLS，多为连错端口）刻意不进协议族——它既非证书问题也非版本协商问题，归通用 TLS 兜底只纠正「TCP 已连通」，不给具体药方。
+- **新增 `tlsMinVersion` 连接参数**：URL query 与分字段表单均支持，取值 `TLSv1` / `TLSv1.1` / `TLSv1.2`（区分大小写），落地为 `options.cryptoCredentialsDetails = { minVersion }`，缺省不注入（沿用 Node 默认下限 TLSv1.2）。只设 `minVersion`、**不设 `maxVersion` 也不设 `ciphers`**：tedious 在未指定上限时会自己把 `maxVersion` 补成 `TLSv1.2`（上限天然封顶，显式写反而削弱安全性），而 Electron 内置的是 BoringSSL，OpenSSL 专有 cipher 串（如 `DEFAULT@SECLEVEL=0`）会直接抛 `INVALID_COMMAND`。白名单刻意不含 `TLSv1.3`——受上述 `maxVersion` 补全影响，`minVersion=TLSv1.3` 会变成 min>max 并 100% 抛 `ERR_SSL_NO_PROTOCOLS_AVAILABLE`（实测 `NO_SUPPORTED_VERSIONS_ENABLED`），错误文案直接把这条原因写给用户，避免反复试。非法值 fail-closed 抛中文错误，不静默回退。
+- **分字段表单补齐 TLS 相关键**：`fields` 分支此前完全读不到 `encrypt` / `trustServerCertificate` / `tdsVersion` / `tlsMinVersion`，用户在表单里关掉加密、信任证书或下探 TLS 下限都不生效（连接仍按默认值走）。现与 URL 分支同口径补齐，默认值不变（`encrypt=true` / `trustServerCertificate=false` / `tdsVersion=7_4` / `useUTC=true`）。
+- **文档纠偏**：README 中「最低 TLS 版本经 `cryptoCredentialsDetails.minVersion` 配置」是虚标（原实现根本没有该通路），改为说明新增的 `?tlsMinVersion=` 参数，并把「连 2008 就加 `?trustServerCertificate=true`」拆成证书类/协议类两种根因分别给解法。
+
 ## 1.8.5
 
 DSH 0.2.1-rc.3 适配确认（宿主契约逐项对照，客户端与打包零改动）+ 非 loopback 部署信任来源修复 + hotfix 支持 0.2.1-rc.3。

@@ -77,6 +77,8 @@ export interface ConnectionMeta {
   port?: number;
   user?: string;
   database?: string;
+  /** 分字段方式的最低 TLS 版本（仅 sqlserver；缺省=不设置，沿用 Node 默认 TLSv1.2）——编辑回填用 */
+  tlsMinVersion?: string;
   /** 已保存密码（仅布尔指示，明文绝不出库）——编辑表单占位/测试草稿拼回用 */
   hasPassword?: boolean;
 }

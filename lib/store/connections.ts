@@ -210,11 +210,12 @@ function toMeta(rec: ConnRecord, hasPassword = false): ConnectionMeta {
   }
   if (hasPassword) meta.hasPassword = true;
   if (rec.fields) {
-    const { host, port, user, database } = rec.fields;
+    const { host, port, user, database, tlsMinVersion } = rec.fields;
     if (typeof host === 'string') meta.host = host;
     if (typeof port === 'number') meta.port = port;
     if (typeof user === 'string') meta.user = user;
     if (typeof database === 'string') meta.database = database;
+    if (typeof tlsMinVersion === 'string') meta.tlsMinVersion = tlsMinVersion;
   }
   return meta;
 }

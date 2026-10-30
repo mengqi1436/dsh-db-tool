@@ -111,6 +111,8 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "密码",
 			passwordSaved: "已保存（留空保持不变）",
 			fieldsDatabase: "数据库名",
+			fieldsTlsMinVersion: "最低 TLS 版本（连 SQL Server 2008/2008R2 报 UNSUPPORTED_PROTOCOL 时选 TLSv1）",
+			tlsMinDefault: "默认（TLSv1.2）",
 			ssl: "启用 SSL",
 			test: "测试",
 			testing: "测试中…",
@@ -330,6 +332,8 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "Password",
 			passwordSaved: "Saved (leave blank to keep)",
 			fieldsDatabase: "Database",
+			fieldsTlsMinVersion: "Minimum TLS version (pick TLSv1 when SQL Server 2008/2008R2 reports UNSUPPORTED_PROTOCOL)",
+			tlsMinDefault: "Default (TLSv1.2)",
 			ssl: "Enable SSL",
 			test: "Test",
 			testing: "Testing…",
@@ -775,7 +779,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ---------------- 连接管理 ---------------- */
-		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", ssl: false };
+		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", tlsMinVersion: "", ssl: false };
 
 		// 口令弹窗（ManageView 局部复用，导出/导入共用）：键盘契约对齐 DangerDialog
 		// （Escape=取消、Tab 在对话框内循环锁定）；差异：初始焦点在口令输入框，确认按钮主色。
@@ -1292,7 +1296,7 @@ window.__ModuleLoader__.load({
 		const freshForm = () => withKindDefaults({ ...EMPTY_FORM, mode: "fields" });
 
 		/** 编辑回填：从 meta 还原已存配置（密码不出库，留空=保留原密码）。
-		 *  url 方式 → 回填脱敏 url；分字段方式 → 回填 host/port/user/database。 */
+		 *  url 方式 → 回填脱敏 url；分字段方式 → 回填 host/port/user/database/tlsMinVersion。 */
 		function buildEditForm(c) {
 			const mode = c.mode || (c.safeUrl ? "url" : "fields");
 			return {
@@ -1302,6 +1306,7 @@ window.__ModuleLoader__.load({
 				urlUser: "", urlPassword: "",
 				host: c.host || "", port: c.port != null ? String(c.port) : "",
 				user: c.user || "", database: c.database || "",
+				tlsMinVersion: c.tlsMinVersion || "",
 				ssl: !!c.ssl,
 			};
 		}
@@ -1379,6 +1384,9 @@ window.__ModuleLoader__.load({
 					// 端口原样发字符串：Number("abc")=NaN 会被 JSON 序列化成 null，服务端按「未提供端口」静默回退默认值，配置错误被掩盖
 					if (form.port) body.fields.port = form.port;
 					if (form.password) body.fields.password = form.password;
+					// 最低 TLS 版本：空=不注入（沿用 Node 默认 TLSv1.2）。仅 sqlserver 有此字段，
+					// 其它库即使表单残留旧值也不发，避免无关库收到未知键。
+					if (form.kind === "sqlserver" && form.tlsMinVersion) body.fields.tlsMinVersion = form.tlsMinVersion;
 					// 从 url 方式切到分字段保存 → 服务端清除已存 url（否则连接仍走旧 url）
 					if (props.initial && props.initial.mode === "url") body.clearUrl = true;
 				}
@@ -1442,6 +1450,14 @@ window.__ModuleLoader__.load({
 						React.createElement("div", { className: "dbt-row" },
 							React.createElement("input", { placeholder: t("fieldsUser"), "aria-label": t("fieldsUser") + t("requiredMark"), "aria-required": "true", value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
 							React.createElement("input", { type: "password", placeholder: pwLabel, "aria-label": pwLabel, value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
+						// 最低 TLS 版本（仅 sqlserver）：老实例只支持 TLS 1.0 时，客户端默认下限 TLSv1.2 会
+						// 报 UNSUPPORTED_PROTOCOL（协议版本协商失败，与证书无关，信任证书无效）。留空=不改默认。
+						form.kind === "sqlserver"
+							? React.createElement("div", { className: "dbt-row" },
+								React.createElement("select", { "aria-label": t("fieldsTlsMinVersion"), value: form.tlsMinVersion, onChange: (e) => patch({ tlsMinVersion: e.target.value }) },
+									React.createElement("option", { value: "" }, t("tlsMinDefault")),
+									["TLSv1", "TLSv1.1", "TLSv1.2"].map((v) => React.createElement("option", { key: v, value: v }, v))))
+							: null,
 					),
 				// 分组 3：操作
 				React.createElement(

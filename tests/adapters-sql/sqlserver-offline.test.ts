@@ -1110,7 +1110,13 @@ describe('sqlserver 错误中文映射（手法 B）', () => {
     );
     const msg = msgOf(err);
     expect(msg).toMatch(/TCP 已连通/);
-    expect(msg).toMatch(/trustServerCertificate/);
+    // UNSUPPORTED_PROTOCOL = 双方没有共同 TLS 协议版本，握手根本没走到证书校验：诊断必须指向
+    // 协议版本（tlsMinVersion）。允许否定式说明「跳过证书校验无效」（比沉默更省排查轮次），
+    // 但不得给出可照抄的 ?trustServerCertificate=true —— 那是开错药方。
+    expect(msg).toMatch(/协议版本/);
+    expect(msg).toMatch(/tlsMinVersion/);
+    expect(msg).toMatch(/无效|不起作用/);
+    expect(msg).not.toMatch(/\?trustServerCertificate=true/);
     // 协议版本类错误不含证书字样，修复前会落「网络不可达」兜底
     expect(msg).not.toMatch(/^网络不可达/);
     await a.close();
@@ -1131,6 +1137,276 @@ describe('sqlserver 错误中文映射（手法 B）', () => {
     expect(msgOf(err)).not.toMatch(/TCP 已连通/);
     expect(msgOf(err)).not.toMatch(/trustServerCertificate/);
     await a.close();
+  });
+
+  /* ---------- TLS 三族分流：协议版本族 / 证书族 / 网络族必须互斥 ---------- */
+
+  /** 真实案例原文（tedious connection.js 把 BoringSSL 串原样拼进 ESOCKET message） */
+  const BORINGSSL_UNSUPPORTED =
+    'Failed to connect to 10.192.68.42:1433 - 107904error:100000f0:SSL routines:OPENSSL_internal:UNSUPPORTED_PROTOCOL:..\\..\\third_party\\boringssl\\src\\ssl\\handshake_client.c';
+
+  it('UNSUPPORTED_PROTOCOL 完整 BoringSSL 原文：诊断指向协议版本（tlsMinVersion），不给 trustServerCertificate', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', {
+      message: BORINGSSL_UNSUPPORTED,
+      cause: new Error(
+        '107904error:100000f0:SSL routines:OPENSSL_internal:UNSUPPORTED_PROTOCOL:..\\..\\third_party\\boringssl\\src\\ssl\\handshake_client.c',
+      ),
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/TCP 已连通/);
+    expect(msg).toMatch(/协议版本/);
+    expect(msg).toMatch(/tlsMinVersion/);
+    // 协议协商阶段就失败了，证书校验根本没执行：允许明说「跳过证书校验无效」，但不给可照抄参数
+    expect(msg).toMatch(/无效|不起作用/);
+    expect(msg).not.toMatch(/\?trustServerCertificate=true/);
+    await a.close();
+  });
+
+  it('仅 BoringSSL 错误码（无 handshake_client.c 路径字面量）也归协议版本族', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', {
+      message: 'error:100000f0:SSL routines:OPENSSL_internal:UNSUPPORTED_PROTOCOL',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/TCP 已连通/);
+    expect(msg).toMatch(/协议版本/);
+    expect(msg).toMatch(/tlsMinVersion/);
+    expect(msg).toMatch(/无效|不起作用/);
+    expect(msg).not.toMatch(/\?trustServerCertificate=true/);
+    await a.close();
+  });
+
+  it('证书族（自签证书）：给 trustServerCertificate=true / encrypt=false / 2008，不混入协议版本建议', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', {
+      message: 'self signed certificate in certificate chain',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/TCP 已连通/);
+    expect(msg).toMatch(/trustServerCertificate=true/);
+    expect(msg).toMatch(/encrypt=false/);
+    expect(msg).toMatch(/2008/);
+    // 两族互斥：证书类不能顺带推销 tlsMinVersion（会让用户去改协议版本，白跑）
+    expect(msg).not.toMatch(/协议版本|tlsMinVersion/);
+    await a.close();
+  });
+
+  it('ECONNREFUSED：仍是网络不可达，不带任何 TLS 指引', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', {
+      message: 'Failed to connect to 127.0.0.1:1433 - connect ECONNREFUSED 127.0.0.1:1433',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/网络不可达/);
+    expect(msg).not.toMatch(/TCP 已连通/);
+    expect(msg).not.toMatch(/tlsMinVersion/);
+    expect(msg).not.toMatch(/trustServerCertificate/);
+    await a.close();
+  });
+
+  it('getaddrinfo ENOTFOUND：仍是网络不可达，不带任何 TLS 指引', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', {
+      message: 'Failed to connect to db1.example.com:1433 - getaddrinfo ENOTFOUND db1.example.com',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/网络不可达/);
+    expect(msg).not.toMatch(/TCP 已连通/);
+    expect(msg).not.toMatch(/tlsMinVersion/);
+    expect(msg).not.toMatch(/trustServerCertificate/);
+    await a.close();
+  });
+
+  it('EENCRYPT（服务器强制加密）：给 ?encrypt=true，不牵扯证书', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'EENCRYPT', { message: 'Server requires encryption' });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/服务器要求加密/);
+    expect(msg).toMatch(/\?encrypt=true/);
+    expect(msg).not.toMatch(/trustServerCertificate/);
+    await a.close();
+  });
+
+  it('cause 携带 UNSUPPORTED_PROTOCOL 而 message 不含：靠 cause 命中协议版本族，且 cause 原文只出现一次', async () => {
+    const { a, pool } = await make();
+    const causeText = 'error:100000f0:SSL routines:OPENSSL_internal:UNSUPPORTED_PROTOCOL';
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', { cause: new Error(causeText) });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/TCP 已连通/);
+    expect(msg).toMatch(/协议版本/);
+    expect(msg).toMatch(/tlsMinVersion/);
+    // 不重复堆底层原文：message 未包含 cause 全文，补一条「原始错误」即可
+    expect(msg.split(causeText)).toHaveLength(2);
+    await a.close();
+  });
+
+  it('originalError 与 cause 并存：末尾「原始错误」取 originalError（事务 abort 语义），不取 cause', async () => {
+    const { a, pool } = await make();
+    const original = 'error:100000f0:SSL routines:OPENSSL_internal:UNSUPPORTED_PROTOCOL';
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', {
+      originalError: new Error(original),
+      cause: new Error('read ECONNRESET'),
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/协议版本/);
+    expect(msg).toMatch(/tlsMinVersion/);
+    expect(msg).toMatch(/原始错误/);
+    expect(msg).toContain(original);
+    expect(msg).not.toContain('ECONNRESET');
+    await a.close();
+  });
+
+  it('originalError 与 cause 均缺省：不出现「原始错误」与 undefined 字样', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET');
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/网络不可达/);
+    expect(msg).not.toMatch(/原始错误/);
+    expect(msg).not.toMatch(/undefined/);
+    await a.close();
+  });
+
+  it('tlsMinVersion URL 参数：合法值写入 cryptoCredentialsDetails.minVersion，非法值抛中文错，缺省不注入', async () => {
+    // 白名单三值合法。刻意不含 TLSv1.3：Node/BoringSSL 本身接受它，但 tedious 在调用方未给
+    // maxVersion 时把上限硬封在 TLSv1.2（tedious@20.3.8 message-io.js:56-57），minVersion=1.3
+    // 会变成 min>max 而必然抛 NO_SUPPORTED_VERSIONS_ENABLED —— 那是 100% 失败的配置，不是我们的杜撰限制。
+    for (const ok of ['TLSv1', 'TLSv1.1', 'TLSv1.2']) {
+      const h0 = harness();
+      const a0 = await createSqlserverAdapter(connByUrl(`${BASE_URL}?tlsMinVersion=${ok}`), { driver: h0.driver });
+      expect(h0.configs[0]!.options, `tlsMinVersion=${ok}`).toMatchObject({
+        cryptoCredentialsDetails: { minVersion: ok },
+      });
+      await a0.close();
+    }
+
+    // 非法值 fail-closed：不静默回退 Node 默认（否则用户以为已下探，实际仍是 TLS 1.2 下限）
+    for (const bad of ['TLSv1.3', 'TLSv1_0', 'tlsv1', 'nonsense']) {
+      const h2 = harness();
+      const err = await createSqlserverAdapter(connByUrl(`${BASE_URL}?tlsMinVersion=${bad}`), {
+        driver: h2.driver,
+      }).then(
+        () => {
+          throw new Error(`应抛错：tlsMinVersion=${bad}`);
+        },
+        (e: unknown) => e,
+      );
+      const msg = msgOf(err);
+      expect(msg, `tlsMinVersion=${bad}`).toMatch(/tlsMinVersion/);
+      expect(msg).toMatch(/非法/);
+      // TLSv1.3 被拒必须说清真实原因（tedious 上限封顶），不能只写「不支持」让用户以为是我们杜撰的限制
+      if (bad === 'TLSv1.3') expect(msg).toMatch(/上限|封顶|1\.2/);
+      expect(h2.configs).toHaveLength(0);
+    }
+
+    // 未提供时整块不注入：沿用 Node 默认下限，且不改变既有 options 形状
+    const { h: h3, a: a3 } = await make();
+    expect('cryptoCredentialsDetails' in (h3.configs[0]!.options as Record<string, unknown>)).toBe(false);
+    await a3.close();
+  });
+
+  it('fields 分支支持 encrypt/trustServerCertificate/tdsVersion/tlsMinVersion（与 URL 同口径，非法值抛中文错）', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(
+      connByFields({
+        host: 'h2',
+        user: 'u',
+        password: 'p',
+        database: 'd',
+        encrypt: false,
+        trustServerCertificate: true,
+        tdsVersion: '7_3_A',
+        tlsMinVersion: 'TLSv1.1',
+      }),
+      { driver: h.driver },
+    );
+    expect(h.configs[0]!.options).toMatchObject({
+      encrypt: false,
+      trustServerCertificate: true,
+      tdsVersion: '7_3_A',
+      cryptoCredentialsDetails: { minVersion: 'TLSv1.1' },
+    });
+    await a.close();
+
+    const BAD: Array<Record<string, unknown>> = [
+      { tdsVersion: '9_9' },
+      // fields 与 URL 同口径：TLSv1.3 因 tedious 把上限封顶在 1.2（message-io.js:56-57）而非法
+      { tlsMinVersion: 'TLSv1.3' },
+      { encrypt: 'maybe' },
+      { trustServerCertificate: 'maybe' },
+    ];
+    for (const fields of BAD) {
+      const h2 = harness();
+      const key = Object.keys(fields)[0]!;
+      const err = await createSqlserverAdapter(
+        connByFields({ host: 'h', user: 'u', password: 'p', ...fields }),
+        { driver: h2.driver },
+      ).then(
+        () => {
+          throw new Error(`应抛错：${JSON.stringify(fields)}`);
+        },
+        (e: unknown) => e,
+      );
+      const msg = msgOf(err);
+      expect(msg, JSON.stringify(fields)).toMatch(new RegExp(key));
+      expect(msg).toMatch(/非法/);
+      // 校验发生在建池之前：不该有任何池配置产出
+      expect(h2.configs).toHaveLength(0);
+    }
   });
 });
 

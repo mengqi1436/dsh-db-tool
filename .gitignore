@@ -1,6 +1,10 @@
 node_modules/
 vendor/
 *.log
+
+# 本项目用 npm（package-lock.json）；pnpm 的 lock 属误产生，不入库
+pnpm-lock.yaml
+
 .env
 .env.*
 !.env.example
