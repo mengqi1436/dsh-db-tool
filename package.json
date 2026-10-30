@@ -1,6 +1,6 @@
 {
   "name": "dsh-db-tool",
-  "version": "1.8.8",
+  "version": "1.8.9",
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
   "license": "Apache-2.0",
@@ -90,13 +90,14 @@
     "dist",
     "client",
     "skills",
-    "docs",
     "patches",
     "scripts",
     "vendor/mongodb-driver.cjs",
     "vendor/sqlserver-driver.cjs",
     "vendor/codemirror-sql.cjs",
+    "LICENSE",
     "README.md",
-    "README_EN.md"
+    "README_EN.md",
+    "CHANGELOG.md"
   ]
 }

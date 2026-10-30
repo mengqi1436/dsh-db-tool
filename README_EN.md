@@ -182,7 +182,7 @@ DSH desktop 0.2.0-rc.2+ bundles the `dsh` command:
 2. Install the plugin (npm installs must pin an exact version — `@latest` falls back to an older release due to release-age checks):
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.8.8 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.8.9 --registry=https://registry.npmjs.org/
    ```
 
 3. **Restart the desktop app** to load it
