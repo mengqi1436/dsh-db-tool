@@ -1,19 +1,8 @@
 # Changelog — dsh-db-tool
 
-## 未发布
-
-SQL Server TLS 协议版本失败的误诊修复 + 新增 `?tlsMinVersion=` 客户端下探参数（真实案例驱动：老实例仅支持 TLS 1.0 时报 `UNSUPPORTED_PROTOCOL`，被误给了 `trustServerCertificate=true` 这张对不上病因的药方）。
-
-### 修复
-
-- **TLS 失败按根因分两族，解法不再混用**：`mssqlReason()` 原先把证书类与协议类错误塞进同一条 `tlsish` 正则，统一提示「追加 `?trustServerCertificate=true`」。但 `UNSUPPORTED_PROTOCOL`（`SSL_R_UNSUPPORTED_PROTOCOL`）表示客户端与服务端**没有共同的 TLS 协议版本**，发生在版本协商阶段，证书校验根本没执行——该参数对它完全无效，用户照做只会白跑一轮。现拆为 `tlsCertish`（自签/链不可验证/`CERT_`）与 `tlsProtoish`（`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`）：协议族文案改为「TCP 已连通但 TLS 协议版本协商失败」并给出修复优先级（① 服务端启用 TLS 1.2，2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114；② 客户端 `?tlsMinVersion=TLSv1` 下探；③ 明说跳过证书校验无效）；证书族保留原有 `trustServerCertificate=true` / `encrypt=false` / 2008 提示。两族互斥，证书族不再推销协议版本建议。`wrong version number`（对端根本不是 TLS，多为连错端口）刻意不进协议族——它既非证书问题也非版本协商问题，归通用 TLS 兜底只纠正「TCP 已连通」，不给具体药方。
-- **新增 `tlsMinVersion` 连接参数**：URL query 与分字段表单均支持，取值 `TLSv1` / `TLSv1.1` / `TLSv1.2`（区分大小写），落地为 `options.cryptoCredentialsDetails = { minVersion }`，缺省不注入（沿用 Node 默认下限 TLSv1.2）。只设 `minVersion`、**不设 `maxVersion` 也不设 `ciphers`**：tedious 在未指定上限时会自己把 `maxVersion` 补成 `TLSv1.2`（上限天然封顶，显式写反而削弱安全性），而 Electron 内置的是 BoringSSL，OpenSSL 专有 cipher 串（如 `DEFAULT@SECLEVEL=0`）会直接抛 `INVALID_COMMAND`。白名单刻意不含 `TLSv1.3`——受上述 `maxVersion` 补全影响，`minVersion=TLSv1.3` 会变成 min>max 并 100% 抛 `ERR_SSL_NO_PROTOCOLS_AVAILABLE`（实测 `NO_SUPPORTED_VERSIONS_ENABLED`），错误文案直接把这条原因写给用户，避免反复试。非法值 fail-closed 抛中文错误，不静默回退。
-- **分字段表单补齐 TLS 相关键**：`fields` 分支此前完全读不到 `encrypt` / `trustServerCertificate` / `tdsVersion` / `tlsMinVersion`，用户在表单里关掉加密、信任证书或下探 TLS 下限都不生效（连接仍按默认值走）。现与 URL 分支同口径补齐，默认值不变（`encrypt=true` / `trustServerCertificate=false` / `tdsVersion=7_4` / `useUTC=true`）。
-- **文档纠偏**：README 中「最低 TLS 版本经 `cryptoCredentialsDetails.minVersion` 配置」是虚标（原实现根本没有该通路），改为说明新增的 `?tlsMinVersion=` 参数，并把「连 2008 就加 `?trustServerCertificate=true`」拆成证书类/协议类两种根因分别给解法。
-
 ## 1.8.8
 
-新增数据浏览「库筛选 + 跨库表名模糊搜索」：库多、表多时不必逐层展开找表。
+数据浏览「跨库表名模糊搜索」+ SQL Server TLS 协议版本误诊修复与 `?tlsMinVersion=` 客户端下探；许可证切换为 Apache-2.0。
 
 ### 新增
 
@@ -25,11 +14,20 @@ SQL Server TLS 协议版本失败的误诊修复 + 新增 `?tlsMinVersion=` 客�
 - **上限与审计**：limit 钳 1..200（默认 100）；服务端审计落 `search_tables`（statement 记关键词与库，rowsAffected 记命中数）。
 - HTTP 路由 `GET /api/search-tables`（project/connId/keyword 必填，database/limit 可选）。
 - 测试：manager 原生/回退两路径 + cap 钳制 + 审计断言 + 非白名单 kind 不回退；HTTP 路由契约（回退过滤/限定库/参数校验/未授权）；mysql 真机（跨库命中、限定库、LIKE 转义——字面 `%` 不作通配符）；pg-like mock 驱动（库名限定/`db.schema` 精确/跨库逐池/ILIKE 转义）。
-
 ### 修复
 
 - 前端搜索失败反馈：错误行渲染与结果视图解耦（首次搜索失败也显示错误行并可点击重试，不再静默回到目录树）；筛选行补 React key（避免列表 key 警告与输入框重挂载丢焦点）。
 - **select 下拉弹出层白底白字**（第三方深色主题下）：option 弹层是原生控件，不继承面板背景——Windows Chromium 未声明 `color-scheme` 时固定白底，而 option 文字 `color:inherit` 在深色主题下是白字。现在 select 声明 `color-scheme:dark light`，option 显式配一套自带对比度的深/浅配色对（不透明——弹层是独立原生窗口，半透明会混入白底），随系统深浅切换，与外层主题解耦。
+- **TLS 失败按根因分两族，解法不再混用**：`mssqlReason()` 原先把证书类与协议类错误塞进同一条 `tlsish` 正则，统一提示「追加 `?trustServerCertificate=true`」。但 `UNSUPPORTED_PROTOCOL`（`SSL_R_UNSUPPORTED_PROTOCOL`）表示客户端与服务端**没有共同的 TLS 协议版本**，发生在版本协商阶段，证书校验根本没执行——该参数对它完全无效，用户照做只会白跑一轮。现拆为 `tlsCertish`（自签/链不可验证/`CERT_`）与 `tlsProtoish`（`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`）：协议族文案改为「TCP 已连通但 TLS 协议版本协商失败」并给出修复优先级（① 服务端启用 TLS 1.2，2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114；② 客户端 `?tlsMinVersion=TLSv1` 下探；③ 明说跳过证书校验无效）；证书族保留原有 `trustServerCertificate=true` / `encrypt=false` / 2008 提示。两族互斥，证书族不再推销协议版本建议。`wrong version number`（对端根本不是 TLS，多为连错端口）刻意不进协议族——它既非证书问题也非版本协商问题，归通用 TLS 兜底只纠正「TCP 已连通」，不给具体药方。
+- **新增 `tlsMinVersion` 连接参数**：URL query 与分字段表单均支持，取值 `TLSv1` / `TLSv1.1` / `TLSv1.2`（区分大小写），落地为 `options.cryptoCredentialsDetails = { minVersion }`，缺省不注入（沿用 Node 默认下限 TLSv1.2）。只设 `minVersion`、**不设 `maxVersion` 也不设 `ciphers`**：tedious 在未指定上限时会自己把 `maxVersion` 补成 `TLSv1.2`（上限天然封顶，显式写反而削弱安全性），而 Electron 内置的是 BoringSSL，OpenSSL 专有 cipher 串（如 `DEFAULT@SECLEVEL=0`）会直接抛 `INVALID_COMMAND`。白名单刻意不含 `TLSv1.3`——受上述 `maxVersion` 补全影响，`minVersion=TLSv1.3` 会变成 min>max 并 100% 抛 `ERR_SSL_NO_PROTOCOLS_AVAILABLE`（实测 `NO_SUPPORTED_VERSIONS_ENABLED`），错误文案直接把这条原因写给用户，避免反复试。非法值 fail-closed 抛中文错误，不静默回退。
+- **分字段表单补齐 TLS 相关键**：`fields` 分支此前完全读不到 `encrypt` / `trustServerCertificate` / `tdsVersion` / `tlsMinVersion`，用户在表单里关掉加密、信任证书或下探 TLS 下限都不生效（连接仍按默认值走）。现与 URL 分支同口径补齐，默认值不变（`encrypt=true` / `trustServerCertificate=false` / `tdsVersion=7_4` / `useUTC=true`）。
+- **文档纠偏**：README 中「最低 TLS 版本经 `cryptoCredentialsDetails.minVersion` 配置」是虚标（原实现根本没有该通路），改为说明新增的 `?tlsMinVersion=` 参数，并把「连 2008 就加 `?trustServerCertificate=true`」拆成证书类/协议类两种根因分别给解法。
+
+### 杂项
+
+- **许可证 MIT → Apache-2.0**：此前 package.json 与 README 都声明 MIT 但仓库没有 LICENSE 文件（只有声明、没有正文）。现补齐 Apache License 2.0 完整正文（与 apache.org 官方文本逐字比对一致），package.json 的 `license` 与 `author` 同步更新。
+- **新增 CI 与贡献者分支保护**：GitHub Actions 在 Node 22/24 跑 `npm ci → build → typecheck → test`；ruleset 覆盖 master 与 `contributor/*`，强制 CI 通过。
+- **README 重写为纯功能文档**：删除错误的「本仓库为 fork」声明（本仓库即上游），新增功能流程图、Issue 模板（Bug 报告 / 功能请求）。
 
 ## 1.8.7
 
