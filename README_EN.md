@@ -4,7 +4,13 @@
 
 Operate databases safely from DSH chat: 9 database engines, project-scoped grants, dangerous-operation confirmation, full audit logging, plus a sidebar console and SQL editor.
 
-**Feature flow diagram** → [Open the interactive diagram](assets/feature-flow.html) (full path from entry point to audit, including both gates and the exception branches)
+## Feature flow
+
+The complete path of one database operation, from entry point to audit trail — both entry points share the same semantics, and every call must pass through two gates: project-level grants and statement-level risk classification.
+
+![dsh-db-tool feature flow](assets/feature-flow.png)
+
+[**Open the interactive version**](assets/feature-flow.html) — zoom, pan, path highlighting, and click any node to see its source evidence.
 
 > Questions or suggestions? [Open an issue](https://github.com/mengqi1436/dsh-db-tool/issues/new/choose) (bug report and feature request templates provided).
 
@@ -241,4 +247,6 @@ vendor/       driver and editor bundles (build artifacts, included on publish)
 
 ## License
 
-MIT
+[Apache License 2.0](LICENSE) © 2026 mengqi1436
+
+Free to use commercially, modify, distribute and sublicense, provided copyright and license notices are retained and modified files are marked. The included patent grant is irrevocable, but terminates if you bring a patent suit over this work.

@@ -3,7 +3,8 @@
   "version": "1.8.5",
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
+  "author": "mengqi1436",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mengqi1436/dsh-db-tool.git"
