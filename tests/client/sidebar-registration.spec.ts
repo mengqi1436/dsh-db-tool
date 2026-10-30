@@ -225,4 +225,32 @@ describe('官方右侧栏注册契约', () => {
 		expect(src.includes('betterSidebar')).toBe(false);
 		expect(src.includes('better-sidebar')).toBe(false);
 	});
+
+	it('文案 thunk 现读语言：切 en 返回英文，切回 zh 返回中文（不依赖重挂载）', () => {
+		let active = 'zh';
+		const { ctx, state } = makeCtx();
+		ctx.locale.getSnapshot = () => ({ active });
+		mod.apply(ctx);
+		const def = state.types[0];
+		expect(def.title()).toBe('数据库');
+		active = 'en';
+		expect(def.title()).toBe('Databases');
+		active = 'zh';
+		expect(def.title()).toBe('数据库');
+	});
+
+	it('重新 apply 时 locale 快照暂缺 active，不得把已切好的语言打回默认', () => {
+		let active = 'en';
+		const first = makeCtx();
+		first.ctx.locale.getSnapshot = () => ({ active });
+		mod.apply(first.ctx);
+		const firstTitle = first.state.types[0].title;
+		expect(firstTitle()).toBe('Databases');
+
+		// 模拟插件重载：新 ctx 的 locale 服务尚未报告 active
+		const second = makeCtx();
+		second.ctx.locale.getSnapshot = () => ({});
+		mod.apply(second.ctx);
+		expect(firstTitle()).toBe('Databases');
+	});
 });

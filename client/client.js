@@ -482,7 +482,9 @@ window.__ModuleLoader__.load({
 		function attachLocale(locale) {
 			try {
 				if (locale && typeof locale.getSnapshot === "function") localeService = locale;
-				activeLocale = (locale && locale.getSnapshot && locale.getSnapshot().active) || "zh";
+				// 取不到有效语言时保留原值：否则重新 apply 会把已切好的语言打回默认
+				const active = locale && locale.getSnapshot && locale.getSnapshot().active;
+				if (active) activeLocale = active;
 			} catch (e) { /* 保持默认 */ }
 		}
 		// 当前语言：优先读 locale 服务实时快照，读不到才回落 apply 期缓存值
@@ -3711,7 +3713,9 @@ window.__ModuleLoader__.load({
 				manage: React.createElement(ManageView, shared),
 				grants: React.createElement(GrantsView, shared),
 				console: React.createElement(ConsoleView, shared),
-				transfer: React.createElement(TransferView, Object.assign({}, shared, { visible })),
+				// visible 含本视图是否被选中：keepMounted 让正文在后台存活，
+				// 只看顶层 visible 会让 transfer/live 在其他视图下继续 2s 轮询。
+				transfer: React.createElement(TransferView, Object.assign({}, shared, { visible: visible && view === "transfer" })),
 			};
 			return React.createElement(
 				"div",

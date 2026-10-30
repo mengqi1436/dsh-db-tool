@@ -124,6 +124,38 @@ describe('顶级标签', () => {
 	});
 });
 
+/* ---------- 视图级轮询门控 ---------- */
+
+describe('TransferView 的 visible 门控粒度', () => {
+	// keepMounted 后正文在后台存活，transfer/live 的 2s 轮询必须同时满足
+	// 「页签可见」与「当前停在数据传输视图」，否则其他视图下仍会持续查库。
+	function transferVisible(tree: any): any {
+		let found: any;
+		(function walk(n: any) {
+			if (found || !n) return;
+			if (Array.isArray(n)) { n.forEach(walk); return; }
+			if (typeof n !== 'object' || !n.type) return;
+			if (n.type === T.TransferView) { found = n.props.visible; return; }
+			const kids = Array.isArray(n.children) ? n.children : [n.children];
+			for (const k of kids) walk(k);
+		})(tree);
+		return found;
+	}
+
+	it('页签隐藏时 TransferView 不轮询', () => {
+		reactStub.reset();
+		const tree = reactStub.render(T.Panel, { visible: false, scope: { cwd: 'E:/proj', sessionId: 's1' }, ctx: {} });
+		expect(transferVisible(tree)).toBe(false);
+	});
+
+	it('页签可见但停在默认视图（连接管理）时 TransferView 也不轮询', () => {
+		reactStub.reset();
+		const tree = reactStub.render(T.Panel, { visible: true, scope: { cwd: 'E:/proj', sessionId: 's1' }, ctx: {} });
+		// 默认 view=manage，不在 transfer
+		expect(transferVisible(tree)).toBe(false);
+	});
+});
+
 /* ---------- TransferView 内部降级结构 ---------- */
 
 describe('TransferView 内的传输日志区块', () => {
