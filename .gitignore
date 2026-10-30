@@ -23,6 +23,9 @@ dsh-boot-diag*.txt
 .zcode/
 out/
 .tmp-*
+# 提交信息草稿（曾误提交进 1.9.4，用 git commit -F 时应写入 .git/ 下或及时删除）
+.gm.tmp
+*.commit-msg.tmp
 .impeccable/
 docs/*
 !docs/sidebar-right-migration.md

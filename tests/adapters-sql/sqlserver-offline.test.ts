@@ -733,6 +733,11 @@ describe('sqlserver encrypt=auto（先明文，服务器强制加密才升级重
     );
     expect(msgOf(err)).toMatch(/未协商加密/);
     expect(h.pools).toHaveLength(1);
+    // 关键区分断言：反方向文案绝不能被当成「服务器强制加密」。
+    // 只看「池数=1」不足以锁定——若重试判据被放宽，池会变成 2 且错误会变成
+    // autoEncryptFailure 的合并文案（含「该实例强制加密」）。这两条同时断言才真正锁住分支。
+    expect(msgOf(err)).not.toMatch(/该实例强制加密/);
+    expect(msgOf(err)).not.toMatch(/自动改用 encrypt=true/);
     await a.close();
   });
 
