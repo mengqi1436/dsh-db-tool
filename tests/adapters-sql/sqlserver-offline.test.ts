@@ -471,7 +471,8 @@ describe('sqlserver 加密与证书配置', () => {
       | { ca?: string[] }
       | undefined;
     expect(details?.ca).toBeInstanceOf(Array);
-    expect(details!.ca!).toContain(PEM);
+    // 实现会 trim 首尾空白（PEM 文本前后空行无意义），故按 trim 后比较
+    expect(details!.ca!.some((c) => c.trim() === PEM.trim())).toBe(true);
     // 系统 CA 自动合并（Node >= 22.15 的 tls.getCACertificates('system')）：显式 CA 之外还能命中
     // 系统信任库中的证书。本机 Node 不支持该系统 API 时该项为空，此时只校验显式 CA 生效。
     const sys = typeof tls.getCACertificates === 'function' ? tls.getCACertificates('system') : [];
@@ -494,7 +495,7 @@ describe('sqlserver 加密与证书配置', () => {
       const details = (h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as {
         ca?: string[];
       };
-      expect(details.ca).toContain(PEM);
+      expect(details.ca?.some((c: string) => c.trim() === PEM.trim())).toBe(true);
       await a.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -530,7 +531,7 @@ describe('sqlserver 加密与证书配置', () => {
       minVersion?: string;
     };
     expect(details.minVersion).toBe('TLSv1.1');
-    expect(details.ca).toContain(PEM);
+    expect(details.ca?.some((c: string) => c.trim() === PEM.trim())).toBe(true);
     await a.close();
   });
 
@@ -1901,5 +1902,173 @@ describe('sqlserver 系统信任库注入', () => {
     // 建池本身成功即证明未抛错；config 已生成说明校验链没被打断
     expect(h.configs[0]).toBeDefined();
     await a.close();
+  });
+});
+
+/* ---------------- 登录阶段真实形态（number 缺失）的分诊 ---------------- */
+/*
+ * 回归背景：tedious 的 Login7TokenHandler.onErrorMessage 构造的是
+ * `new ConnectionError(token.message, 'ELOGIN')`——token.number 只用于判断临时错误，
+ * 没有赋给 error 对象（只有查询阶段的 RequestError 才有 number）。
+ * 因此 17819/17835 等在真实链路上到达适配器时 number 恒为 undefined。
+ * 若只按 number 查表，这些诊断会全部失效并退化成"用户名或密码错误"。
+ * 下面的用例刻意用 code='ELOGIN' 且不带 number，模拟真实形态。
+ */
+
+describe('sqlserver 登录阶段错误分诊（真实形态：ELOGIN + 无 number）', () => {
+  /** 构造登录阶段错误：code=ELOGIN，不带 number */
+  function loginErr(message: string): Error {
+    const e = new Error(message);
+    e.name = 'ConnectionError';
+    (e as unknown as { code: string }).code = 'ELOGIN';
+    return e;
+  }
+
+  async function reasonOf(message: string): Promise<string> {
+    // 通过 pool.failWith 注入：testConnect 的 version 查询会抛，等价于登录阶段被服务器拒绝
+    const { a, pool } = await make();
+    pool.failWith = loginErr(message);
+    const err = await a.testConnect().then(
+      () => { throw new Error('应抛错'); },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    await a.close();
+    return msg;
+  }
+
+  it('17819 原文（仅接受 strict）：指向 encrypt=strict，且不得误报用户名密码错误', async () => {
+    const msg = await reasonOf(
+      'The SQL Server or the endpoint is configured to accept only strict (TDS 8.0 and above) connections. The connection has been closed.',
+    );
+    expect(msg).toMatch(/encrypt=strict/);
+    // 真实链路上 number 缺失，旧实现会退化成这句 —— 方向完全错
+    expect(msg).not.toMatch(/用户名或密码错误/);
+    // 且不得误给"装 CA / 关校验"这类对协议配置无效的药方
+    expect(msg).not.toMatch(/caCert/);
+  });
+
+  it('17835 原文（服务器强制加密）：指向 encrypt=true，不得误报登录失败', async () => {
+    const msg = await reasonOf(
+      'Encryption is required to connect to this server but the client library does not support encryption; the connection has been closed.',
+    );
+    expect(msg).toMatch(/encrypt=true/);
+    expect(msg).not.toMatch(/用户名或密码错误/);
+  });
+
+  it('17836 原文（包长度错配）：指向链路/代理，不得误判为认证问题', async () => {
+    const msg = await reasonOf(
+      'Length specified in network packet payload did not match number of bytes read; the connection has been closed.',
+    );
+    expect(msg).toMatch(/代理|中间设备|端口/);
+    expect(msg).not.toMatch(/用户名或密码错误/);
+  });
+
+  it('17832 原文（登录包结构非法）：指向链路中间设备', async () => {
+    const msg = await reasonOf(
+      'The login packet used to open the connection is structurally invalid; the connection has been closed.',
+    );
+    expect(msg).toMatch(/中间设备|中间层|端口/);
+  });
+
+  it('真正的账号错误（无任何已知特征）仍报用户名密码错误 —— 兜底不能被吞掉', async () => {
+    const msg = await reasonOf("Login failed for user 'sa'.");
+    expect(msg).toMatch(/用户名或密码错误/);
+  });
+});
+
+/* ---------------- CA 合并不缩小信任范围 ---------------- */
+/*
+ * 回归背景：applyCaCert 曾以 systemCa() 打底（不含内置 bundle），导致
+ * "为连 A 实例装一张自签 CA"后，所有走公网 CA 的实例全部连不上。
+ * Node 一旦收到 ca 选项就不再使用默认信任库，故必须 bundled + system + 用户 CA 合并。
+ */
+
+describe('sqlserver CA 合并不缩小信任范围', () => {
+  it('显式 caCert 时注入的 ca 同时包含内置 bundle、系统信任库与用户 CA', async () => {
+    const tlsMod = await import('node:tls');
+    const getter = (tlsMod as unknown as { getCACertificates?: (t: string) => string[] }).getCACertificates;
+    if (typeof getter !== 'function') return; // 老 Node：该能力不存在，跳过
+
+    const marker = '-----BEGIN CERTIFICATE-----\nUSERSUPPLIED\n-----END CERTIFICATE-----';
+    const h = harness();
+    const a = await createSqlserverAdapter(connByFields({ host: 'h', user: 'sa', caCert: marker }), {
+      driver: h.driver,
+    });
+    const ca = ((h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as Record<string, unknown>)['ca'] as string[];
+    expect(ca).toContain(marker);
+
+    // 关键：内置 bundle 必须在列，否则用户装一张 CA 就把公网实例全掐掉
+    const bundled = getter('default');
+    const caSet = new Set(ca);
+    const bundledPresent = bundled.filter((p) => caSet.has(p)).length;
+    expect(bundledPresent).toBeGreaterThan(0);
+    // 允许去重导致的数量差异，但不能"只剩用户那张"
+    expect(ca.length).toBeGreaterThan(bundledPresent);
+    await a.close();
+  });
+
+  it('未给 caCert 时注入的列表同样包含内置 bundle（默认路径与显式路径同口径）', async () => {
+    const tlsMod = await import('node:tls');
+    const getter = (tlsMod as unknown as { getCACertificates?: (t: string) => string[] }).getCACertificates;
+    if (typeof getter !== 'function') return;
+
+    const { h, a } = await make();
+    const ca = ((h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as Record<string, unknown> | undefined)?.['ca'] as string[] | undefined;
+    expect(Array.isArray(ca)).toBe(true);
+    const caSet = new Set(ca as string[]);
+    const bundledPresent = getter('default').filter((p) => caSet.has(p)).length;
+    expect(bundledPresent).toBeGreaterThan(0);
+    await a.close();
+  });
+});
+
+/* ---------------- 单行 PEM 自动折行（I2：前端 input 会压平换行） ---------------- */
+
+describe('sqlserver 单行 PEM 折行', () => {
+  const BODY = 'MIIBszCCAVmgAwIBAgIUfakecaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+
+  it('被压成一行的 PEM 会重新按 64 列折行（否则握手必然失败却查不出原因）', async () => {
+    const oneLine = `-----BEGIN CERTIFICATE-----${BODY}-----END CERTIFICATE-----`;
+    const h = harness();
+    const a = await createSqlserverAdapter(connByFields({ host: 'h', user: 'sa', caCert: oneLine }), {
+      driver: h.driver,
+    });
+    const ca = (((h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails']) as Record<string, unknown>)['ca'] as string[];
+    const mine = ca.find((c) => c.includes('fakecaAAAA'));
+    expect(mine).toBeDefined();
+    // 折行是判定标准：单行形态 createSecureContext 会静默接受但握手失败
+    expect(mine!).toContain('\n');
+    expect(mine!.split('\n').length).toBeGreaterThan(2);
+    // 每行不超过 64 字符（首尾标记行除外）
+    const bodyLines = mine!.split('\n').slice(1, -1);
+    expect(bodyLines.every((l) => l.length <= 64)).toBe(true);
+    await a.close();
+  });
+
+  it('已含换行的正常 PEM 原样保留（不得打乱有效格式）', async () => {
+    const normal = '-----BEGIN CERTIFICATE-----\nMIIBszCCAVmg\nAwIBAgIUfakeca==\n-----END CERTIFICATE-----';
+    const h = harness();
+    const a = await createSqlserverAdapter(connByFields({ host: 'h', user: 'sa', caCert: normal }), {
+      driver: h.driver,
+    });
+    const ca = (((h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails']) as Record<string, unknown>)['ca'] as string[];
+    expect(ca.some((c) => c === normal)).toBe(true);
+    await a.close();
+  });
+
+  it('残缺 PEM（有 BEGIN 无 END）fail-closed 报错，不静默接受', async () => {
+    const h = harness();
+    const err = await createSqlserverAdapter(
+      connByFields({ host: 'h', user: 'sa', caCert: '-----BEGIN CERTIFICATE-----MIIBbroken' }),
+      { driver: h.driver },
+    ).then(
+      () => { throw new Error('应抛错'); },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/caCert/);
+    expect(msg).toMatch(/PEM|-----END/);
+    expect(h.configs).toHaveLength(0); // 配置阶段就拒绝，不建池
   });
 });

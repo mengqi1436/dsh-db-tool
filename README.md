@@ -169,7 +169,13 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 
 各版本对 TLS 1.2 的支持：2016+ 原生支持；2012 SP4 / 2014 SP2 及以后原生支持，更早的 SP 需打补丁；2008 / 2008 R2 需上述补丁；**SQL Server 2005 无任何补丁可支持 TLS 1.2**（官方明确「TLS 1.2 只支持 SQL Server 2008 及以后」），只能下探客户端 TLS 下限。详见 [KB3135244](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server)。
 
-**`encrypt=false` 不能跳过 TLS 握手**：SQL Server 的登录包（Login7，含账号密码）**即使在未配置加密时也始终加密**，因此仍要完成一次 TLS 握手。协议版本无交集时，`encrypt=false` 一样连不上——这是「改了加密参数却仍报同一个错」的常见原因。
+**`encrypt=false` 的真实语义（实测确认，勿误解为「只是不加密」）**：
+
+- 服务器**未**强制加密（PRELOGIN 回 `OFF`/`NOT_SUP`）时，`encrypt=false` 会**完全跳过 TLS 握手，直接明文发送 LOGIN7（含账号密码）**。已用假 TDS 服务器抓包实测：客户端下一个包就是 `0x10`（LOGIN7），没有 TLS 握手。**这是明文传输，切勿在内网之外使用。**
+- 服务器**强制**加密（`Force Encryption=Yes` 或 Azure SQL）时，`encrypt=false` 会被拒绝（提示「服务器要求加密连接」）——此时仍必须开加密。
+- 微软文档中「登录包始终加密」指的是**服务器强制加密或客户端 `encrypt=true` 时**的语义，不能推广成「`encrypt=false` 也总有 TLS 握手」。
+
+因此默认 `encrypt=true` 才是安全档；`encrypt=false` 应视为明确的降级选择。
 
 **`encrypt=strict`（TDS 8.0）**：仅 SQL Server 2022+ 且开启 Force Strict Encryption 的实例支持。该模式下 TLS 在登录包之前就完成握手，因此 **`trustServerCertificate` 完全不生效**（驱动不传 `rejectUnauthorized`，证书强制校验），只能靠 `caCert` 或 `serverName`。
 

@@ -169,7 +169,13 @@ Covers SQL Server 2005 (9.0) through 2025 (17.0) and Azure SQL Database.
 
 TLS 1.2 support by version: 2016+ has it natively; 2012 SP4 / 2014 SP2 and later have it natively, earlier service packs need patches; 2008 / 2008 R2 need the updates above; **SQL Server 2005 has no patch that adds TLS 1.2** (officially "TLS 1.2 support is offered only for SQL Server 2008 and later"), so lowering the client TLS floor is the only option. See [KB3135244](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server).
 
-**`encrypt=false` does not skip the TLS handshake**: SQL Server always encrypts the login packet (Login7, which carries the credentials) *even when encryption is not configured*, so a TLS handshake still happens. When the protocol versions do not overlap, `encrypt=false` fails just the same — a common reason why "changing the encryption setting" does not fix the error.
+**What `encrypt=false` really does (verified by packet capture — do not read it as "just unencrypted data")**:
+
+- When the server does **not** force encryption (PRELOGIN replies `OFF`/`NOT_SUP`), `encrypt=false` **skips the TLS handshake entirely and sends LOGIN7 — including the credentials — in cleartext**. Measured against a fake TDS server: the client's next packet is `0x10` (LOGIN7) with no handshake at all. **This is plaintext transmission; never use it outside a trusted network.**
+- When the server **does** force encryption (`Force Encryption=Yes`, Azure SQL), `encrypt=false` is rejected ("server requires encryption"), so encryption is still mandatory there.
+- Microsoft's "the login packet is always encrypted" statement applies **only when the server forces encryption or the client sets `encrypt=true`**; it must not be generalised into "`encrypt=false` still performs a TLS handshake".
+
+The default `encrypt=true` is therefore the secure setting; treat `encrypt=false` as an explicit downgrade.
 
 **`encrypt=strict` (TDS 8.0)**: only supported by SQL Server 2022+ instances with Force Strict Encryption enabled. In this mode TLS completes before the login packet, so **`trustServerCertificate` has no effect at all** (the driver omits `rejectUnauthorized` and validation is mandatory); use `caCert` or `serverName` instead.
 

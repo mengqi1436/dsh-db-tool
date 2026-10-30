@@ -216,8 +216,9 @@ function applyEncrypt(options: Record<string, unknown>, raw: unknown, source: st
  * 用它（startTls），故一个参数覆盖两条路径。留空不注入，沿用「主机名作校验名」的默认语义。
  */
 function applyServerName(options: Record<string, unknown>, raw: unknown): void {
-  if (raw === undefined || raw === null || String(raw) === '') return;
-  options.serverName = String(raw);
+  // 与其它 applyXxx 同口径先 trim 再判空：否则 ?serverName=%20（一个空格）会被当成有效值注入
+  if (raw === undefined || raw === null || String(raw).trim() === '') return;
+  options.serverName = String(raw).trim();
 }
 
 /** 取（必要时创建）cryptoCredentialsDetails，供 minVersion 与 ca 合并写入而不互相覆盖 */
@@ -273,16 +274,77 @@ function defaultCa(): string[] {
  * 两条硬约束：
  *  - 路径读不出来必须 fail-closed 抛中文错。若静默跳过，用户会以为「已装 CA 但还连不上」，实际
  *    仍按系统信任库校验——问题只会更难定位。
- *  - 写入的 ca 必须与系统信任库合并（见 systemCa 的注释），否则等于缩小信任范围。
+ *  - 写入的 ca 必须同时并入**内置 bundle 与系统信任库**，否则等于缩小信任范围：Node 一旦收到
+ *    ca 选项就不再使用默认信任库，只塞用户那张会让"为连 A 实例装一张自签 CA"变成"从此所有公网
+ *    CA 实例全部连不上"（SELF_SIGNED_CERT_IN_CHAIN）。这里与 applySystemCaDefault 用同一套合并口径。
  */
 function applyCaCert(options: Record<string, unknown>, raw: unknown, source: string): void {
   if (raw === undefined || raw === null || String(raw) === '') return;
   const text = String(raw);
   // PEM 文本原样保留（换行是 PEM 结构的一部分）；只有当路径时才去掉两端空白
-  const pem = text.includes(PEM_HEADER) ? text : readCaFile(text.trim(), source);
-  const merged = systemCa().slice();
-  if (!merged.includes(pem)) merged.push(pem);
+  const pem = text.includes(PEM_HEADER) ? normalizePem(text, source) : readCaFile(text.trim(), source);
+  const merged = mergedCaWith(pem);
   credentialsOf(options).ca = merged;
+}
+
+/**
+ * 规范化 PEM 文本：把被压成一行的证书重新按 64 列折行。
+ *
+ * 为什么必须有这一步：前端 caCert 是单行 <input>，用户从证书文件粘贴多行 PEM 时换行会被
+ * 浏览器压平。而 `tls.createSecureContext({ca:[单行PEM]})` **不报错**（实测静默接受），
+ * 握手时才失败并报 DEPTH_ZERO_SELF_SIGNED_CERT——用户看到的是"我填了 CA 还是同样的错"，
+ * 属最难排查的失败形态。这里主动还原折行，避免把格式问题留给用户去猜。
+ */
+function normalizePem(text: string, source: string): string {
+  const trimmed = text.trim();
+  // 已含换行（正常 PEM 块）→ 原样返回，绝不打乱有效格式
+  if (/[\r\n]/.test(trimmed)) return trimmed;
+  // 单行形态：抽出所有完整证书块并重新折行
+  const blocks = trimmed.match(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g);
+  if (blocks !== null && blocks.length > 0) {
+    return blocks
+      .map((b) => {
+        const m = /-----BEGIN ([^-]+)-----([\s\S]*?)-----END \1-----/.exec(b);
+        if (m === null) return b;
+        const body = (m[2] ?? '').replace(/\s+/g, '');
+        if (body === '') return b;
+        const wrapped = body.match(/.{1,64}/g) ?? [];
+        return `-----BEGIN ${m[1]}-----\n${wrapped.join('\n')}\n-----END ${m[1]}-----`;
+      })
+      .join('\n');
+  }
+  // 含 BEGIN 但不是完整证书块（被截断/粘贴残缺）→ fail-closed 说清楚，不要静默接受
+  throw new Error(
+    `sqlserver 连接${source}的 caCert 不是完整的 PEM 证书（缺少 -----END 结尾或内容被截断）。请给出完整的 -----BEGIN CERTIFICATE----- ... -----END CERTIFICATE----- 块，或改用文件路径`,
+  );
+}
+
+/**
+ * 合并 CA 列表：内置 bundle + 系统信任库 + 额外 PEM（去重，保序）。
+ *
+ * 三处（默认注入 / 显式 caCert / 将来可能的扩展）必须共用同一口径，否则会出现
+ * "未给 caCert 时信任 154 张、给了反而只剩 37 张"这种自相矛盾的信任收窄。
+ * 列表在进程生命周期内不变，故做模块级缓存——createSecureContext 传入近百张证书的开销
+ * 是可测的（每次建连都要跑一遍 poolConfig）。
+ */
+let caCache: { bundled: string[]; system: string[] } | undefined;
+
+function caPools(): { bundled: string[]; system: string[] } {
+  if (caCache === undefined) caCache = { bundled: defaultCa(), system: systemCa() };
+  return caCache;
+}
+
+/** 合并成一份去重的 CA 列表（bundled 优先，其次 system，最后 extras） */
+function mergedCaWith(...extras: string[]): string[] {
+  const { bundled, system } = caPools();
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const pem of [...bundled, ...system, ...extras]) {
+    if (pem === '' || seen.has(pem)) continue;
+    seen.add(pem);
+    out.push(pem);
+  }
+  return out;
 }
 
 /**
@@ -309,12 +371,9 @@ function applySystemCaDefault(options: Record<string, unknown>): void {
     // 已经有人写过 ca（caCert 显式给过）就不再插手，避免覆盖用户的显式选择
     if (cur !== null && typeof cur === 'object' && cur['ca'] !== undefined) return;
   }
-  const bundled = defaultCa();
-  const system = systemCa();
+  // 合并口径统一走 mergedCaWith（与 applyCaCert 同一实现，避免两处漂移）
+  const merged = mergedCaWith();
   // 两者都拿不到 → 不注入：保持 Node 默认（内置 bundle 依然生效）
-  if (bundled.length === 0 && system.length === 0) return;
-  const merged = bundled.slice();
-  for (const pem of system) if (!merged.includes(pem)) merged.push(pem);
   if (merged.length === 0) return;
   credentialsOf(options).ca = merged;
 }
@@ -742,6 +801,43 @@ function erequestHint(num: number | undefined): string | undefined {
 }
 
 /**
+ * 服务器原文 → 错误号特征表（number 缺失时的兜底）。
+ *
+ * 为什么必须有这条兜底：登录阶段 tedious 抛的是 `ConnectionError(message, 'ELOGIN')`，不带 number，
+ * 而 17819/17835/17898/17802/17836/17828/17832 全部发生在建连/登录阶段。只按 number 查表等于
+ * 对这些错误完全没有分诊，还会把 17819 误报成"用户名或密码错误"。
+ *
+ * 特征取官方 sys.messages 原文里最独特的片段，避免与其它错误串味；宁可漏匹配（退回通用文案）
+ * 也不要错匹配（给错药方比不给更糟）。
+ */
+const HINT_BY_TEXT: { num: number; re: RegExp }[] = [
+  // "The SQL Server or the endpoint is configured to accept only strict (TDS 8.0 and above) connections"
+  { num: 17819, re: /accept only strict|TDS 8\.0 and above/i },
+  // "Encryption is required to connect to this server but the client library does not support encryption"
+  { num: 17835, re: /Encryption is required to connect to this server/i },
+  // "Please use the client library which supports TDS Version 7.4 or higher"
+  { num: 17898, re: /supports TDS Version 7\.4 or higher/i },
+  // "The Tabular Data Stream \(TDS\) version 0x... is unsupported or unknown"
+  { num: 17802, re: /TDS\)? version 0x[0-9a-fA-F]+[^.]*unsupported or unknown/i },
+  // "Length specified in network packet payload did not match number of bytes read"
+  { num: 17836, re: /Length specified in network packet payload did not match/i },
+  // "The prelogin packet used to open the connection is structurally invalid"
+  { num: 17828, re: /prelogin packet used to open the connection is structurally invalid/i },
+  // "The login packet used to open the connection is structurally invalid"
+  { num: 17832, re: /login packet used to open the connection is structurally invalid/i },
+  // "Login failed with invalid TLS version"（Azure 最低 TLS 门槛）
+  { num: 47072, re: /invalid TLS version/i },
+];
+
+/** 按服务器原文特征反查错误号诊断（number 缺失或未收录时使用） */
+function hintByText(text: string): string | undefined {
+  for (const { num, re } of HINT_BY_TEXT) {
+    if (re.test(text)) return EREQUEST_HINTS[num];
+  }
+  return undefined;
+}
+
+/**
  * mssql 错误码 → 中文可读提示。ETIMEOUT 在 ConnectionError（建连超时）与 RequestError
  * （语句执行超时）下语义不同，故结合 err.name 判断而非只看 code；originalError/precedingErrors
  * 附加在末尾用于追溯。无法识别时保留原始 message（不吞信息）。
@@ -785,13 +881,23 @@ function mssqlReason(e: unknown): string {
       tlsText,
     );
 
-  // 已知错误号对应的针对性诊断（未收录为 undefined）：既用于 EREQUEST 文案，也用于抑制 TLS 族建议
-  const knownHint = erequestHint(num);
+  // 已知错误号对应的针对性诊断（未收录为 undefined）：既用于 EREQUEST 文案，也用于抑制 TLS 族建议。
+  // 关键坑：这些错误几乎全部发生在**登录阶段**，而 tedious 的 Login7TokenHandler.onErrorMessage
+  // 构造的是 `new ConnectionError(token.message, 'ELOGIN')` —— token.number 只用于判断临时错误，
+  // **没有赋给 error 对象**（只有查询阶段的 RequestError 才有 number）。因此真实链路上
+  // err.number 恒为 undefined，只按 number 查表会让这 8 条诊断全部失效、退化成"用户名或密码错误"。
+  // 故 number 缺失时按服务器原文特征反查（见 hintByText）。
+  const knownHint = erequestHint(num) ?? hintByText(detail);
 
   let base: string;
   switch (code) {
     case 'ELOGIN':
-      base = `登录失败：用户名或密码错误，或账号不允许从当前主机登录（${detail}）`;
+      // 登录阶段也可能是「服务器用错误号拒绝连接」而非账号问题（17819/17835/17898/17802 等都发生在
+      // 这一步）。命中已知特征时优先给针对性诊断——否则会把"只接受 strict 加密"误报成密码错误，
+      // 用户会反复核对账号，方向完全错。
+      base = knownHint === undefined
+        ? `登录失败：用户名或密码错误，或账号不允许从当前主机登录（${detail}）`
+        : `登录失败：服务器在登录阶段拒绝了该连接（${knownHint}）。服务器原文：${detail}`;
       break;
     case 'ETIMEOUT':
       base =
