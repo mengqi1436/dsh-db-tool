@@ -1,6 +1,6 @@
 {
   "name": "dsh-db-tool",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
   "license": "Apache-2.0",
@@ -59,6 +59,9 @@
   "optionalDependencies": {
     "better-sqlite3": "^13.0.3"
   },
+  "overrides": {
+    "tedious": "^20.3.8"
+  },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.11.1",
@@ -76,6 +79,7 @@
     "mongodb": "^7.6.0",
     "mssql": "12.7.4",
     "semver": "^7.7.0",
+    "tedious": "^20.3.8",
     "sql-formatter": "^15.9.0",
     "stryker-cli": "^1.1.0",
     "typescript": "^5.9.3",
