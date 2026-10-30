@@ -107,9 +107,9 @@ Navicat 风格的侧边栏多标签编辑器（CodeMirror 6）：
 
 ---
 
-## 侧边栏
+## 右侧栏
 
-通过 `dsh-better-sidebar` 注册一个 tab，内含四个面板（中英双语）：
+通过 DSH **官方右侧栏**（`@deepseek-ai/dsh-client-ui-sidebar-right`）注册一个页签，不依赖任何第三方侧边栏。右侧栏展开时，「数据库」随侧边栏空态页（入口页）的卡片出现，可与其他官方页签并排、拆分或浮动；页签内含五个面板（中英双语）：
 
 | 面板 | 用途 |
 |---|---|
@@ -117,6 +117,7 @@ Navicat 风格的侧边栏多标签编辑器（CodeMirror 6）：
 | 项目授权 | 为当前项目勾选各连接的 ro/rw |
 | 数据浏览 | 树形浏览库表、搜索、预览数据 |
 | SQL 控制台 | 多标签编辑器、事务、历史、结果网格 |
+| 数据传输 | 库表级数据迁移，批量/并行与写入模式可选，附传输日志 |
 
 ---
 
@@ -190,6 +191,8 @@ DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令：
 **关于 oracledb**：其安装脚本会被 pnpm 默认拦截，首次安装会报告失败。在 DSH 插件安装界面点 **"Allow these scripts and retry"** 即可完成——该脚本仅做 Node 版本检查与横幅打印，批准无风险，且批准会持久化到 profile，后续升级不再提示。
 
 **运行环境要求**：Node.js ≥ 22。部分数据库驱动（tedious 及其 Azure 依赖）要求 Node 22 起，Node 20 会在建连时报 `Promise.withResolvers is not a function`。
+
+**前端挂载位置**：数据库面板挂在 DSH 自带的右侧栏上，不需要额外安装任何侧边栏插件；`dsh.client.inject` 已声明 `@deepseek-ai/dsh-client-ui-sidebar-right` 作为加载前置。
 
 ---
 

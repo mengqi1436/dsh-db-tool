@@ -107,9 +107,9 @@ Export all connections (including passwords) to a passphrase-encrypted file for 
 
 ---
 
-## Sidebar
+## Right sidebar
 
-One tab registered through `dsh-better-sidebar`, containing four panels (bilingual):
+One tab registered through the official DSH right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) — no third-party sidebar required. When the panel is expanded, **Databases** appears as a card on the sidebar's guide (empty-state) page and can sit next to, split with, or float alongside any other official tab. The tab holds five panels (bilingual):
 
 | Panel | Purpose |
 |---|---|
@@ -117,6 +117,7 @@ One tab registered through `dsh-better-sidebar`, containing four panels (bilingu
 | Grants | Tick ro/rw per connection for the current project |
 | Browse | Tree navigation, search and data preview |
 | SQL Console | Multi-tab editor, transactions, history, result grid |
+| Transfer | Table-level data migration with batch/parallelism and write modes, plus a transfer log |
 
 ---
 
@@ -190,6 +191,8 @@ DSH desktop 0.2.0-rc.2+ bundles the `dsh` command:
 **About oracledb**: its install script is blocked by pnpm by default, so the first install reports a failure. Click **"Allow these scripts and retry"** in the DSH plugin installer — the script only performs a Node version check and prints a banner, approving it is safe, and the approval persists to your profile so later upgrades do not prompt again.
 
 **Runtime requirement**: Node.js ≥ 22. Some database drivers (tedious and its Azure dependencies) require Node 22+; on Node 20 connections fail with `Promise.withResolvers is not a function`.
+
+**Where the UI is mounted**: the database panel docks into DSH's built-in right sidebar — no extra sidebar plugin needs installing. `dsh.client.inject` already declares `@deepseek-ai/dsh-client-ui-sidebar-right` as a load prerequisite.
 
 ---
 
