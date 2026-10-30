@@ -15,6 +15,7 @@ import type {
   ExecResult,
   QueryResult,
   TableInfo,
+  TableSearchHit,
   TestConnectResult,
 } from '../../lib/adapters/types.js';
 import { makeTempHome, cleanupDir } from '../store/helpers.js';
@@ -28,6 +29,8 @@ export interface FakeAdapterOptions {
   query?: (sql: string, params?: unknown[], database?: string) => Promise<QueryResult>;
   execute?: (statement: string, params?: unknown[], database?: string) => Promise<ExecResult>;
   previewRows?: (table: string, limit: number, database?: string) => Promise<QueryResult>;
+  /** 不传则适配器无 searchTables 方法（验证 manager 逐库回退路径） */
+  searchTables?: DatabaseAdapter['searchTables'];
 }
 
 /** 内存假适配器（mysql 语义） */
@@ -53,6 +56,7 @@ export function fakeAdapter(opts?: FakeAdapterOptions): DatabaseAdapter {
       { name: 'id', dataType: 'int', nullable: false, key: 'PRI' },
     ],
     previewRows: opts?.previewRows ?? (async () => ({ columns: ['id'], rows: [[1]], rowCount: 1 })),
+    ...(opts?.searchTables ? { searchTables: opts.searchTables } : {}),
     close: async () => {},
   };
 }

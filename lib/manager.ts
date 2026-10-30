@@ -16,6 +16,7 @@ import type {
   ExecResult,
   QueryResult,
   TableInfo,
+  TableSearchHit,
   TestConnectResult,
   ResolvedConnection,
 } from './adapters/types.js';
@@ -117,6 +118,10 @@ function assertNonEmpty(v: string | undefined, label: string): string {
   if (s === '') throw new DbToolError('INVALID_ARGUMENT', `缺少必填参数: ${label}`);
   return s;
 }
+
+/** searchTables 回退白名单：listTables(database) 语义为「库名」的 kind（pg/gaussdb 有原生实现；
+ *  redis/oracle/dmdb 语义不兼容，回退会错标来源或重复返回，见 manager.searchTables 注释） */
+const SEARCH_FALLBACK_KINDS = new Set<string>(['mysql', 'mongodb', 'sqlite']);
 
 /** 单连接并发控制台事务会话上限（每会话独占驱动池 + checkout 连接，防连接耗尽） */
 const MAX_CONSOLE_SESSIONS_PER_CONN = 4;
@@ -371,6 +376,60 @@ export class DbToolService {
       return result;
     } catch (e) {
       this.audit(key, connId, 'tables', database ?? 'default', 'none', false, false, this.errText(e));
+      throw this.toDriverError(e);
+    }
+  }
+
+  /**
+   * 跨库表名模糊搜索（ro 即可）。优先用适配器原生实现（mysql 走 information_schema
+   * 一条 LIKE）；未实现时回退「逐库 listTables + 内存过滤」（小并发防打满连接池），
+   * 单库语义（sqlite/redis）只搜默认库。limit 钳制 1..200，默认 100。
+   */
+  async searchTables(
+    projectPath: string | undefined,
+    connId: string,
+    keyword: string,
+    database?: string,
+    limit?: number,
+  ): Promise<TableSearchHit[]> {
+    const kw = assertNonEmpty(keyword, 'keyword').trim();
+    const cap = Math.max(1, Math.min(200, Math.floor(Number(limit) || 100)));
+    const { key, adapter } = await this.authorize(projectPath, connId, false);
+    const auditStmt = `search "${kw.length > 100 ? kw.slice(0, 100) + '…' : kw}"${database ? ` @ ${database}` : ''}`;
+    try {
+      let hits: TableSearchHit[];
+      if (adapter.searchTables) {
+        hits = await adapter.searchTables(kw, database, cap);
+      } else if (SEARCH_FALLBACK_KINDS.has(adapter.kind)) {
+        // 回退仅对「listTables(database) 语义 = 库名」的 kind 安全：
+        // pg/gaussdb 走原生 searchTables；redis listTables 忽略库名（逐库循环会重复返回同一批键）、
+        // oracle/dmdb database 语义为 owner，跨库回退会错标来源——这些 kind 不支持回退，返回空。
+        if (database) {
+          const list = await adapter.listTables(database);
+          hits = filterTables(list, kw, database);
+        } else {
+          const dbs = await adapter.listDatabases();
+          hits = [];
+          for (let i = 0; i < dbs.length && hits.length < cap; i += 8) {
+            const batch = await Promise.all(
+              dbs.slice(i, i + 8).map(async (db) => {
+                try {
+                  return filterTables(await adapter.listTables(db), kw, db);
+                } catch {
+                  return []; // 个别库不可读（权限/系统库）不拖垮整体搜索
+                }
+              }),
+            );
+            hits = hits.concat(...batch);
+          }
+        }
+      } else {
+        hits = [];
+      }
+      this.audit(key, connId, 'search_tables', auditStmt, 'none', false, true, undefined, hits.length);
+      return hits.slice(0, cap);
+    } catch (e) {
+      this.audit(key, connId, 'search_tables', auditStmt, 'none', false, false, this.errText(e));
       throw this.toDriverError(e);
     }
   }
@@ -710,11 +769,11 @@ export class DbToolService {
   ): Promise<{ key: string; mode: 'ro' | 'rw'; adapter: DatabaseAdapter }> {
     if (this.disposed) throw new DbToolError('INVALID_ARGUMENT', '服务已关闭');
     if (!projectPath || projectPath.trim() === '') {
-      throw new DbToolError('UNAUTHORIZED_PROJECT', '业务操作需要 projectPath（匿名项目仅可管理连接）');
+      throw new DbToolError('UNAUTHORIZED_PROJECT', '项目路径为空：请先在面板顶部填写当前项目路径（或重新打开侧边栏让插件自动解析），再进行数据浏览/查询');
     }
     const key = normalizeProjectKey(projectPath);
     const mode = this.store.grants.check(key, connId);
-    if (!mode) throw new DbToolError('UNAUTHORIZED_PROJECT', `项目未授权该连接: ${connId}`);
+    if (!mode) throw new DbToolError('UNAUTHORIZED_PROJECT', `项目未授权该连接: ${connId}（请切到「项目授权」面板，为当前项目勾选该连接的 ro/rw 授权后重试）`);
     if (needWrite && mode === 'ro') {
       throw new DbToolError('READ_ONLY', '该连接对本项目为只读授权（ro），拒绝写操作');
     }
@@ -1219,6 +1278,18 @@ export class DbToolService {
     if (e instanceof DbToolError) return e;
     return new DbToolError('DRIVER_ERROR', this.errText(e));
   }
+}
+
+/** 表名/注释子串匹配（大小写不敏感，回退路径用；命中转 TableSearchHit） */
+function filterTables(list: TableInfo[], keyword: string, database: string): TableSearchHit[] {
+  const kw = keyword.toLowerCase();
+  return list
+    .filter(
+      (t) =>
+        t.name.toLowerCase().includes(kw) ||
+        (t.comment !== undefined && t.comment.toLowerCase().includes(kw)),
+    )
+    .map((t) => ({ database, name: t.name, type: t.type, comment: t.comment }));
 }
 
 /** guard 判定（导出供 HTTP 层/script 入口识别） */
