@@ -115,8 +115,17 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "密码",
 			passwordSaved: "已保存（留空保持不变）",
 			fieldsDatabase: "数据库名",
-			fieldsTlsMinVersion: "最低 TLS 版本（连 SQL Server 2008/2008R2 报 UNSUPPORTED_PROTOCOL 时选 TLSv1）",
+			fieldsTlsMinVersion: "最低 TLS 版本（连老实例报协议族错误时才需要下探）",
 			tlsMinDefault: "默认（TLSv1.2）",
+			fieldsEncrypt: "加密",
+			encryptDefault: "默认（请求加密）",
+			encryptOn: "强制加密（encrypt=true）",
+			encryptOff: "不主动加密（encrypt=false）",
+			encryptStrict: "严格加密 TDS 8.0（strict）",
+			fieldsTrustCert: "信任服务器证书（跳过证书校验）",
+			fieldsServerName: "证书校验用名称（用 IP 连接但证书签给域名时填）",
+			fieldsCaCert: "受信 CA（PEM 文件路径或证书文本，推荐）",
+			tlsHint: "证书类错误请装 CA（推荐）或勾选信任证书；协议版本类错误请下探最低 TLS 版本。两者解法不同，不能互相替代。",
 			ssl: "启用 SSL",
 			test: "测试",
 			testing: "测试中…",
@@ -346,8 +355,17 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "Password",
 			passwordSaved: "Saved (leave blank to keep)",
 			fieldsDatabase: "Database",
-			fieldsTlsMinVersion: "Minimum TLS version (pick TLSv1 when SQL Server 2008/2008R2 reports UNSUPPORTED_PROTOCOL)",
+			fieldsTlsMinVersion: "Minimum TLS version (lower it only when an old instance reports a protocol error)",
 			tlsMinDefault: "Default (TLSv1.2)",
+			fieldsEncrypt: "Encryption",
+			encryptDefault: "Default (request encryption)",
+			encryptOn: "Mandatory (encrypt=true)",
+			encryptOff: "Optional (encrypt=false)",
+			encryptStrict: "Strict TDS 8.0 (strict)",
+			fieldsTrustCert: "Trust server certificate (skip certificate validation)",
+			fieldsServerName: "Name to validate (set when connecting by IP but the certificate names a host)",
+			fieldsCaCert: "Trusted CA (PEM file path or certificate text, recommended)",
+			tlsHint: "Certificate errors: install the CA (recommended) or trust the certificate. Protocol-version errors: lower the minimum TLS version. These are different fixes and cannot substitute for each other.",
 			ssl: "Enable SSL",
 			test: "Test",
 			testing: "Testing…",
@@ -829,7 +847,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ---------------- 连接管理 ---------------- */
-		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", tlsMinVersion: "", ssl: false };
+		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", tlsMinVersion: "", encrypt: "", trustServerCertificate: false, serverName: "", caCert: "", ssl: false };
 
 		// 口令弹窗（ManageView 局部复用，导出/导入共用）：键盘契约对齐 DangerDialog
 		// （Escape=取消、Tab 在对话框内循环锁定）；差异：初始焦点在口令输入框，确认按钮主色。
@@ -1346,7 +1364,7 @@ window.__ModuleLoader__.load({
 		const freshForm = () => withKindDefaults({ ...EMPTY_FORM, mode: "fields" });
 
 		/** 编辑回填：从 meta 还原已存配置（密码不出库，留空=保留原密码）。
-		 *  url 方式 → 回填脱敏 url；分字段方式 → 回填 host/port/user/database/tlsMinVersion。 */
+		 *  url 方式 → 回填脱敏 url；分字段方式 → 回填 host/port/user/database 与 TLS 相关项。 */
 		function buildEditForm(c) {
 			const mode = c.mode || (c.safeUrl ? "url" : "fields");
 			return {
@@ -1357,6 +1375,11 @@ window.__ModuleLoader__.load({
 				host: c.host || "", port: c.port != null ? String(c.port) : "",
 				user: c.user || "", database: c.database || "",
 				tlsMinVersion: c.tlsMinVersion || "",
+				// encrypt 三态：布尔与 'strict' 语义不同，回填时保持原样；缺省留空=不注入（沿用适配器默认 true）
+				encrypt: typeof c.encrypt === "boolean" ? String(c.encrypt) : (c.encrypt === "strict" ? "strict" : ""),
+				trustServerCertificate: !!c.trustServerCertificate,
+				serverName: c.serverName || "",
+				caCert: c.caCert || "",
 				ssl: !!c.ssl,
 			};
 		}
@@ -1434,9 +1457,22 @@ window.__ModuleLoader__.load({
 					// 端口原样发字符串：Number("abc")=NaN 会被 JSON 序列化成 null，服务端按「未提供端口」静默回退默认值，配置错误被掩盖
 					if (form.port) body.fields.port = form.port;
 					if (form.password) body.fields.password = form.password;
-					// 最低 TLS 版本：空=不注入（沿用 Node 默认 TLSv1.2）。仅 sqlserver 有此字段，
-					// 其它库即使表单残留旧值也不发，避免无关库收到未知键。
-					if (form.kind === "sqlserver" && form.tlsMinVersion) body.fields.tlsMinVersion = form.tlsMinVersion;
+					// TLS 相关项仅 sqlserver 有：其它库即使表单残留旧值也不发，避免无关库收到未知键。
+					// 空值一律不注入 —— 留空语义是「沿用适配器默认」（encrypt=true / 信任证书=false /
+					// 不改 TLS 下限），发空字符串反而会触发服务端「取值非法」的 fail-closed 校验。
+					if (form.kind === "sqlserver") {
+						if (form.tlsMinVersion) body.fields.tlsMinVersion = form.tlsMinVersion;
+						// encrypt 三态：true / false / strict。这是证书族与协议族错误的正确出口，
+						// 也是「服务器强制加密」与「TDS 8.0 严格加密」两条路径的开关。
+						if (form.encrypt === "true") body.fields.encrypt = true;
+						else if (form.encrypt === "false") body.fields.encrypt = false;
+						else if (form.encrypt === "strict") body.fields.encrypt = "strict";
+						// 信任自签证书：只影响证书校验，不影响加密协商；strict 下驱动不传
+						// rejectUnauthorized，此开关会完全失效（UI 已就此提示）。
+						if (form.trustServerCertificate) body.fields.trustServerCertificate = true;
+						if (form.serverName) body.fields.serverName = form.serverName;
+						if (form.caCert) body.fields.caCert = form.caCert;
+					}
 					// 从 url 方式切到分字段保存 → 服务端清除已存 url（否则连接仍走旧 url）
 					if (props.initial && props.initial.mode === "url") body.clearUrl = true;
 				}
@@ -1500,13 +1536,34 @@ window.__ModuleLoader__.load({
 						React.createElement("div", { className: "dbt-row" },
 							React.createElement("input", { placeholder: t("fieldsUser"), "aria-label": t("fieldsUser") + t("requiredMark"), "aria-required": "true", value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
 							React.createElement("input", { type: "password", placeholder: pwLabel, "aria-label": pwLabel, value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
-						// 最低 TLS 版本（仅 sqlserver）：老实例只支持 TLS 1.0 时，客户端默认下限 TLSv1.2 会
-						// 报 UNSUPPORTED_PROTOCOL（协议版本协商失败，与证书无关，信任证书无效）。留空=不改默认。
+						// TLS 相关项（仅 sqlserver）。设计原则：默认留空 = 沿用适配器默认
+						// （encrypt=true + 校验证书 + Node 默认 TLS 下限），即「默认安全」；
+						// 只有连老实例/自签证书失败时才需要动下面这些开关。
+						// 常见误配：报 self signed certificate 是「证书族」，改 TLS 版本无效；
+						// 报 UNSUPPORTED_PROTOCOL 是「协议族」，开关闭证书校验无效——两族解法正交。
 						form.kind === "sqlserver"
-							? React.createElement("div", { className: "dbt-row" },
-								React.createElement("select", { "aria-label": t("fieldsTlsMinVersion"), value: form.tlsMinVersion, onChange: (e) => patch({ tlsMinVersion: e.target.value }) },
-									React.createElement("option", { value: "" }, t("tlsMinDefault")),
-									["TLSv1", "TLSv1.1", "TLSv1.2"].map((v) => React.createElement("option", { key: v, value: v }, v))))
+							? React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+								React.createElement("div", { className: "dbt-row" },
+									// 加密模式：true=请求加密（默认）/ false=不主动要求加密（登录包仍加密，不能免掉 TLS 握手）/
+									// strict=TDS 8.0 严格加密（仅 SQL Server 2022+ 开启 Force Strict Encryption 的实例）
+									React.createElement("label", { className: "dbt-row", style: { flex: "none" } }, t("fieldsEncrypt"),
+										React.createElement("select", { "aria-label": t("fieldsEncrypt"), value: form.encrypt, onChange: (e) => patch({ encrypt: e.target.value }) },
+											React.createElement("option", { value: "" }, t("encryptDefault")),
+											React.createElement("option", { value: "true" }, t("encryptOn")),
+											React.createElement("option", { value: "false" }, t("encryptOff")),
+											React.createElement("option", { value: "strict" }, t("encryptStrict")))),
+									// 最低 TLS 版本：仅老实例（2005/2008/未打补丁的 2012·2014）报协议族错误时才需要下探
+									React.createElement("label", { className: "dbt-row", style: { flex: "none" } }, t("fieldsTlsMinVersion"),
+										React.createElement("select", { "aria-label": t("fieldsTlsMinVersion"), value: form.tlsMinVersion, onChange: (e) => patch({ tlsMinVersion: e.target.value }) },
+											React.createElement("option", { value: "" }, t("tlsMinDefault")),
+											["TLSv1", "TLSv1.1", "TLSv1.2"].map((v) => React.createElement("option", { key: v, value: v }, v))))),
+								React.createElement("label", { className: "dbt-row", style: { flex: "none" } },
+									React.createElement("input", { type: "checkbox", checked: !!form.trustServerCertificate, "aria-label": t("fieldsTrustCert"), onChange: (e) => patch({ trustServerCertificate: e.target.checked }) }),
+									t("fieldsTrustCert")),
+								React.createElement("div", { className: "dbt-row" },
+									React.createElement("input", { placeholder: t("fieldsServerName"), "aria-label": t("fieldsServerName"), value: form.serverName, onChange: (e) => patch({ serverName: e.target.value }) }),
+									React.createElement("input", { placeholder: t("fieldsCaCert"), "aria-label": t("fieldsCaCert"), value: form.caCert, onChange: (e) => patch({ caCert: e.target.value }) })),
+								React.createElement("span", { style: { fontSize: 12, opacity: 0.75 } }, t("tlsHint")))
 							: null,
 					),
 				// 分组 3：操作
@@ -3949,6 +4006,7 @@ window.__ModuleLoader__.load({
 			classifyHead, ConsoleView,
 			Panel, TransferView, TransferLogView,
 			urlToFieldsPatch,
+			ConnForm, buildEditForm, EMPTY_FORM,
 		};
 		return module.exports;
 	},

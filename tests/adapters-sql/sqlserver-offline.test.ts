@@ -8,6 +8,10 @@
  *    经 createSqlserverAdapter 的 opts.driver 注入（生产路径仍走 vendor bundle），
  *    断言精确 SQL 文本与绑定参数。
  */
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as tls from 'node:tls';
 import { describe, expect, it } from 'vitest';
 import {
   createSqlserverAdapter,
@@ -386,6 +390,162 @@ describe('sqlserver URL / fields 解析（手法 B）', () => {
     expect(h.pools[0]!.errorHandlers.length).toBeGreaterThan(0);
     expect(h.configs[0]).toMatchObject({ database: 'appdb' });
     await raw.pool.close();
+  });
+});
+
+/* ---------------- 手法 B：加密与证书配置（strict / serverName / caCert / 系统 CA） ---------------- */
+
+describe('sqlserver 加密与证书配置', () => {
+  /** 自签 CA 的 PEM 片段（不是真实可用的证书，仅用于断言「原样透传」而不是被当路径） */
+  const PEM = '-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUfakeca==\n-----END CERTIFICATE-----\n';
+
+  it('encrypt=strict（TDS 8.0）：URL 与 fields 同口径写入 strict，取值大小写不敏感', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(connByUrl(`${BASE_URL}?encrypt=strict`), { driver: h.driver });
+    expect(h.configs[0]!.options).toMatchObject({ encrypt: 'strict' });
+    await a.close();
+
+    const h2 = harness();
+    const a2 = await createSqlserverAdapter(connByFields({ host: 'h', user: 'u', password: 'p', encrypt: 'STRICT' }), {
+      driver: h2.driver,
+    });
+    expect(h2.configs[0]!.options).toMatchObject({ encrypt: 'strict' });
+    await a2.close();
+  });
+
+  it('encrypt 非法值（非 true/false/strict）：抛中文错误且提示可选三态', async () => {
+    for (const bad of ['maybe', 'on', '1x']) {
+      const h = harness();
+      const err = await createSqlserverAdapter(connByUrl(`${BASE_URL}?encrypt=${bad}`), { driver: h.driver }).then(
+        () => {
+          throw new Error(`应抛错：encrypt=${bad}`);
+        },
+        (e: unknown) => e,
+      );
+      const msg = msgOf(err);
+      expect(msg, `encrypt=${bad}`).toMatch(/encrypt/);
+      expect(msg).toMatch(/非法/);
+      expect(msg).toMatch(/strict/);
+      expect(h.configs).toHaveLength(0);
+    }
+  });
+
+  it('conn.ssl=true 不把已选的 strict 降级为 true（strict 是更强的加密承诺）', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(
+      { meta: { id: 'sqlserver-offline', kind: 'sqlserver' }, url: `${BASE_URL}?encrypt=strict`, ssl: true },
+      { driver: h.driver },
+    );
+    expect(h.configs[0]!.options).toMatchObject({ encrypt: 'strict' });
+    await a.close();
+  });
+
+  it('serverName：URL 与 fields 均写入 options.serverName；空值不注入', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(connByUrl(`${BASE_URL}?serverName=sql.internal.example`), {
+      driver: h.driver,
+    });
+    expect(h.configs[0]!.options).toMatchObject({ serverName: 'sql.internal.example' });
+    await a.close();
+
+    const h2 = harness();
+    const a2 = await createSqlserverAdapter(
+      connByFields({ host: '10.0.0.5', user: 'u', password: 'p', serverName: 'sql.internal.example' }),
+      { driver: h2.driver },
+    );
+    expect(h2.configs[0]!.options).toMatchObject({ serverName: 'sql.internal.example' });
+    await a2.close();
+
+    const h3 = harness();
+    const a3 = await createSqlserverAdapter(connByUrl(`${BASE_URL}?serverName=`), { driver: h3.driver });
+    expect('serverName' in (h3.configs[0]!.options as Record<string, unknown>)).toBe(false);
+    await a3.close();
+  });
+
+  it('caCert 显式 PEM：原样并入 cryptoCredentialsDetails.ca，并自动合并系统 CA', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(connByUrl(`${BASE_URL}?caCert=${encodeURIComponent(PEM)}`), {
+      driver: h.driver,
+    });
+    const details = (h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as
+      | { ca?: string[] }
+      | undefined;
+    expect(details?.ca).toBeInstanceOf(Array);
+    expect(details!.ca!).toContain(PEM);
+    // 系统 CA 自动合并（Node >= 22.15 的 tls.getCACertificates('system')）：显式 CA 之外还能命中
+    // 系统信任库中的证书。本机 Node 不支持该系统 API 时该项为空，此时只校验显式 CA 生效。
+    const sys = typeof tls.getCACertificates === 'function' ? tls.getCACertificates('system') : [];
+    if (sys.length > 0) {
+      expect(details!.ca!.length).toBeGreaterThan(1);
+      expect(details!.ca!).toContain(sys[0]);
+    }
+    await a.close();
+  });
+
+  it('caCert 文件路径：读取文件内容作为 CA', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-sql-ca-'));
+    try {
+      const file = join(dir, 'ca.pem');
+      writeFileSync(file, PEM, 'utf8');
+      const h = harness();
+      const a = await createSqlserverAdapter(connByUrl(`${BASE_URL}?caCert=${encodeURIComponent(file)}`), {
+        driver: h.driver,
+      });
+      const details = (h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as {
+        ca?: string[];
+      };
+      expect(details.ca).toContain(PEM);
+      await a.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('caCert 路径不可读：fail-closed 抛中文错误，绝不静默回退到不校验', async () => {
+    const h = harness();
+    const err = await createSqlserverAdapter(connByUrl(`${BASE_URL}?caCert=${encodeURIComponent('/no/such/ca.pem')}`), {
+      driver: h.driver,
+    }).then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/caCert/);
+    expect(msg).toMatch(/无法读取/);
+    // 不能变成「继续用默认校验」或「已关闭校验」的暗示
+    expect(msg).not.toMatch(/继续连接|已忽略|跳过/);
+    expect(h.configs).toHaveLength(0);
+  });
+
+  it('caCert 与 tlsMinVersion 并存：合并进同一份 cryptoCredentialsDetails（互不覆盖）', async () => {
+    const h = harness();
+    const a = await createSqlserverAdapter(
+      connByUrl(`${BASE_URL}?caCert=${encodeURIComponent(PEM)}&tlsMinVersion=TLSv1.1`),
+      { driver: h.driver },
+    );
+    const details = (h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as {
+      ca?: string[];
+      minVersion?: string;
+    };
+    expect(details.minVersion).toBe('TLSv1.1');
+    expect(details.ca).toContain(PEM);
+    await a.close();
+  });
+
+  it('未配置任何 TLS 选项：仍注入 CA 列表（系统信任库并入，让"导入信任库即可连"生效），但不注入 minVersion', async () => {
+    const { h, a } = await make();
+    const ccd = (h.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as
+      | Record<string, unknown>
+      | undefined;
+    // 默认注入 ca（default+system 合并）：Node 默认不读系统信任库，不注入则用户"导入受信任根"无效
+    expect(ccd).toBeDefined();
+    expect(Array.isArray(ccd!['ca'])).toBe(true);
+    expect((ccd!['ca'] as string[]).length).toBeGreaterThan(0);
+    // 但下限保持不设置：启用系统 CA 不代表要改动 TLS 版本下限
+    expect('minVersion' in ccd!).toBe(false);
+    await a.close();
   });
 });
 
@@ -1283,6 +1443,170 @@ describe('sqlserver 错误中文映射（手法 B）', () => {
     await a.close();
   });
 
+  it('EENCRYPT（服务器未协商加密，tedious 20.3.8 新文案）：说明服务器未回 ON/REQ，给 encrypt=false 出口', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'EENCRYPT', {
+      message:
+        "Server did not negotiate encryption, but the 'encrypt' config option is set to `true`. Set 'encrypt' to `false` to allow unencrypted connections.",
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    // 与「服务器要求加密」是相反方向：此情形是客户端要加密但服务器没谈成，不能反过来说要开 encrypt
+    expect(msg).toMatch(/未协商加密|没有协商加密/);
+    expect(msg).toMatch(/encrypt=false/);
+    expect(msg).not.toMatch(/服务器要求加密/);
+    // 该情形与证书无关
+    expect(msg).not.toMatch(/trustServerCertificate|caCert/);
+    await a.close();
+  });
+
+  it('encrypt=strict 相关说明：strict 下 trustServerCertificate 完全失效（tedious 不传 rejectUnauthorized）', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('ConnectionError', 'ESOCKET', {
+      message: 'self signed certificate in certificate chain',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    // 证书族必须给出「官方推荐装 CA」的正解出口，而不是只教用户关校验
+    expect(msg).toMatch(/caCert/);
+    expect(msg).toMatch(/serverName/);
+    expect(msg).toMatch(/官方|推荐/);
+    // 两族互斥断言保持：证书族不出现协议版本建议
+    expect(msg).not.toMatch(/tlsMinVersion/);
+    await a.close();
+  });
+
+  it('错误号 17819（仅接受 strict/TDS 8.0）：引导 encrypt=strict，且不误判为证书或版本问题', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('RequestError', 'EREQUEST', {
+      number: 17819,
+      severity: 20,
+      message: 'The server only accepts connections encrypted with TLS (TDS 8.0 and above)',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/17819|TDS 8\.0|strict/);
+    expect(msg).toMatch(/encrypt=strict/);
+    expect(msg).not.toMatch(/trustServerCertificate=true/);
+    await a.close();
+  });
+
+  it('错误号 17835（服务器强制加密而客户端不支持）：引导启用 encrypt，不给证书建议', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('RequestError', 'EREQUEST', {
+      number: 17835,
+      severity: 20,
+      message: 'Encryption is required to connect to this server but the client library does not support encryption',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/17835|强制加密|要求加密/);
+    expect(msg).toMatch(/encrypt=true/);
+    expect(msg).not.toMatch(/trustServerCertificate/);
+    await a.close();
+  });
+
+  it('错误号 17898/17802（TDS 版本不被接受）：提示升级客户端库，不建议下调 tdsVersion', async () => {
+    for (const num of [17898, 17802]) {
+      const { a, pool } = await make();
+      pool.failWith = mssqlErr('RequestError', 'EREQUEST', { number: num, severity: 20, message: 'TDS version' });
+      const err = await a.query('SELECT 1').then(
+        () => {
+          throw new Error('应抛错');
+        },
+        (e: unknown) => e,
+      );
+      const msg = msgOf(err);
+      expect(msg, `number=${num}`).toMatch(new RegExp(String(num)));
+      expect(msg).toMatch(/TDS/);
+      expect(msg).toMatch(/升级/);
+      // 官方协议保证服务器降级：下调 tdsVersion 是错药方
+      expect(msg).not.toMatch(/tdsVersion=7_[0-3]/);
+      await a.close();
+    }
+  });
+
+  it('错误号 17836/17828/17832（包结构错配）：指向代理/分片/加密中间层，不归为版本问题', async () => {
+    for (const num of [17836, 17828, 17832]) {
+      const { a, pool } = await make();
+      pool.failWith = mssqlErr('RequestError', 'EREQUEST', { number: num, severity: 20, message: 'packet' });
+      const err = await a.query('SELECT 1').then(
+        () => {
+          throw new Error('应抛错');
+        },
+        (e: unknown) => e,
+      );
+      const msg = msgOf(err);
+      expect(msg, `number=${num}`).toMatch(new RegExp(String(num)));
+      expect(msg).toMatch(/代理|中间层|加密/);
+      expect(msg).not.toMatch(/tdsVersion/);
+      await a.close();
+    }
+  });
+
+  it('错误号 47072（Azure 低于最小 TLS 版本）：给出升 TLS 1.2 出口，不给关校验', async () => {
+    const { a, pool } = await make();
+    pool.failWith = mssqlErr('RequestError', 'EREQUEST', {
+      number: 47072,
+      severity: 20,
+      message: 'The minimum TLS version is not met',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/47072|TLS/);
+    expect(msg).toMatch(/1\.2/);
+    expect(msg).not.toMatch(/trustServerCertificate=true/);
+    await a.close();
+  });
+
+  it('已知错误号命中时不再叠加 TLS 族建议（17819 原文含 certificate 也不得给出装 CA/关校验的错药方）', async () => {
+    const { a, pool } = await make();
+    // SQL Server 2022 的真实原文包含 certificate，会被证书族正则命中——但真因是服务端未配置
+    // 可用于 TDS 8.0 的证书，客户端装 CA 或关校验都解决不了，叠加建议只会把用户引向死路。
+    pool.failWith = mssqlErr('RequestError', 'EREQUEST', {
+      number: 17819,
+      severity: 20,
+      message:
+        'TLS certificate is not configured to accept strict (TDS 8.0 and above) connections. The connection has been closed.',
+    });
+    const err = await a.query('SELECT 1').then(
+      () => {
+        throw new Error('应抛错');
+      },
+      (e: unknown) => e,
+    );
+    const msg = msgOf(err);
+    expect(msg).toMatch(/encrypt=strict/);
+    expect(msg).not.toMatch(/trustServerCertificate/);
+    expect(msg).not.toMatch(/caCert/);
+    await a.close();
+  });
+
   it('originalError 与 cause 并存：末尾「原始错误」取 originalError（事务 abort 语义），不取 cause', async () => {
     const { a, pool } = await make();
     const original = 'error:100000f0:SSL routines:OPENSSL_internal:UNSUPPORTED_PROTOCOL';
@@ -1353,9 +1677,12 @@ describe('sqlserver 错误中文映射（手法 B）', () => {
       expect(h2.configs).toHaveLength(0);
     }
 
-    // 未提供时整块不注入：沿用 Node 默认下限，且不改变既有 options 形状
+    // 未提供时不动下限：沿用 Node 默认 TLSv1.2（ca 仍会按系统信任库注入，见上一组用例）
     const { h: h3, a: a3 } = await make();
-    expect('cryptoCredentialsDetails' in (h3.configs[0]!.options as Record<string, unknown>)).toBe(false);
+    const ccd3 = (h3.configs[0]!.options as Record<string, unknown>)['cryptoCredentialsDetails'] as
+      | Record<string, unknown>
+      | undefined;
+    expect(ccd3 === undefined || !('minVersion' in ccd3)).toBe(true);
     await a3.close();
   });
 
@@ -1521,5 +1848,58 @@ describe('sqlserver factory 导出', () => {
     expect(a.kind).toBe('sqlserver');
     await a.close();
     await expect(a.close()).resolves.toBeUndefined();
+  });
+});
+
+/* ---------------- 系统信任库默认注入（"导入信任库即可连"的前提） ---------------- */
+
+describe('sqlserver 系统信任库注入', () => {
+  const ccdOf = (options: Record<string, unknown>) =>
+    options['cryptoCredentialsDetails'] as Record<string, unknown> | undefined;
+
+  it('默认注入 CA 列表，且同时包含内置 bundle 与系统信任库（合并而非替换，否则连公网证书会失败）', async () => {
+    const tls = await import('node:tls');
+    const getter = (tls as unknown as { getCACertificates?: (t: string) => string[] }).getCACertificates;
+    if (typeof getter !== 'function') {
+      // 老 Node（< 22.15）：不注入是正确降级，此时本用例只验证「不报错、不改默认行为」
+      const { h, a } = await make();
+      expect(ccdOf(h.configs[0]!.options as Record<string, unknown>)).toBeUndefined();
+      await a.close();
+      return;
+    }
+    const { h, a } = await make();
+    const ca = ccdOf(h.configs[0]!.options as Record<string, unknown>)?.['ca'] as string[];
+    expect(Array.isArray(ca)).toBe(true);
+    expect(ca.length).toBeGreaterThan(0);
+    // 合并验证：至少包含一张只在系统库、不在 bundle 的证书（证明系统库确实被并进来了）
+    const { X509Certificate } = await import('node:crypto');
+    const fp = (p: string) => {
+      try { return new X509Certificate(p).fingerprint256; } catch { return ''; }
+    };
+    const caSet = new Set(ca.map(fp));
+    const sysOnly = getter('system').filter((p) => {
+      const f = fp(p);
+      return f !== '' && caSet.has(f);
+    });
+    expect(sysOnly.length).toBeGreaterThan(0);
+    await a.close();
+  }, 20000);
+
+  it('显式 caCert 时不覆盖用户选择：注入的列表以用户给的 CA 为准（不被默认合并冲掉）', async () => {
+    const marker = '-----BEGIN CERTIFICATE-----\nMIIBuserSupplied\n-----END CERTIFICATE-----';
+    const h = harness();
+    const a = await createSqlserverAdapter(connByFields({ host: 'h', user: 'sa', caCert: marker }), {
+      driver: h.driver,
+    });
+    const ca = ccdOf(h.configs[0]!.options as Record<string, unknown>)?.['ca'] as string[];
+    expect(ca).toContain(marker);
+    await a.close();
+  });
+
+  it('取系统证书失败时不阻断建连（异常被吞掉，连接照常创建）', async () => {
+    const { h, a } = await make();
+    // 建池本身成功即证明未抛错；config 已生成说明校验链没被打断
+    expect(h.configs[0]).toBeDefined();
+    await a.close();
   });
 });

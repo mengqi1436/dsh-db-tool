@@ -90,6 +90,14 @@ export interface ConnectionMeta {
   database?: string;
   /** 分字段方式的最低 TLS 版本（仅 sqlserver；缺省=不设置，沿用 Node 默认 TLSv1.2）——编辑回填用 */
   tlsMinVersion?: string;
+  /** 分字段方式的加密模式（仅 sqlserver；true/false/'strict'）——编辑回填用 */
+  encrypt?: boolean | 'strict';
+  /** 分字段方式是否信任任意服务器证书（仅 sqlserver）——编辑回填用 */
+  trustServerCertificate?: boolean;
+  /** 分字段方式的证书校验用服务器名（仅 sqlserver；IP 直连但证书签给域名时用）——编辑回填用 */
+  serverName?: string;
+  /** 分字段方式的受信 CA（仅 sqlserver；值是 PEM 文本或文件路径，回填原样返回）——编辑回填用 */
+  caCert?: string;
   /** 已保存密码（仅布尔指示，明文绝不出库）——编辑表单占位/测试草稿拼回用 */
   hasPassword?: boolean;
 }

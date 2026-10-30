@@ -145,27 +145,39 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 
 ## SQL Server 连接说明
 
-覆盖 SQL Server 2008 / 2008 R2 → 2022 与 Azure SQL Database。
+覆盖 SQL Server 2005（9.0）→ 2025（17.0）与 Azure SQL Database。
 
 **连接 URL 参数**（分字段表单同样支持）：
 
 | 参数 | 取值 | 默认 |
 |---|---|---|
-| `encrypt` | `true` / `false` | `true` |
+| `encrypt` | `true` / `false` / `strict` | `true` |
 | `trustServerCertificate` | `true` / `false` | `false` |
-| `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4` |
+| `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4`（服务器自动降级，通常无需设置） |
 | `tlsMinVersion` | `TLSv1` / `TLSv1.1` / `TLSv1.2` | 不设置（Node 默认 TLSv1.2） |
+| `serverName` | 证书校验用的服务器名 | 不设置（用连接主机名校验） |
+| `caCert` | PEM 文件路径或证书文本 | 不设置（用系统信任库） |
 | `instanceName` | 命名实例名（与 port 互斥） | — |
 | `useUTC` | `true` / `false` | `true` |
 
-**连老实例时先分清两类 TLS 失败，解法不通用**：
+**TDS 版本不需要手动选**：客户端固定声明 `7.4`，服务器会按自身能力自动降级（2005→7.2、2008→7.3.A、2008 R2→7.3.B）。这是 [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) 规定的行为（客户端声明高于服务器时，服务器**必须**使用自己最高的版本）。`tdsVersion` 仅作排障覆盖项保留。
 
-- **证书类**（`self signed certificate` / `unable to verify` / `CERT_`）→ 追加 `?trustServerCertificate=true`；服务器未强制加密时也可 `?encrypt=false`
-- **协议版本类**（`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`）→ 客户端与服务端没有共同的 TLS 版本，握手在协商阶段就失败，**证书校验根本没执行**，`trustServerCertificate` 对它无效。根治靠服务端启用 TLS 1.2（2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114）；暂时动不了服务端时用 `?tlsMinVersion=TLSv1` 让客户端下探
+**连老实例时先分清两类 TLS 失败，解法正交、不可互相替代**：
+
+- **证书类**（`self signed certificate` / `unable to verify` / `CERT_`）→ 证书校验阶段失败。① 推荐用 `?caCert=` 安装受信 CA（校验照常生效）；证书签发给域名而你在用 IP 连接时，再加 `?serverName=域名`。② 不得已才用 `?trustServerCertificate=true` 跳过校验，或 `?encrypt=false`（前提是服务器未强制加密）。
+- **协议版本类**（`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`）→ 客户端与服务端没有共同的 TLS 版本，握手在协商阶段就失败，**证书校验根本没执行**，`trustServerCertificate` 对它无效。根治靠服务端启用 TLS 1.2（2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114、2012/2014 装对应 CU/GDR 与 KB3052404）；暂时动不了服务端时用 `?tlsMinVersion=TLSv1` 让客户端下探。
+
+各版本对 TLS 1.2 的支持：2016+ 原生支持；2012 SP4 / 2014 SP2 及以后原生支持，更早的 SP 需打补丁；2008 / 2008 R2 需上述补丁；**SQL Server 2005 无任何补丁可支持 TLS 1.2**（官方明确「TLS 1.2 只支持 SQL Server 2008 及以后」），只能下探客户端 TLS 下限。详见 [KB3135244](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server)。
+
+**`encrypt=false` 不能跳过 TLS 握手**：SQL Server 的登录包（Login7，含账号密码）**即使在未配置加密时也始终加密**，因此仍要完成一次 TLS 握手。协议版本无交集时，`encrypt=false` 一样连不上——这是「改了加密参数却仍报同一个错」的常见原因。
+
+**`encrypt=strict`（TDS 8.0）**：仅 SQL Server 2022+ 且开启 Force Strict Encryption 的实例支持。该模式下 TLS 在登录包之前就完成握手，因此 **`trustServerCertificate` 完全不生效**（驱动不传 `rejectUnauthorized`，证书强制校验），只能靠 `caCert` 或 `serverName`。
 
 `tlsMinVersion` 不含 `TLSv1.3`：底层 tedious 会把 TLS 上限封顶在 1.2，设 1.3 会让最小版本大于最大版本，握手必然失败。
 
-**其他边界**：仅 SQL 认证（不支持 Windows 集成认证与 Azure AD 认证）；不支持 SQL Server 2005 及更早；`tdsVersion=8_0`（TDS 8.0）与 `encrypt='strict'` 暂未支持。
+**系统信任库**：插件会把操作系统信任库并入证书校验（`tls.getCACertificates('system')`，需 Node ≥ 22.15；DSH 桌面端内置 Node 24.21 满足）。因此按官方推荐把自签证书导入 Windows「受信任的根证书颁发机构」后，**无需填 `caCert` 即可连接**。注入的是「内置 bundle + 系统信任库」合并列表（实测 118 + 72 = 190 张），合并而非替换，避免只给系统库导致连公网证书反而失败。老环境没有该 API 时不注入，保持 Node 原生默认校验（公网证书照常可用）。
+
+**其他边界**：仅 SQL 认证（不支持 Windows 集成认证与 Azure AD 认证）；不支持 SQL Server 2000 及更早；不支持 `tdsVersion=8_0`（TDS 8.0 通过 `encrypt=strict` 启用）。
 
 ---
 
@@ -190,7 +202,7 @@ DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令：
 2. 安装插件（npm 安装须钉精确版本，`@latest` 会因 release-age 校验回落）：
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.1 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.2 --registry=https://registry.npmjs.org/
    ```
 
 3. **重启桌面端**生效

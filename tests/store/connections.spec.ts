@@ -338,4 +338,49 @@ describe('连接导出/导入', () => {
       cleanupDir(home2);
     }
   });
+
+  /* ---- SQL Server TLS 参数回填（前端编辑表单读 meta，缺字段会导致「保存了却看不到」） ---- */
+
+  it('分字段方式回填 encrypt / trustServerCertificate / serverName / caCert / tlsMinVersion', () => {
+    store.connections.create({
+      id: 'ss',
+      kind: 'sqlserver',
+      fields: {
+        host: 'db.corp.local',
+        port: 1433,
+        user: 'sa',
+        database: 'app',
+        // strict 是合法取值，且与布尔 true 语义不同——回填时必须原样透传，不能被折叠成 true
+        encrypt: 'strict',
+        trustServerCertificate: true,
+        serverName: 'db.corp.local',
+        caCert: '/etc/ssl/ca.pem',
+        tlsMinVersion: 'TLSv1',
+      },
+    });
+
+    const meta = store.connections.get('ss');
+    expect(meta?.encrypt).toBe('strict');
+    expect(meta?.trustServerCertificate).toBe(true);
+    expect(meta?.serverName).toBe('db.corp.local');
+    expect(meta?.caCert).toBe('/etc/ssl/ca.pem');
+    expect(meta?.tlsMinVersion).toBe('TLSv1');
+  });
+
+  it('encrypt 布尔 false 能回填为 false（不被真值判断吞成「未设置」）', () => {
+    store.connections.create({ id: 'ss2', kind: 'sqlserver', fields: { host: 'h', user: 'sa', encrypt: false } });
+
+    const meta = store.connections.get('ss2');
+    expect(meta?.encrypt).toBe(false);
+    // 未显式给的项不应凭空出现（留空=沿用适配器默认）
+    expect(meta?.trustServerCertificate).toBeUndefined();
+    expect(meta?.serverName).toBeUndefined();
+    expect(meta?.caCert).toBeUndefined();
+  });
+
+  it('非布尔/非 strict 的 encrypt 垃圾值不回填（fail-closed，避免把非法值带回表单）', () => {
+    store.connections.create({ id: 'ss3', kind: 'sqlserver', fields: { host: 'h', user: 'sa', encrypt: 'bogus' } });
+
+    expect(store.connections.get('ss3')?.encrypt).toBeUndefined();
+  });
 });

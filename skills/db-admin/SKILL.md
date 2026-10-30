@@ -180,19 +180,34 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 
 ## SQL Server 覆盖范围与边界
 
-- 覆盖 SQL Server 2008/2008R2 → 2022 与 Azure SQL Database；SQL Server 2005（9.x）及更早版本不支持、未验证；`tdsVersion=8_0`（TDS 8.0）与 `encrypt='strict'`（严格加密）也不支持——SQL Server 2022 用默认 `7_4` 即可正常连接。方言与元数据只使用 2005+ 通用写法（元数据走 `sys.*` catalog views）。
-- **认证**：仅 SQL 认证（user/password）；**不支持 Windows 集成认证，也不支持 Azure AD 认证**——需要这两类认证时本工具不可用。
-- **连接形态**：`sqlserver://user:password@host:port/db`，支持 query 参数 `encrypt` / `trustServerCertificate` / `tdsVersion` / `tlsMinVersion` / `instanceName` / `useUTC`（参数名大小写不敏感）；`tdsVersion` 默认 `7_4`，可配 `7_3_A` / `7_3_B` / `7_2` / `7_1`；`instanceName` 与端口互斥（命名实例改由 SQL Server Browser 解析）。**不接受** ADO.NET 键值连接串（`Server=...;Database=...`）。
-- **默认与覆盖**：`encrypt=true` + `trustServerCertificate=false` + `tdsVersion=7_4` + `useUTC=true`（同 mssql 官方默认）。URL query 与分字段表单**同口径**，两处都能覆盖上述四项（含 `tlsMinVersion`）；非法布尔值直接报错，不静默回退。
+- 覆盖 SQL Server 2005（9.0）→ 2025（17.0）与 Azure SQL Database；不支持 SQL Server 2000 及更早。方言与元数据只使用 2005+ 通用写法（元数据走 `sys.*` catalog views）。
+- **TDS 版本自动协商，无需用户选择**：客户端固定声明 `7_4`，服务器按自身能力自动降级（2005→`7_2`、2008→`7_3_A`、2008 R2→`7_3_B`、2012+→`7_4`）。这是 [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) 的 MUST 级规定（客户端声明高于服务器时，服务器**必须**用自己最高版本）。`tdsVersion` 仅作排障覆盖项；**不要**因「老版本」就下调它——那会把「连不上」变成「连上了但行为异常」。
+- **认证**：仅 SQL 认证（user/password）；**不支持 Windows 集成认证，也不支持 Azure AD 认证**——需要这两类认证时本工具不可用。SQL Server 全版本另支持 FEDAUTH 之外的 `IsIntegratedSecurityOnly` 判定：为 1 表示实例仅允许 Windows 认证，此时应直接告知用户该实例不可用，而不是让用户反复试密码。
+- **连接形态**：`sqlserver://user:password@host:port/db`，支持 query 参数 `encrypt` / `trustServerCertificate` / `tdsVersion` / `tlsMinVersion` / `serverName` / `caCert` / `instanceName` / `useUTC`（参数名大小写不敏感）；`instanceName` 与端口互斥（命名实例改由 SQL Server Browser 解析）。**不接受** ADO.NET 键值连接串（`Server=...;Database=...`）。
+- **默认与覆盖**：`encrypt=true` + `trustServerCertificate=false` + `tdsVersion=7_4` + `useUTC=true`（同 mssql 官方默认，也是微软官方推荐的安全档）。URL query 与分字段表单**同口径**，两处都能覆盖上述各项；非法取值直接报错，不静默回退。
 
 ### TLS 握手失败：两类根因，解法互不通用
 
 | 报错特征 | 根因 | 处置（按优先级） |
 |---|---|---|
-| `self signed certificate` / `unable to verify` / `CERT_` 家族 | 证书校验阶段失败（自签、链断、主机名不符、已过期） | ① `?trustServerCertificate=true`；② 服务器未强制加密时 `?encrypt=false`（强制加密时反而报「服务器要求加密」） |
-| `UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`（含 `SSL routines ... UNSUPPORTED`） | 协议版本协商阶段失败：客户端与服务端无共同 TLS 版本，**证书校验根本没执行** | ① 服务端启用 TLS 1.2（2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114，重启实例）；② 暂时不能动服务端时，客户端下探 `?tlsMinVersion=TLSv1` |
+| `self signed certificate` / `unable to verify` / `CERT_` 家族 | 证书校验阶段失败（自签、链断、主机名不符、已过期） | ① `?caCert=` 装受信 CA（PEM 路径或文本，校验照常生效，**官方推荐**）；证书签给域名而在用 IP 连接时再加 `?serverName=域名`；② 不得已才 `?trustServerCertificate=true` 或 `?encrypt=false`（后者需服务器未强制加密） |
+| `UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`（含 `SSL routines ... UNSUPPORTED`） | 协议版本协商阶段失败：客户端与服务端无共同 TLS 版本，**证书校验根本没执行** | ① 服务端启用 TLS 1.2（2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114、2012/2014 装对应 CU/GDR 与 KB3052404，重启实例）；② 暂时不能动服务端时，客户端下探 `?tlsMinVersion=TLSv1` |
 
 **不要拿证书类参数治协议版本类**：`trustServerCertificate=true` / `encrypt=false` 只影响证书校验，对 `UNSUPPORTED_PROTOCOL` 没有任何作用，试错只会白跑一轮。两类判据互斥，报错消息里已按族给出中文根因；看到 `TCP 已连通但 TLS ...` 说明网络与端口都没问题，不要再查主机/防火墙。
+
+**关键事实：`encrypt=false` 不能跳过 TLS 握手**。SQL Server 的登录包（Login7，含账号密码）**即使在未配置加密时也始终加密**（官方原文："even when you don't configure encryption, the credentials (in the login packet) ... are always encrypted"）。所以协议版本无交集时 `encrypt=false` 一样连不上——这是「改了加密参数却仍报同一个错」的根因。另注：连 2005 或未打补丁的 2008 时，服务端可能只有 TLS 1.0，此时必须下探 `?tlsMinVersion=TLSv1`。
+
+### 版本与 TLS 1.2 支持
+
+| 版本 | TLS 1.2 | 所需补丁 |
+|---|---|---|
+| 2005（9.0） | **不支持**（无任何补丁） | 无解，只能下探客户端 TLS 下限 + 信任证书 |
+| 2008 SP4 / 2008 R2 SP3 | 需补丁 | KB4057114 / KB4057113 |
+| 2012 SP4- / 2014 SP3- | 需补丁 | 对应 CU/GDR + KB3052404 |
+| 2012 SP4 / 2014 SP2 / 2016+ | 原生支持 | — |
+| 2022 / 2025 | 原生；TDS 8.0 下可 TLS 1.3 | — |
+
+2016+ 实际使用哪个 TLS 版本由**操作系统的 Schannel** 决定，不由 SQL Server 决定——同一版本实例在不同机器上表现可能不同。
 
 ### `tlsMinVersion` 参数
 

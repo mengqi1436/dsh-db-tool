@@ -1,5 +1,38 @@
 # Changelog — dsh-db-tool
 
+## 1.9.2
+
+SQL Server 支持范围扩到 2005（9.0）→ 2025（17.0），并修复前端无法配置加密参数导致的「怎么改都连不上」。
+
+### 修复
+
+- **前端补齐加密参数入口（用户可见的核心修复）**：分字段表单此前只暴露 `tlsMinVersion`，没有任何 `encrypt` / `trustServerCertificate` 入口——而 `tlsMinVersion` 恰好对「证书类」错误无效。用户连自签证书实例时唯一能动的开关是错的那个，于是陷入「换个 TLS 版本再试、还是同一个错」的死循环。现补齐三项控件：`encrypt`（`默认`/`强制加密`/`不主动加密`/`严格加密 TDS 8.0`）、`trustServerCertificate` 复选框、`serverName` 与 `caCert` 输入框，并在表单内直接给出「证书类 vs 协议版本类」的分流提示。
+- **`tdsVersion` 从表单移除**：TDS 版本在协议层本就自动降级（[MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) 规定客户端声明高于服务器时服务器**必须**使用自身最高版本；微软官方 Go 驱动同样硬编码声明 7.4 且宣称支持 2005+）。把它摆在表单里等于把驱动已处理好的问题转嫁给用户。该参数仍保留为排障覆盖项。
+- **编辑回填补全**：`ConnectionMeta` / `toMeta()` 增加 `encrypt` / `trustServerCertificate` / `serverName` / `caCert` 回填。此前这些字段即使存进 `connections.json` 也读不回来，编辑表单显示为空、保存即被静默清掉。`encrypt` 的三态（`true` / `false` / `'strict'`）按原语义透传，非法值不回填（fail-closed）。
+
+### 安全
+
+- **`tedious` 20.3.3 → 20.3.8（GHSA-wj7m-ffj3-574h，高危）**：旧版本在 `encrypt=true` 且服务器 PRELOGIN 回 `OFF`/`NOT_SUP` 或缺失 `ENCRYPTION` 选项时，**不报错、不告警，直接以明文发送 LOGIN7（含账号密码）**，而应用侧仍以为连接已加密。`trustServerCertificate=false` 对此无缓解作用——根本没有 TLS 握手，证书校验无从发生。已在源码层核实：旧逻辑只在 `ON`/`REQ` 时启动 TLS，其余分支静默落空；20.3.8 改为 `encrypt===true` 且非 `ON`/`REQ` 时抛 `EENCRYPT`。`mssql@12.7.4` 的依赖范围（`^19.2.2 || ^20.0.0`）本就允许该版本，故无需改 `mssql`；同时新增 `overrides.tedious` 钉住下限防止 lock 回退。注意 `npm audit` 当前**不报**此条，不能靠它兜底。
+- **参数校验 fail-closed**：`encrypt` 只接受 `true`/`false`/`strict`，拼错（如 `stric`）直接抛中文错误，不静默回退到 `true`——加密强度是安全承诺。`caCert` 路径读不到时抛错而非忽略：静默忽略会退回系统信任库校验，把真正原因掩盖掉。
+
+### 新增
+
+- **`encrypt=strict`（TDS 8.0）**：支持 SQL Server 2022+ 的 Force Strict Encryption。此前该场景**必然连不上**且报错会被归到证书族，误导排查。需注意 strict 路径下驱动不传 `rejectUnauthorized`，**`trustServerCertificate` 完全失效**，证书强制校验——报错文案已明确这一点。
+- **`serverName`**：证书签发给域名而实际用 IP / 转发地址连接时指定校验名，把该场景从「关掉证书校验」里分流出来。
+- **`caCert`**：传 PEM 文件路径或证书文本，走官方推荐解法（保住加密与校验，只扩大信任根）。
+- **系统信任库默认注入**：Node 默认只信任编译期内置的 bundle，**不读操作系统信任库**——这意味着「按官方推荐把自签证书导入 Windows 受信任根」这个最常见的正确做法，在不注入的情况下对连接毫无帮助（用户会以为"导入了却没用"）。现无论是否填 `caCert`，都把 `tls.getCACertificates('default')` 与 `('system')` 合并后注入校验（实测 118 + 72 = 190 张；系统库独有的 38 张已确认包含在内）。三条降级边界：① 无该 API 的老环境（Node < 22.15）不注入，保持原生默认，公网证书照常可用；② 有 API 但系统库为空时只注入 bundle，绝不把 `ca` 设成空数组（那会让校验彻底失败）；③ 取证书异常全部吞掉，绝不用"取系统证书失败"打断建连。显式给了 `caCert` 时不覆盖用户选择。已在 DSH 实际运行环境（Electron 44.7 / Node 24.21）验证。
+- **8 个服务器错误号的针对性分诊**：`17819`（只接受 strict → 改 `encrypt=strict`）、`17898`/`17802`（TDS 版本被拒 → 升级客户端库，**不**建议下调 `tdsVersion`）、`17835`（服务器强制加密 → 开 `encrypt`）、`17836`/`17828`/`17832`（包结构错配 → 查代理/中间层/端口，**不**归为版本问题）、`47072`（Azure 最低 TLS 门槛）。这些错误的服务器原文常含 `certificate`/`encryption` 字样，会被 TLS 族正则误命中并叠加「装 CA / 关校验」这类**无效**建议，故在命中已知错误号时抑制 TLS 族建议，保证每次只给出一个正确出口。
+- **`EENCRYPT` 区分两种相反成因**：一是 `encrypt=false` 而服务器强制加密（药方是开），二是 `encrypt=true` 而服务器未协商加密（药方是关或修服务端），此前合并为一句必然把用户引反方向。
+
+### 文档
+
+- README / README_EN：覆盖范围改为 2005 → 2025；补充版本 → TLS 1.2 → 所需补丁对照；写明官方推荐顺序（装 CA 优先于关校验）；补充「`encrypt=false` 不能跳过 TLS 握手」这一常被误解的事实（登录包始终加密）；删除「不支持 TDS 8.0 / strict」的虚标；修正「连 2008 需显式 `tdsVersion=7_3_A`」这一无官方依据的经验说法。
+
+### 行为变更（升级须知）
+
+- **`encrypt=true` 连不支持加密的服务器现在会显式失败**（`EENCRYPT`），而不是静默明文传输。这是上述安全修复的本意：这类实例请显式设 `encrypt=false`。
+- 若某实例确实只支持旧 TLS（如 2005 / 未打补丁的 2008），仍会失败——但报错现在指向「服务端补丁缺失」与「客户端下探 TLS 下限」两条正确路径。
+
 ## 1.9.1
 
 依赖安全与维护性升级（无代码改动，仅 `package-lock.json`）。

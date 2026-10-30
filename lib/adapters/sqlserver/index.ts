@@ -24,7 +24,9 @@
  * 服务层拦 execute + 适配器侧 query 首词白名单（复用 guard 的 SQL_READ_HEADS）+
  * 拒绝多语句（防 `SELECT 1; UPDATE ...` 堆叠写）。这里是应用层防线，不是服务器级保证。
  */
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import * as tls from 'node:tls';
 import { SQL_READ_HEADS, sqlHead } from '../../guard/index.js';
 import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell } from '../sql-shared/common.js';
 import type { TxHandle } from '../sql-shared/pg-like.js';
@@ -176,13 +178,175 @@ function applyTdsVersion(options: Record<string, unknown>, raw: unknown, source:
 }
 
 /**
+ * 加密模式（URL ?encrypt= 与 fields.encrypt 同口径）：true / false / strict 三态。
+ *
+ * strict 是 tedious 对 TDS 8.0 的支持：TLS 在登录包之前就完成握手（ALPN=tds/8.0），仅 SQL Server
+ * 2022+ 开启 Force Strict Encryption 的实例可用；老实例必然拒绝，故非法值必须 fail-closed 报清
+ * 三态，不能把拼错的 'stric' 之类静默当成 true（加密强度是安全承诺，连错不报是安全事故）。
+ */
+function applyEncrypt(options: Record<string, unknown>, raw: unknown, source: string): void {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return;
+  if (typeof raw === 'boolean') {
+    options.encrypt = raw;
+    return;
+  }
+  const s = String(raw).trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes') {
+    options.encrypt = true;
+    return;
+  }
+  if (s === 'false' || s === '0' || s === 'no') {
+    options.encrypt = false;
+    return;
+  }
+  if (s === 'strict') {
+    options.encrypt = 'strict';
+    return;
+  }
+  throw new Error(
+    `sqlserver 连接${source}的 encrypt 取值非法：${JSON.stringify(raw)}（只接受 true/false/strict；strict 表示 TDS 8.0 强制加密，仅 SQL Server 2022 及以上并开启 Force Strict Encryption 的实例支持）`,
+  );
+}
+
+/**
+ * 证书校验用的服务器名（URL ?serverName= 与 fields.serverName 同口径）。
+ *
+ * 两个真实场景需要它：① 用 IP 直连但证书签发给域名；② 走端口转发/NAT 后主机名与证书不符。
+ * tedious 走 strict 时 servername 取 options.serverName（wrapWithTls），非 strict 时同样优先
+ * 用它（startTls），故一个参数覆盖两条路径。留空不注入，沿用「主机名作校验名」的默认语义。
+ */
+function applyServerName(options: Record<string, unknown>, raw: unknown): void {
+  if (raw === undefined || raw === null || String(raw) === '') return;
+  options.serverName = String(raw);
+}
+
+/** 取（必要时创建）cryptoCredentialsDetails，供 minVersion 与 ca 合并写入而不互相覆盖 */
+function credentialsOf(options: Record<string, unknown>): Record<string, unknown> {
+  const cur = options.cryptoCredentialsDetails;
+  if (cur !== undefined && cur !== null && typeof cur === 'object') return cur as Record<string, unknown>;
+  const fresh: Record<string, unknown> = {};
+  options.cryptoCredentialsDetails = fresh;
+  return fresh;
+}
+
+/** PEM 证书起始标记（用于区分「直接传证书文本」与「传文件路径」） */
+const PEM_HEADER = '-----BEGIN';
+
+/**
+ * 系统信任库中的 CA（Node >=22.15 的 tls.getCACertificates('system')）。
+ *
+ * 失败或不可用时返回空数组并静默回退：拿不到系统根证书不该阻断连接（用户显式给的 caCert 仍然
+ * 生效）。之所以要主动合并——Node tls 一旦收到 ca 选项就只用这份列表校验，默认的系统信任库不再
+ * 生效；只塞用户那张 CA 会让「装了自签 CA 之后连别的实例」全部失败。
+ */
+function systemCa(): string[] {
+  try {
+    const get = (tls as typeof tls & { getCACertificates?: (type: string) => string[] }).getCACertificates;
+    if (typeof get !== 'function') return [];
+    const list = get('system');
+    if (!Array.isArray(list)) return [];
+    return list.filter((x): x is string => typeof x === 'string' && x !== '');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 内置 bundle 的 CA（Node >=22.15 的 tls.getCACertificates('default')）。
+ * 取不到时返回空数组——调用方据此跳过注入，保持 Node 默认校验行为。
+ */
+function defaultCa(): string[] {
+  try {
+    const get = (tls as typeof tls & { getCACertificates?: (type: string) => string[] }).getCACertificates;
+    if (typeof get !== 'function') return [];
+    const list = get('default');
+    if (!Array.isArray(list)) return [];
+    return list.filter((x): x is string => typeof x === 'string' && x !== '');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 显式受信 CA（URL ?caCert= 与 fields.caCert 同口径）：值可以是 PEM 文本，也可以是 PEM 文件路径。
+ *
+ * 两条硬约束：
+ *  - 路径读不出来必须 fail-closed 抛中文错。若静默跳过，用户会以为「已装 CA 但还连不上」，实际
+ *    仍按系统信任库校验——问题只会更难定位。
+ *  - 写入的 ca 必须与系统信任库合并（见 systemCa 的注释），否则等于缩小信任范围。
+ */
+function applyCaCert(options: Record<string, unknown>, raw: unknown, source: string): void {
+  if (raw === undefined || raw === null || String(raw) === '') return;
+  const text = String(raw);
+  // PEM 文本原样保留（换行是 PEM 结构的一部分）；只有当路径时才去掉两端空白
+  const pem = text.includes(PEM_HEADER) ? text : readCaFile(text.trim(), source);
+  const merged = systemCa().slice();
+  if (!merged.includes(pem)) merged.push(pem);
+  credentialsOf(options).ca = merged;
+}
+
+/**
+ * 把系统信任库并入默认校验（未显式给 caCert 时也生效）。
+ *
+ * 为什么需要：Node 默认的 ca 是编译期内置的 bundle，**不读操作系统信任库**（只有 --use-system-ca
+ * 或显式注入才读）。因此「用户按官方推荐把自签证书导入 Windows 受信任根」这一最常见的正确做法，
+ * 在不注入的情况下对连接毫无帮助，用户会以为"导入没用"。此处在未给 caCert 时注入 system 列表，
+ * 让该做法真正生效。
+ *
+ * 合并而非替换：注入系统库后 Node 不再使用内置 bundle，只给 system 会让"连公网/别家实例"反而失败，
+ * 故 default + system 一起给。
+ *
+ * 兼容性（老环境不能因此连不上，故逐级降级而不是一刀切）：
+ *  - 没有 tls.getCACertificates（Node < 22.15 / 非官方构建）→ defaultCa() 与 systemCa() 都返回 []，
+ *    本函数不注入任何东西，保持 Node 原生默认行为（仍可用内置 bundle 正常连接公网证书）。
+ *  - 有 API 但系统库为空（部分 Linux 容器、精简镜像）→ 只注入 bundled（等价于默认），
+ *    不会把 ca 设成空数组（那会让校验彻底失败）。
+ *  - 任何异常都被 defaultCa/systemCa 内部吞掉，绝不让"取系统证书失败"打断建连。
+ */
+function applySystemCaDefault(options: Record<string, unknown>): void {
+  if (options.cryptoCredentialsDetails !== undefined) {
+    const cur = options.cryptoCredentialsDetails as Record<string, unknown> | null;
+    // 已经有人写过 ca（caCert 显式给过）就不再插手，避免覆盖用户的显式选择
+    if (cur !== null && typeof cur === 'object' && cur['ca'] !== undefined) return;
+  }
+  const bundled = defaultCa();
+  const system = systemCa();
+  // 两者都拿不到 → 不注入：保持 Node 默认（内置 bundle 依然生效）
+  if (bundled.length === 0 && system.length === 0) return;
+  const merged = bundled.slice();
+  for (const pem of system) if (!merged.includes(pem)) merged.push(pem);
+  if (merged.length === 0) return;
+  credentialsOf(options).ca = merged;
+}
+
+/** 读取 PEM 文件；任何失败都转成带修复指引的中文错误（绝不静默忽略该配置） */
+function readCaFile(path: string, source: string): string {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (e) {
+    throw new Error(
+      `sqlserver 连接${source}的 caCert 无法读取：${path}（${errText(e)}）。请给出可读的 PEM 证书文件路径，或直接传 PEM 文本；该配置不会被忽略——忽略等于换回系统信任库校验，真正的原因会被掩盖`,
+    );
+  }
+  if (!text.includes(PEM_HEADER)) {
+    throw new Error(
+      `sqlserver 连接${source}的 caCert 指向的文件不含 PEM 证书：${path}（应形如 -----BEGIN CERTIFICATE----- 开头；若本来就想直接传文本，请确认文本未被截断）`,
+    );
+  }
+  return text;
+}
+
+/**
  * 最低 TLS 版本（URL ?tlsMinVersion= 与 fields.tlsMinVersion 同口径）。
  *
- * 只写 cryptoCredentialsDetails.minVersion，刻意不提供 ciphers / maxVersion 开关：
+ * 只写 cryptoCredentialsDetails.minVersion，不提供 ciphers / maxVersion 开关：
  *  - Electron 内置 Node 是 BoringSSL，OpenSSL 专有的 cipher 串（如 DEFAULT@SECLEVEL=0）会直接抛
  *    INVALID_COMMAND；而「连 2008/2008R2 只有 TLS 1.0」这个场景只需把下限从默认的 TLSv1.2 放开即可。
- *  - tedious message-io 自己会把 maxVersion 补成 TLSv1.2（未指定时），故上限天然封顶在 1.2；
- *    这里再写 maxVersion 反而会削弱安全性，保持只设下限。
+ *  - TLS 上限在非 strict 路径由 tedious 自己封顶：message-io.js 的 startTls 会把
+ *    cryptoCredentialsDetails.maxVersion 就地改写为 'TLSv1.2'（只有在白名单 TLSv1/TLSv1.1/TLSv1.2
+ *    内才原样保留），所以这里写 maxVersion=TLSv1.2 等价于「什么都不做」而不是「加固」。写更低的上限
+ *    反而会真的降级到 1.0/1.1，属于削弱安全性——上限留给 tedious 定，本函数只管下限。
  *
  * 取值区分大小写、不做归一化（与 Node tls 官方 API 语义一致：'tlsv1' / 'TLSv1_0' 均会被底层拒绝）。
  * 非法值 fail-closed：静默回退到 Node 默认下限会让用户以为已下探，实际握手仍按 TLS 1.2 起步，
@@ -197,7 +361,8 @@ function applyTlsMinVersion(options: Record<string, unknown>, raw: unknown, sour
       `sqlserver 连接${source}的 tlsMinVersion 取值非法：${JSON.stringify(raw)}（可选 ${TLS_MIN_VERSIONS.join('/')}，默认不设置=沿用 Node 默认 TLSv1.2；TLSv1.3 不可选：底层 tedious 把 TLS 上限封顶在 1.2，设 1.3 会导致最小版本大于最大版本而握手失败）`,
     );
   }
-  options.cryptoCredentialsDetails = { minVersion: hit };
+  // 与 caCert 合并进同一份 cryptoCredentialsDetails：两者都可能被用户同时设置，直接整体赋值会互相覆盖
+  credentialsOf(options).minVersion = hit;
 }
 
 function decodeCred(raw: string): string {
@@ -266,11 +431,14 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
     const path = u.pathname.replace(/^\//, '');
     if (path) cfg.database = decodeCred(path);
 
-    options.encrypt = boolParam(u.searchParams, 'encrypt', true);
+    // encrypt 是三态（true/false/strict），故不走 boolParam：strict 会被布尔白名单判为非法
+    applyEncrypt(options, queryParam(u.searchParams, 'encrypt'), ' URL ');
     options.trustServerCertificate = boolParam(u.searchParams, 'trustServerCertificate', false);
     options.useUTC = boolParam(u.searchParams, 'useUTC', true);
     applyTdsVersion(options, queryParam(u.searchParams, 'tdsVersion'), ' URL ');
     applyTlsMinVersion(options, queryParam(u.searchParams, 'tlsMinVersion'), ' URL ');
+    applyServerName(options, queryParam(u.searchParams, 'serverName'));
+    applyCaCert(options, queryParam(u.searchParams, 'caCert'), ' URL ');
     const instance = queryParam(u.searchParams, 'instanceName');
     // instanceName 与 port 互斥：mssql 层在建连前会 delete 掉 port（tedious 对两者共存直接抛
     // 互斥 Error），端口改由 SQL Server Browser（UDP 1434）按实例名解析
@@ -292,7 +460,8 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
     // TLS 下限都不生效（连接仍按 URL 默认值走），排障时会误以为参数没被实现。此处与 URL 分支
     // 同口径补齐，默认值仍取自 options 初始值（encrypt=true / trustServerCertificate=false /
     // tdsVersion=7_4 / useUTC=true）。
-    options.encrypt = boolField(f.encrypt, 'encrypt', options.encrypt as boolean);
+    // encrypt 与 URL 分支同口径的三态校验（true/false/strict），缺省沿用 options 初始值 encrypt=true
+    applyEncrypt(options, f.encrypt, '配置');
     options.trustServerCertificate = boolField(
       f.trustServerCertificate,
       'trustServerCertificate',
@@ -300,12 +469,19 @@ function poolConfig(conn: ResolvedConnection): Record<string, unknown> {
     );
     applyTdsVersion(options, f.tdsVersion, '配置');
     applyTlsMinVersion(options, f.tlsMinVersion, '配置');
+    applyServerName(options, f.serverName);
+    applyCaCert(options, f.caCert, '配置');
   } else {
     throw new Error('sqlserver 连接缺少 url 或 fields 配置');
   }
 
-  // conn.ssl 是通用字段（mysql/pg 适配器同样处理）：语义上等价要求加密信道
-  if (conn.ssl) options.encrypt = true;
+  // conn.ssl 是通用字段（mysql/pg 适配器同样处理）：语义上等价要求加密信道。
+  // 已显式选 strict（TDS 8.0）时不降级为 true——strict 是更强的加密承诺，降级会悄悄削弱安全要求。
+  if (conn.ssl && options.encrypt !== 'strict') options.encrypt = true;
+
+  // 未显式给 caCert 时把系统信任库并入默认校验：Node 默认只信任内置 bundle，不读操作系统信任库，
+  // 因此"按官方推荐把自签证书导入 Windows 受信任根"若不注入就对连接毫无帮助（详见 applySystemCaDefault）。
+  applySystemCaDefault(options);
 
   cfg.connectionTimeout = 15000;
   cfg.requestTimeout = 30000;
@@ -529,6 +705,43 @@ function errText(e: unknown): string {
 }
 
 /**
+ * SQL Server 引擎错误号 → 针对性的中文诊断与出口（仅覆盖「光看英文 message 会走错方向」的那些）。
+ *
+ * 原则：错误号是服务器给的结构化事实，比 message 文本可靠；但药方必须与成因正交地给对——
+ *  - 17819 只要 TDS 8.0，与证书是否受信无关，绝不能给 trustServerCertificate；
+ *  - 17898/17802 是 TDS 协议版本被拒，官方协议规定服务器会自动降级，故正解是升级客户端库，
+ *    不是让用户去下调 tdsVersion（那会把问题从「连不上」变成「连上了但行为异常」）；
+ *  - 17835 是服务器强制加密，解法是开 encrypt，同样与证书无关；
+ *  - 17836/17828/17832 是包结构错配（代理/分片/加密中间层/连错端口），不是版本问题，
+ *    给 tdsVersion 建议会把排查引向完全错误的方向；
+ *  - 47072 是 Azure 的最低 TLS 版本门槛，只会由「版本太低」触发，不会由「证书不受信」触发。
+ */
+const EREQUEST_HINTS: Record<number, string> = {
+  17819:
+    '服务器只接受加密连接（要求 TDS 8.0 严格加密）：请在连接 URL 追加 ?encrypt=strict 后重试（strict 走 TDS 8.0，TLS 在登录包之前就完成握手，仅 SQL Server 2022 及以上且开启 Force Strict Encryption 的实例支持）',
+  17898:
+    '客户端声明的 TDS 协议版本不被服务器接受：官方协议（MS-TDS LOGIN7）规定服务器应降级到自身最高版本，所以正确做法是升级客户端驱动/库的版本，而不是下调 tdsVersion',
+  17802:
+    '服务器拒绝该 TDS 协议版本（中间 TDS 版本不受支持）：请升级客户端驱动/库的版本；下调 tdsVersion 只会让协议降级、后续行为更不可预期',
+  17835:
+    '服务器强制要求加密连接，而当前配置未启用加密：请在连接 URL 追加 ?encrypt=true 后重试（这是加密开关问题，与证书是否受信无关，不要用关闭证书校验的方式绕过）',
+  17836:
+    '登录包长度与网络包声明不一致：通常是代理、端口转发、加密中间层或分片设备改写了 TDS 包，或连到了并非 SQL Server 的端口。请核对端口与链路中间设备',
+  17828:
+    '预登录包结构非法（服务器认为客户端发来的预登录包不合法）：通常是代理或加密中间层改写了包结构，请核对网络链路中的中间设备与端口',
+  17832:
+    '服务器无法解析客户端登录包：可能是包被中间层改写、驱动版本与服务端加解密方式不匹配，或连到了非 SQL Server 端口。请核对链路中间设备',
+  47072:
+    'Azure SQL 要求的最低 TLS 版本未满足：请把客户端 TLS 版本提升到 1.2 及以上（不要下探 tlsMinVersion，也不要关闭证书校验——这个错误只由版本过低触发）',
+};
+
+/** 已知错误号对应的补充诊断（未收录返回 undefined，保持原有通用文案） */
+function erequestHint(num: number | undefined): string | undefined {
+  if (num === undefined) return undefined;
+  return Object.prototype.hasOwnProperty.call(EREQUEST_HINTS, num) ? EREQUEST_HINTS[num] : undefined;
+}
+
+/**
  * mssql 错误码 → 中文可读提示。ETIMEOUT 在 ConnectionError（建连超时）与 RequestError
  * （语句执行超时）下语义不同，故结合 err.name 判断而非只看 code；originalError/precedingErrors
  * 附加在末尾用于追溯。无法识别时保留原始 message（不吞信息）。
@@ -572,6 +785,9 @@ function mssqlReason(e: unknown): string {
       tlsText,
     );
 
+  // 已知错误号对应的针对性诊断（未收录为 undefined）：既用于 EREQUEST 文案，也用于抑制 TLS 族建议
+  const knownHint = erequestHint(num);
+
   let base: string;
   switch (code) {
     case 'ELOGIN':
@@ -594,8 +810,14 @@ function mssqlReason(e: unknown): string {
       break;
     // 服务器强制加密（SQL Server 2022 / Azure SQL 默认）而客户端 encrypt=false：tedious 抛英文原文，
     // 不映射则中文界面里只剩英文，故单列一条给出可直接照做的改法。
+    // 同一个 EENCRYPT 有两种相反成因，必须分开表述（tedious 20.3.7+ 新增了前者的校验）：
+    //  - encrypt=true 而服务器预登录没回 ON/REQ → 服务器未协商加密，握手本会退化成明文，驱动现在直接拒绝；
+    //  - encrypt=false 而服务器要求加密 → 服务器侧强制。
+    // 两者的药方正好相反（一个要关、一个要开），合并成一句必然把用户引反方向。
     case 'EENCRYPT':
-      base = `服务器要求加密连接：当前 encrypt=false 被服务器拒绝，请改用 ?encrypt=true 后重试（${detail}）`;
+      base = /did not negotiate encryption/i.test(detail)
+        ? `服务器未协商加密：客户端要求加密（encrypt=true）但服务器在预登录响应里没有回 ON/REQ，驱动为避免明文降级直接拒绝连接。若该实例确实不支持加密，可改用 ?encrypt=false 明文连接（内网可接受时）；若要求加密，请在服务器侧启用「强制加密」并配置有效证书（${detail}）`
+        : `服务器要求加密连接：当前 encrypt=false 被服务器拒绝，请改用 ?encrypt=true 后重试（${detail}）`;
       break;
     case 'EINSTLOOKUP':
       base = `实例名解析失败：SQL Server Browser 服务可能未运行或 UDP 1434 不可达（命名实例可改用「主机，端口」直连，如 host,1433）（${detail}）`;
@@ -607,15 +829,21 @@ function mssqlReason(e: unknown): string {
     case 'ECANCEL':
       base = `请求已取消（${detail}）`;
       break;
-    case 'EREQUEST':
-      base = `SQL 执行错误${num !== undefined ? `（错误号 ${num}${sev !== undefined ? `、严重级 ${sev}` : ''}${line !== undefined ? `、第 ${line} 行` : ''}）` : ''}：${detail}`;
+    case 'EREQUEST': {
+      base = `SQL 执行错误${num !== undefined ? `（错误号 ${num}${sev !== undefined ? `、严重级 ${sev}` : ''}${line !== undefined ? `、第 ${line} 行` : ''}）` : ''}：${knownHint === undefined ? detail : `${knownHint}。服务器原文：${detail}`}`;
       break;
+    }
     default:
       base = detail;
   }
 
   const trail: string[] = [];
-  if (tlsProtoish) {
+  // 已知错误号已经给出了针对性诊断时，抑制 TLS 族建议：这类错误的服务器原文常含 certificate /
+  // encryption 字样（如 17819 的「TLS certificate is not configured to accept strict」），会被下面的
+  // 正则命中；但真因是服务端配置/协议问题，客户端装 CA、关校验一律无效，叠加只会给出互相矛盾的药方。
+  if (knownHint !== undefined) {
+    // 已由 EREQUEST_HINTS 给出单一出口，此处不再追加任何族建议
+  } else if (tlsProtoish) {
     // 顺序即优先级：服务端升级是正解（一次性、对所有客户端生效），客户端下探是权宜（仍受限于
     // 服务端实际支持的版本）。第③条显式点名「跳过证书校验」是先发制人——用户看到 TLS 报错的第一
     // 反应通常就是去信任证书，明说无效比沉默更省一轮排查；措辞必须是否定式，不得写成可尝试项。
@@ -629,8 +857,19 @@ function mssqlReason(e: unknown): string {
       '③ 注意：跳过证书校验（信任任意证书）对这类错误无效——它只影响证书校验阶段，而此处是协议版本协商失败，证书校验根本没执行',
     );
   } else if (tlsCertish) {
+    // 证书族（自签/链断/主机名不符/已过期）：解法有强弱两档，必须把官方推荐摆在前面。
+    // ① 装 CA（?caCert= 给 PEM 或文件路径）——校验照旧生效，只把签发者加进信任列表，这是官方推荐做法；
+    // ② strict（TDS 8.0）下 trustServerCertificate 完全失效：tedious 的 wrapWithTls 调 tls.connect
+    //    时没有传 rejectUnauthorized，证书是强制校验的。必须说清，否则用户在 strict 下改这个开关
+    //    会「改完还是同样的错」，白排查一轮。
     trail.push(
-      '若目标是 SQL Server 2008/2008 R2 或使用自签名证书的实例，可在连接 URL 追加 ?trustServerCertificate=true（或 ?encrypt=false，前提是服务器未强制加密）',
+      '官方推荐先在客户端装 CA 而不是关校验：把签发服务器证书的根 CA（自签场景就是该证书本身）经 ?caCert= 指向 PEM 路径或直接给 PEM 文本，让证书校验照常生效；若证书签发给域名而你是用 IP/转发地址连接的，再用 ?serverName=域名 指定用于校验的名字',
+    );
+    trail.push(
+      '② 不得已才关校验：?trustServerCertificate=true（跳过证书链与主机名校验，仅加密信道不保证对端身份），或 ?encrypt=false（前提是服务器未强制加密）——SQL Server 2008/2008 R2 与使用自签证书的实例常见此情形，但这两条都会削弱安全性，仅建议内网临时使用',
+    );
+    trail.push(
+      '③ 注意：若当前用的是 ?encrypt=strict（TDS 8.0），trustServerCertificate 完全不生效（驱动 strict 路径不传 rejectUnauthorized，证书强制校验），只能装 CA 或改用 ?encrypt=true',
     );
   }
   if (err.originalError !== undefined) trail.push(`原始错误: ${errText(err.originalError)}`);
@@ -815,6 +1054,7 @@ const PRODUCT_NAMES: Record<number, string> = {
   14: '2017',
   15: '2019',
   16: '2022',
+  17: '2025',
 };
 
 /** 版本串展示：'Microsoft SQL Server 2019 - 15.0.2000.5'（Azure SQL 按 EngineEdition=5 单独标注） */

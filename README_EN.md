@@ -145,27 +145,39 @@ Both are contract behaviours of the official right sidebar and are easy to mista
 
 ## SQL Server connection notes
 
-Covers SQL Server 2008 / 2008 R2 through 2022 and Azure SQL Database.
+Covers SQL Server 2005 (9.0) through 2025 (17.0) and Azure SQL Database.
 
 **Connection URL parameters** (also supported by the field-by-field form):
 
 | Parameter | Values | Default |
 |---|---|---|
-| `encrypt` | `true` / `false` | `true` |
+| `encrypt` | `true` / `false` / `strict` | `true` |
 | `trustServerCertificate` | `true` / `false` | `false` |
-| `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4` |
+| `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4` (negotiated down automatically; normally leave unset) |
 | `tlsMinVersion` | `TLSv1` / `TLSv1.1` / `TLSv1.2` | unset (Node default TLSv1.2) |
+| `serverName` | Name to validate against the server certificate | unset (validate against the connected host) |
+| `caCert` | PEM file path or certificate text | unset (use the system trust store) |
 | `instanceName` | Named instance (mutually exclusive with port) | — |
 | `useUTC` | `true` / `false` | `true` |
 
-**When connecting to older instances, tell the two TLS failure families apart — their remedies are not interchangeable**:
+**You do not need to pick a TDS version**: the client always declares `7.4` and the server negotiates down to what it supports (2005→7.2, 2008→7.3.A, 2008 R2→7.3.B). This is mandated by [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) (when the client declares a higher version, the server **must** use the highest version it supports). `tdsVersion` remains only as a troubleshooting override.
 
-- **Certificate family** (`self signed certificate` / `unable to verify` / `CERT_`) → append `?trustServerCertificate=true`; use `?encrypt=false` when the server does not force encryption
-- **Protocol-version family** (`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`) → client and server share no common TLS version, so the handshake fails during negotiation and **certificate validation never runs**; `trustServerCertificate` is useless here. The real fix is enabling TLS 1.2 on the server (KB4057113 for 2008 R2 SP3, KB4057114 for 2008 SP4); when the server cannot be touched, lower the client floor with `?tlsMinVersion=TLSv1`
+**When connecting to older instances, tell the two TLS failure families apart — their remedies are orthogonal and not interchangeable**:
+
+- **Certificate family** (`self signed certificate` / `unable to verify` / `CERT_`) → fails during certificate validation. ① Prefer installing the trusted CA via `?caCert=` (validation still applies); if the certificate names a host but you connect by IP, also set `?serverName=`. ② Only as a last resort use `?trustServerCertificate=true` to skip validation, or `?encrypt=false` when the server does not force encryption.
+- **Protocol-version family** (`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`) → client and server share no common TLS version, so the handshake fails during negotiation and **certificate validation never runs**; `trustServerCertificate` is useless here. The real fix is enabling TLS 1.2 on the server (KB4057113 for 2008 R2 SP3, KB4057114 for 2008 SP4, corresponding CU/GDR plus KB3052404 for 2012/2014); when the server cannot be touched, lower the client floor with `?tlsMinVersion=TLSv1`.
+
+TLS 1.2 support by version: 2016+ has it natively; 2012 SP4 / 2014 SP2 and later have it natively, earlier service packs need patches; 2008 / 2008 R2 need the updates above; **SQL Server 2005 has no patch that adds TLS 1.2** (officially "TLS 1.2 support is offered only for SQL Server 2008 and later"), so lowering the client TLS floor is the only option. See [KB3135244](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server).
+
+**`encrypt=false` does not skip the TLS handshake**: SQL Server always encrypts the login packet (Login7, which carries the credentials) *even when encryption is not configured*, so a TLS handshake still happens. When the protocol versions do not overlap, `encrypt=false` fails just the same — a common reason why "changing the encryption setting" does not fix the error.
+
+**`encrypt=strict` (TDS 8.0)**: only supported by SQL Server 2022+ instances with Force Strict Encryption enabled. In this mode TLS completes before the login packet, so **`trustServerCertificate` has no effect at all** (the driver omits `rejectUnauthorized` and validation is mandatory); use `caCert` or `serverName` instead.
 
 `tlsMinVersion` does not include `TLSv1.3`: the underlying tedious driver caps the TLS ceiling at 1.2, so setting 1.3 makes the minimum exceed the maximum and the handshake always fails.
 
-**Other boundaries**: SQL authentication only (Windows integrated authentication and Azure AD are not supported); SQL Server 2005 and earlier are not supported; `tdsVersion=8_0` (TDS 8.0) and `encrypt='strict'` are not yet supported.
+**System trust store**: the plugin merges the OS trust store into certificate validation (`tls.getCACertificates('system')`, requires Node ≥ 22.15; the DSH desktop ships Node 24.21). Importing a self-signed certificate into the Windows "Trusted Root Certification Authorities" store is therefore enough — **no `caCert` needed**. The injected list is bundled + system merged (measured 118 + 72 = 190); merging rather than replacing avoids breaking public-CA connections. On older runtimes without that API nothing is injected and Node's native default applies.
+
+**Other boundaries**: SQL authentication only (Windows integrated authentication and Azure AD are not supported); SQL Server 2000 and earlier are not supported; `tdsVersion=8_0` is not supported (TDS 8.0 is enabled via `encrypt=strict`).
 
 ---
 
@@ -190,7 +202,7 @@ DSH desktop 0.2.0-rc.2+ bundles the `dsh` command:
 2. Install the plugin (npm installs must pin an exact version — `@latest` falls back to an older release due to release-age checks):
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.1 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.2 --registry=https://registry.npmjs.org/
    ```
 
 3. **Restart the desktop app** to load it
