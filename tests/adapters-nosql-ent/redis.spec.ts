@@ -158,6 +158,26 @@ describe('query 白名单与规范化', () => {
     await a2.query('SCAN');
     expect(c2.scanIterator).toHaveBeenCalledWith({ MATCH: '*', COUNT: 100 });
   });
+  // XRANGE 的返回类型是 NullReply | StreamMessageReply[]（@redis/client XRANGE.d.ts
+  // transformReply），键不存在时可能拿到 null。此前直接 for..of 迭代 null 会 TypeError，
+  // 表现为「点开空 stream 键报错」；现按空结果处理。两条路径（query / previewRows）同源。
+  it('XRANGE 返回 null（空 stream 键）→ 空结果而非 TypeError', async () => {
+    const c = makeClient();
+    c.xRange = vi.fn(async () => null);
+    const a = await createRedisAdapter(conn, { client: c });
+    const r = await a.query('XRANGE s - +');
+    expect(r.columns).toEqual(['id', 'field', 'value']);
+    expect(r.rows).toEqual([]);
+    expect(r.rowCount).toBe(0);
+  });
+  it('previewRows stream 类型 xRange 返回 null → 空结果而非 TypeError', async () => {
+    const c = makeClient();
+    c.type = vi.fn(async () => 'stream');
+    c.xRange = vi.fn(async () => null);
+    const a = await createRedisAdapter(conn, { client: c });
+    const r = await a.previewRows('s', 10);
+    expect(r.rowCount).toBe(0);
+  });
   it('HGETALL 超过 500 行截断并标 truncated（HKEYS/HVALS/SMEMBERS 同规则）', async () => {
     const c = makeClient();
     const big: Record<string, string> = {};

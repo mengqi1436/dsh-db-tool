@@ -74,6 +74,7 @@
     "esbuild": "^0.28.0",
     "mongodb": "^7.6.0",
     "mssql": "12.7.4",
+    "semver": "^7.7.0",
     "sql-formatter": "^15.9.0",
     "stryker-cli": "^1.1.0",
     "typescript": "^5.9.3",

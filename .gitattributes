@@ -1,0 +1,21 @@
+# 行尾统一为 LF。Windows 默认 core.autocrlf=true 会在 checkout 时把文本转为 CRLF，
+# 但本仓库有两处逻辑对行尾**逐字节敏感**，CRLF 会直接导致测试失败：
+#   1) tests/scripts/hotfix.spec.ts 把 patches/*.patch 的 + 行与 scripts/hotfix-core.mjs
+#      的内置替换块逐字节比对；git apply 的结果又要与内置替换结果逐字节一致。
+#      autocrlf=true 时 git apply 产出 CRLF、内置块是 LF，三条 git apply 契约用例全红。
+#   2) patch 文件本身必须保持 LF，否则在 Linux/CI 上 apply 会把 CR 带进目标文件。
+* text=auto eol=lf
+
+# 二进制资产显式排除，避免被当作文本转换损坏
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.zip binary
+*.gz binary
+*.tgz binary

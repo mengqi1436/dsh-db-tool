@@ -375,7 +375,9 @@ export async function createRedisAdapter(
               countIdx > 0 ? { COUNT: Number(rest[countIdx + 1] ?? 20) } : undefined,
             );
             const rows: NormalizedCell[][] = [];
-            for (const entry of entries) {
+            // xRange 返回 NullReply | StreamMessageReply[]：键不存在时服务端回空数组、
+            // 客户端类型却含 null（XRANGE.d.ts transformReply），直接迭代会 TypeError。
+            for (const entry of entries ?? []) {
               const fields = Object.entries(entry.message ?? {});
               if (fields.length === 0) rows.push([cell(entry.id), null, null]);
               for (const [f, v] of fields) rows.push([cell(entry.id), cell(f), cell(v)]);
@@ -486,7 +488,8 @@ export async function createRedisAdapter(
           case 'stream': {
             const entries = await client.xRange(key, '-', '+', { COUNT: n });
             const rows: NormalizedCell[][] = [];
-            for (const entry of entries) {
+            // 同上：xRange 类型含 null，空键时必须按空结果处理而非迭代崩溃
+            for (const entry of entries ?? []) {
               const fields = Object.entries(entry.message ?? {});
               if (fields.length === 0) rows.push([cell(entry.id), null, null]);
               for (const [f, v] of fields) rows.push([cell(entry.id), cell(f), cell(v)]);

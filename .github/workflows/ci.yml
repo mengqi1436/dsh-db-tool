@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck & Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 为 engines 下限，22 与 publish.yml 对齐，24 覆盖最新
+        node: [20, 22, 24]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # vendor/*.cjs 是构建产物（.gitignore 已忽略），但大量测试直接依赖它们：
+      #   - mongodb 适配器靠 vendor 里的 ObjectId/Decimal128 做 instanceof 判断，
+      #     产物缺失时这些值会落进普通对象分支被 JSON 序列化，测试以「格式不对」失败
+      #   - client/console-tools 校验 vendor/codemirror-sql.cjs 含 sqlserver 接线
+      #   - sqlserver-driver-real 顶层 require vendor/sqlserver-driver.cjs
+      # 不先构建会以环境问题形式失败，掩盖真实回归。
+      - name: Build vendor bundles
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  # 汇总任务：分支保护只需勾选这一个 check，矩阵扩缩容时无需改保护规则。
+  ci-ok:
+    name: CI passed
+    if: always()
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any matrix job failed
+        if: needs.verify.result != 'success'
+        run: |
+          echo "verify 结果: ${{ needs.verify.result }}"
+          exit 1
+      - run: echo "所有 Node 版本均通过"
