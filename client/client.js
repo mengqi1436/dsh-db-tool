@@ -21,6 +21,7 @@ window.__ModuleLoader__.load({
 		const zh = {
 			tabTitle: "数据库",
 			tabDesc: "多库连接管理、项目授权、数据浏览与 SQL 控制台",
+			tabUnavailable: "页签尚未就绪，请切换页签后重试",
 			projectLabel: "项目: {path}",
 			projectUnbound: "未识别当前项目路径，请在下方填写工作区绝对路径",
 			projectPathPlaceholder: "工作区绝对路径（如 E:\\Code\\my-app）",
@@ -252,6 +253,7 @@ window.__ModuleLoader__.load({
 		const en = {
 			tabTitle: "Databases",
 			tabDesc: "Connection management, project grants, data browse and a SQL console",
+			tabUnavailable: "This tab is not ready yet; switch tabs and try again",
 			projectLabel: "Project: {path}",
 			projectUnbound: "Cannot detect current project path; enter the workspace absolute path below",
 			projectPathPlaceholder: "workspace absolute path (e.g. /home/me/my-app)",
@@ -2696,6 +2698,13 @@ window.__ModuleLoader__.load({
 				loadDbs();
 			}, [connId, projectPath]);
 
+			// 换项目时作废事务：事务按创建时的 projectKey 授权与审计，
+			// 残留的 sessionToken 会让后续语句写进旧项目的库、审计记旧项目，
+			// 而顶栏显示的是新项目路径。不主动回滚，交服务端 TTL 清扫。
+			React.useEffect(() => {
+				setTxToken(null);
+			}, [projectPath]);
+
 			// vendor bundle 异步加载（失败降级 textarea，静默）
 			React.useEffect(() => {
 				let dead = false;
@@ -3649,7 +3658,9 @@ window.__ModuleLoader__.load({
 			const [view, setView] = React.useState("manage");
 			// 项目路径初始值取 scope.cwd；scope 由本文件构造为 { sessionId, cwd }，cwd 缺失时留空等下方异步解析或手填
 			const [projectPath, setProjectPath] = React.useState(scope.cwd || "");
-			const [projectEdited, setProjectEdited] = React.useState(!scope.cwd);
+			// 是否「用户手填过」：只由输入框 onChange 置位。首帧 cwd 取不到时不能预设为已编辑，
+			// 否则下方 project-context 解析被永久跳过，用户卡在空路径输入框且连接全显示未授权。
+			const [projectEdited, setProjectEdited] = React.useState(false);
 			const [conns, setConns] = React.useState([]);
 			const [grants, setGrants] = React.useState([]);
 			const [busy, setBusy] = React.useState("");
@@ -3737,7 +3748,7 @@ window.__ModuleLoader__.load({
 						// 填充式输入：裸 input 命中样式层 .dbt-row input 契约（去掉旧 dbt-card + 内联 padding hack）
 						React.createElement("input", {
 							placeholder: t("projectPathPlaceholder"), value: projectPath,
-							onChange: (e) => setProjectPath(e.target.value),
+							onChange: (e) => { setProjectPath(e.target.value); setProjectEdited(true); },
 							// 失焦时：输入与权威解析一致才收回自动跟随；用户填了自己的路径则保持手填态（不被权威值打回）
 							onBlur: (e) => {
 								const v = (e.target.value || "").trim();
@@ -3839,7 +3850,16 @@ window.__ModuleLoader__.load({
 			// 页签正文：宿主注入标准 props { sessionId, useTabInfo, useSessions? }。
 			// useTabInfo().tab.visible 同时表达「页签激活」与「右侧栏展开/非后台会话」，可直接当 visible 用。
 			function DbToolBody(props) {
-				const info = props.useTabInfo();
+				// useTabInfo 在页签记录未提交时会 throw。异常一旦冒到宿主 SlotErrorBoundary，
+				// 该席位条目会被 abdicate 永久除名（宿主 entriesOfSlot 过滤后无 delete 路径），
+				// 即数据库页签在本进程内彻底消失且无法自愈 —— 故就地降级，不让它冒出去。
+				let info;
+				try {
+					info = props.useTabInfo();
+				} catch (e) {
+					return React.createElement("div", { className: "dbt-panel" },
+						React.createElement("div", { className: "dbt-muted" }, t("tabUnavailable")));
+				}
 				const cwd = typeof props.useSessions === "function"
 					? props.useSessions(function (snapshot) {
 						const row = snapshot && snapshot.byId ? snapshot.byId[props.sessionId] : undefined;

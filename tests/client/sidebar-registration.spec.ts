@@ -254,3 +254,30 @@ describe('官方右侧栏注册契约', () => {
 		expect(firstTitle()).toBe('Databases');
 	});
 });
+
+describe('正文降级与项目路径解析', () => {
+	it('useTabInfo 抛错时不冒到宿主，渲染降级态（宿主会把冒出的异常永久除名该席位）', () => {
+		const { ctx, state } = makeCtx();
+		mod.apply(ctx);
+		const body = state.seats.find((s) => s.name === 'sidebar.right.pane.tab')!.comp;
+		let el: any;
+		expect(() => {
+			el = body({
+				sessionId: 's1',
+				useTabInfo: () => { throw new Error('sidebarRight: tab "t1" is not committed'); },
+				useSessions: (sel: any) => sel({ byId: { s1: { cwd: 'D:/x' } } }),
+			});
+		}).not.toThrow();
+		expect(el).toBeTruthy();
+		expect(JSON.stringify(el)).toContain('dbt-panel');
+	});
+
+	it('首帧 scope.cwd 缺失不会把 projectEdited 预设为已编辑（否则 project-context 永不解析）', () => {
+		// 源码级断言：初值若写成 !scope.cwd，首帧无 cwd 时 projectEdited=true，
+		// 解析 effect 的 if (!visible || projectEdited) return 会永久跳过解析。
+		expect(src).not.toContain('React.useState(!scope.cwd)');
+		expect(src).toContain('// 是否「用户手填过」：只由输入框 onChange 置位。首帧 cwd 取不到时不能预设为已编辑，');
+		// 手填必须置位，否则会被自动解析覆盖
+		expect(src).toContain('setProjectEdited(true)');
+	});
+});

@@ -209,13 +209,14 @@ interface Harness {
 	tree(): El;
 	errors: string[];
 	unmount(): void;
+	patch(next: Record<string, any>): void;
 }
 
 function makeHarness(mode: 'ro' | 'rw', conns?: any[]): Harness {
 	const host = reactStub;
 	host.reset(); // 清 hooks 槽位与 effect 队列，防测试间串扰
 	const errors: string[] = [];
-	const props = {
+	const props: any = {
 		conns: conns || [{ id: 'c1', kind: 'mysql', name: '本地MySQL' }],
 		grants: [{ connId: 'c1', mode }],
 		projectPath: 'E:/proj',
@@ -235,6 +236,13 @@ function makeHarness(mode: 'ro' | 'rw', conns?: any[]): Harness {
 		async settle() { await tick(); await tick(); await tick(); },
 		tree: () => tree,
 		unmount() { host.destroy(); },
+		// 先按新 props 渲染触发 effect 重跑，再 flush 执行 effect（setTxToken），最后再渲染拿到更新后的树
+		patch(next) {
+			Object.assign(props, next);
+			host.render(ConsoleViewRef, props);
+			host.flush();
+			tree = host.render(ConsoleViewRef, props);
+		},
 	};
 	h.render();
 	h.flush();
@@ -525,5 +533,41 @@ describe('跨库下拉可见性', () => {
 		const h2 = makeHarness('rw');
 		await pickConn(h2); // 默认 handler：['db1','db2']
 		expect(collect(h2.tree()).filter((n) => n.type === 'select')).toHaveLength(2);
+	});
+});
+
+/* ---------- 换项目时事务作废 ---------- */
+
+describe('换项目时事务作废', () => {
+	it('projectPath 变化后事务按钮回到「未开启」，后续语句不再走 console/exec', async () => {
+		const prev = fetchHandler;
+		try {
+			fetchHandler = (url: string) => {
+				if (url.includes('/api/databases')) return ['db1'];
+				if (url.includes('/api/console/begin')) return { sessionToken: 'tok-A' };
+				if (url.includes('/api/console/commit') || url.includes('/api/console/rollback')) {
+					return { message: 'ok' };
+				}
+				return {};
+			};
+			const h = makeHarness('rw');
+			await pickConn(h);
+			// 在 E:/proj 开事务
+			await buttonByText(h.tree(), '开始事务')!.props.onClick();
+			await h.settle();
+			h.step();
+			expect(fetchCalls.some((c) => c.url.includes('console/begin'))).toBe(true);
+
+			// 切到另一个项目：事务必须失效
+			fetchCalls = [];
+			h.patch({ projectPath: 'E:/proj-b' });
+			await h.settle();
+
+			// 事务按钮应回到「开始事务」（未开启态），说明 txToken 已清空
+			expect(buttonByText(h.tree(), '开始事务')).toBeTruthy();
+			expect(buttonByText(h.tree(), '提交事务')).toBeFalsy();
+		} finally {
+			fetchHandler = prev;
+		}
 	});
 });
