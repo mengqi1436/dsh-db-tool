@@ -3,6 +3,8 @@ import { describe, expect, it, afterAll } from 'vitest';
 import { EventEmitter } from 'node:events';
 import * as http from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DbToolHttpServer, handleDbToolRequest, isTrustedRequest } from '../../lib/http/index.js';
 import type { Fixture } from '../tool/fixture.js';
 import { CONN_ID, makeFixture } from '../tool/fixture.js';
@@ -538,5 +540,24 @@ describe('连接导出/导入路由', () => {
       code: 'INVALID_ARGUMENT',
       error: '口令错误或文件已损坏',
     });
+  });
+});
+
+/* ---------------- 插件版本接口（前端面板显示版本号） ---------------- */
+
+describe('/api/version 插件版本', () => {
+  it('返回真实的 package.json 版本，而不是写死常量或 unknown', async () => {
+    const { json } = await get('/api/version');
+    expect(json.ok).toBe(true);
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
+    // 必须与 package.json 一致：发版时版本号三处同步，接口跟着走，杜绝界面显示过期版本
+    expect(json.data.version).toBe(pkg.version);
+    expect(json.data.version).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it('非 GET 不匹配该路由（保持 REST 语义，不误接 POST）', async () => {
+    const { json } = await post('/api/version', {});
+    expect(json.ok).toBe(false);
+    expect(String(json.error)).toMatch(/未知路由/);
   });
 });

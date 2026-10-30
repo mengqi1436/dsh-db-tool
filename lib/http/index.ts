@@ -18,6 +18,7 @@
 import * as http from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { DbToolService, DbToolError, type NeedConfirm } from '../manager.js';
+import { pluginVersion } from './version.js';
 
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -386,6 +387,10 @@ async function route(
   }
   if (path === '/api/state' && req.method === 'GET') {
     return sendOk(res, service.state(q.get('project') ?? undefined));
+  }
+  // 插件版本号：前端用来在面板上显示当前装的是哪一版（辅助信息，读不到时给 unknown 而非报错）
+  if (path === '/api/version' && req.method === 'GET') {
+    return sendOk(res, { version: pluginVersion() });
   }
 
   send(res, 404, { ok: false, error: `未知路由: ${req.method} ${path}`, code: 'NOT_FOUND' });

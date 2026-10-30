@@ -248,3 +248,42 @@ describe('3 编辑回填：buildEditForm 必须还原已存配置', () => {
 		expect(f.caCert).toBe('');
 	});
 });
+
+/* ---------------- 版本号胶囊（项目行最右侧） ---------------- */
+
+describe('4 版本号胶囊接线', () => {
+  it('client.js 含 /api/version 拉取与 dbt-ver 胶囊渲染', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
+    // 版本号必须来自后端接口（而非前端写死常量，否则发版漏改会显示过期版本）
+    expect(src).toContain('api("version")');
+    expect(src).toContain('dbt-ver');
+    // marginLeft:auto 是把胶囊推到行尾的关键；用 flex:none 防止被压缩
+    expect(src).toMatch(/marginLeft:\s*"auto"/);
+    expect(src).toMatch(/flex:\s*"none"/);
+  });
+
+  it('版本标签在只读态与编辑态两处都渲染（进入编辑后不应消失）', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
+    // 抽成 versionBadge 局部变量并至少被引用两次（只读行 + 编辑行）
+    expect(src).toContain('const versionBadge');
+    const refs = src.split('versionBadge').length - 1;
+    expect(refs).toBeGreaterThanOrEqual(3); // 1 次定义 + 2 次使用
+  });
+
+  it('版本号请求失败不影响面板：catch 分支不 setError', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
+    const i = src.indexOf('api("version")');
+    // 只取到该 effect 结束处，避免把紧邻的其它 setError 误判进来
+    const end = src.indexOf('}, [visible]);', i);
+    const seg = src.slice(i, end > i ? end : i + 400);
+    expect(seg).toContain('catch');
+    // 版本号是辅助信息，失败只能静默；一旦 setError 会污染整个面板的错误条
+    expect(seg).not.toContain('setError');
+  });
+
+  it('中英文都提供 pluginVersion 文案（title/aria-label 依赖它）', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
+    expect(src).toContain('pluginVersion: "插件版本"');
+    expect(src).toContain('pluginVersion: "Plugin version"');
+  });
+});

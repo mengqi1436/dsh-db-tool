@@ -23,6 +23,7 @@ window.__ModuleLoader__.load({
 			tabDesc: "多库连接管理、项目授权、数据浏览与 SQL 控制台",
 			tabUnavailable: "页签尚未就绪，请切换页签后重试",
 			projectLabel: "项目: {path}",
+			pluginVersion: "插件版本",
 			projectUnbound: "未识别当前项目路径，请在下方填写工作区绝对路径",
 			projectPathPlaceholder: "工作区绝对路径（如 E:\\Code\\my-app）",
 			viewManage: "连接管理",
@@ -264,6 +265,7 @@ window.__ModuleLoader__.load({
 			tabDesc: "Connection management, project grants, data browse and a SQL console",
 			tabUnavailable: "This tab is not ready yet; switch tabs and try again",
 			projectLabel: "Project: {path}",
+			pluginVersion: "Plugin version",
 			projectUnbound: "Cannot detect current project path; enter the workspace absolute path below",
 			projectPathPlaceholder: "workspace absolute path (e.g. /home/me/my-app)",
 			viewManage: "Connections",
@@ -3725,6 +3727,9 @@ window.__ModuleLoader__.load({
 			const [message, setMessage] = React.useState("");
 			const [confirmReq, setConfirmReq] = React.useState(null); // {statement,danger,reason,resolve}
 			const [treeRefresh, setTreeRefresh] = React.useState(0); // 浏览树刷新信号（手动按钮 / 切回可见自动）
+			// 插件版本号（显示在项目行最右侧）：只拉一次并缓存，失败保持空串——版本展示属辅助信息，
+			// 拿不到就不显示，绝不让它影响面板其它功能或弹错误。
+			const [pluginVer, setPluginVer] = React.useState("");
 			// 侧边栏切回可见时自动重拉已展开层：agents 等外部建库/建表后切回来即可见，无需手点刷新
 			React.useEffect(() => {
 				if (visible) setTreeRefresh((x) => x + 1);
@@ -3766,6 +3771,18 @@ window.__ModuleLoader__.load({
 				reload().catch((e) => setError(String(e && e.message ? e.message : e)));
 			}, [visible, reload]);
 
+			// 版本号只请求一次（成功或失败都算尝试过）：失败就静默不显示，不在每次切回面板时重试，
+			// 避免把一个纯展示信息变成后台反复失败请求。用 ref 而非 state 记「已尝试」，
+			// 否则 setPluginVer 触发重渲染又会把 effect 拉起来。
+			const verTriedRef = React.useRef(false);
+			React.useEffect(() => {
+				if (!visible || verTriedRef.current) return;
+				verTriedRef.current = true;
+				api("version")
+					.then((r) => setPluginVer(r && typeof r.version === "string" ? r.version : ""))
+					.catch(() => { /* 拿不到就不显示版本，不影响面板 */ });
+			}, [visible]);
+
 			function run(name, fn) {
 				setBusy(name); setError(""); setMessage("");
 				return fn()
@@ -3776,6 +3793,21 @@ window.__ModuleLoader__.load({
 			function onError(e) { setError(String(e && e.message ? e.message : e)); }
 
 			const shared = { conns, grants, projectPath, busy, run, reload, onError, askConfirm };
+			// 版本号胶囊：钉在项目行最右侧。抽成局部变量让「只读态」与「编辑态」两种行都能复用，
+			// 否则用户点了铅笔进入编辑后版本号就消失了。拿不到版本时不渲染，避免空白胶囊。
+			const versionBadge = pluginVer
+				? React.createElement("span", {
+						className: "dbt-ver",
+						style: {
+							marginLeft: "auto", flex: "none",
+							display: "inline-block", padding: "0 6px", borderRadius: "9px",
+							border: "1px solid currentColor", fontSize: "11px", lineHeight: "16px",
+							opacity: 0.75, whiteSpace: "nowrap",
+						},
+						title: t("pluginVersion") + ": v" + pluginVer,
+						"aria-label": t("pluginVersion") + ": v" + pluginVer,
+					}, "v" + pluginVer)
+				: null;
 			// 四视图常驻元素：Panel 渲染期构建一次，切 tab 不重建（状态保留），ManageView/GrantsView/ConsoleView 复用 shared
 			const viewEls = {
 				manage: React.createElement(ManageView, shared),
@@ -3812,6 +3844,8 @@ window.__ModuleLoader__.load({
 								if (!v || v === resolvedRef.current) setProjectEdited(false);
 							},
 						}),
+						// 编辑态同样显示版本号：否则用户一点铅笔，版本标签就消失
+						versionBadge,
 					)
 					: React.createElement("div", { className: "dbt-row" },
 						React.createElement("span", { className: "dbt-muted" }, t("projectLabel", { path: projectPath })),
@@ -3835,6 +3869,8 @@ window.__ModuleLoader__.load({
 										stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round", strokeLinejoin: "round",
 									})),
 							)),
+						// 版本号胶囊（与编辑态共用同一份 versionBadge，保证两种状态位置一致）
+						versionBadge,
 				error ? React.createElement("div", { className: "dbt-err", "aria-live": "polite" }, t("error") + ": " + error) : null,
 				message ? React.createElement("div", { className: "dbt-msg", "aria-live": "polite" }, message) : null,
 				// 视图常驻挂载 + hidden 切换：切 tab 保留各视图内部状态（控制台 SQL、浏览选中不丢）；
