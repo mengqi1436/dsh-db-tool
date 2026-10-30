@@ -1,5 +1,17 @@
 # Changelog — dsh-db-tool
 
+## Unreleased
+
+### 变更
+
+- **改用 DSH 官方右侧栏，移除 `dsh-better-sidebar` 依赖**：客户端不再调用 `ctx.betterSidebar.registerTab(...)`，改为官方两段式公开注册路径——
+  1. `ctx.sidebarRightTabs.register({ id, kind, title, guide })` 声明页签类型 `dsh-db-tool`（`guide` 条目 order 45，右侧栏空态页显示「数据库」入口卡片）；
+  2. `ctx.slots.inject("sidebar.right.pane.tab", …)` 按类型 `id` 注册面板正文；
+  3. `ctx.slots.inject("sidebar.right.pane.tab.title", …)` 注册页签胶囊标题。
+  正文的会话 `cwd` 改经宿主标准 props `useSessions(s => s.byId[sessionId]?.cwd)` 读取，`visible` 取自 `useTabInfo().tab.visible`（已同时表达「页签激活」与「右侧栏展开 / 非后台会话」，折叠时照旧停轮询）。
+- **获得官方右侧栏能力**：与官方页签同处一个页签系统，可并排、上下拆分、拖出为浮动面板、全屏，布局按会话持久化；这些都由宿主提供，无需本插件维护。
+- **依赖清理**：`package.json` 移除 `dsh-better-sidebar`（devDependencies / peerDependencies），`dsh.client.inject` 增加 `@deepseek-ai/dsh-client-ui-sidebar-right` 作为加载前置；`package-lock.json` 移除该包及其独占的传递依赖；同步更新 README / README_EN / client README，并补齐 `tabDesc` 中英词条（入口卡片副标题）。
+
 ## 1.8.9
 
 发布配置修正：`files` 白名单清理。

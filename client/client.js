@@ -7,18 +7,20 @@ window.__ModuleLoader__.load({
 		const React = require("react");
 
 		/* ============================================================
-		 * dsh-db-tool 侧边栏客户端
+		 * dsh-db-tool 右侧栏客户端
 		 * 形态与 dsh-ssh-tunnel 一致：单文件 __ModuleLoader__ 模块，
 		 * exports.inject / exports.apply(ctx) 由 DSH web 宿主加载，
-		 * 经 dsh-better-sidebar registerTab 注册侧边栏 tab。
+		 * 经 DSH 官方右侧栏（@deepseek-ai/dsh-client-ui-sidebar-right）
+		 * 的 sidebarRightTabs + slots 两段式注册页签，不依赖第三方侧边栏。
 		 * ============================================================ */
 
-		// --- i18n（dsh-better-sidebar 同款模式）---
+		// --- i18n（ctx.locale 注册 + useSyncExternalStore 订阅语言切换）---
 		// i18n 字典/HTTP 封装/CSS/对话框均无单元断言，仅变异下方纯函数层（Stryker 区段指令需精确匹配，不得带后缀文本）
 	// Stryker disable all
 	const LOCALE_NS = "dbTool";
 		const zh = {
 			tabTitle: "数据库",
+			tabDesc: "多库连接管理、项目授权、数据浏览与 SQL 控制台",
 			projectLabel: "项目: {path}",
 			projectUnbound: "未识别当前项目路径，请在下方填写工作区绝对路径",
 			projectPathPlaceholder: "工作区绝对路径（如 E:\\Code\\my-app）",
@@ -249,6 +251,7 @@ window.__ModuleLoader__.load({
 		};
 		const en = {
 			tabTitle: "Databases",
+			tabDesc: "Connection management, project grants, data browse and a SQL console",
 			projectLabel: "Project: {path}",
 			projectUnbound: "Cannot detect current project path; enter the workspace absolute path below",
 			projectPathPlaceholder: "workspace absolute path (e.g. /home/me/my-app)",
@@ -551,6 +554,12 @@ window.__ModuleLoader__.load({
 				React.createElement("path", { d: "M4 5.5v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" }),
 				React.createElement("path", { d: "M4 11.5v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" }),
 			);
+		}
+
+		// 官方右侧栏 guide 入口的 icon 是 React 组件（宿主按 <Icon size className /> 渲染），
+		// 这里把既有 icon(size) 适配成组件形态，保持同一枚数据库图标。
+		function DbIcon(props) {
+			return icon(props && props.size);
 		}
 
 		let styleEl = null;
@@ -3764,7 +3773,7 @@ window.__ModuleLoader__.load({
 
 		function DbToolRoot(props) {
 			const ctx = props.ctx;
-			// DSH locale 切换时重渲染（better-sidebar 同款模式）
+			// DSH locale 切换时重渲染（订阅宿主 locale 服务，官方右侧栏同款做法）
 			const localeKey = React.useSyncExternalStore(
 				React.useCallback(function (cb) {
 					if (!ctx.locale || typeof ctx.locale.subscribe !== "function") return function () {};
@@ -3785,7 +3794,11 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		const inject = ["betterSidebar", "locale"];
+		// 依赖官方右侧栏（@deepseek-ai/dsh-client-ui-sidebar-right）的两个服务：
+		// sidebarRightTabs = 页签类型注册表，slots = 席位居中器（sidebar.right.pane.tab / .title）。
+		// locale 为 DSH 客户端通用服务（dsh.client.inject 里已声明 @deepseek-ai/dsh-client-locale）。
+		const inject = ["slots", "sidebarRightTabs", "locale"];
+
 		function apply(ctx) {
 			ensureStyles();
 			if (ctx.locale) {
@@ -3799,23 +3812,75 @@ window.__ModuleLoader__.load({
 					};
 				}, "dsh-db-tool: dictionaries");
 			}
-			if (!ctx.betterSidebar) return;
-			ctx.effect(function () {
-				return ctx.betterSidebar.registerTab({
-					id: TAB_ID,
-					title: function () { return t("tabTitle"); },
-					icon,
-					order: 45,
-					single: true,
-					component: function (p) {
-						return React.createElement(DbToolRoot, {
-							ctx: ctx,
-							visible: p.visible,
-							scope: p.scope,
-						});
-					},
+			// 官方右侧栏两段式注册：先声明页签类型，再在席位里按类型 id 挂正文与标题。
+			// 类型 id 同时是席位 key（宿主用 definition.id 作 entryKey），故正文/标题与 id 一致。
+			if (!ctx.sidebarRightTabs || !ctx.slots) return;
+
+			// 页签正文：宿主注入标准 props { sessionId, useTabInfo, useSessions? }。
+			// useTabInfo().tab.visible 同时表达「页签激活」与「右侧栏展开/非后台会话」，可直接当 visible 用。
+			function DbToolBody(props) {
+				const info = props.useTabInfo();
+				const cwd = typeof props.useSessions === "function"
+					? props.useSessions(function (snapshot) {
+						const row = snapshot && snapshot.byId ? snapshot.byId[props.sessionId] : undefined;
+						return row ? row.cwd : undefined;
+					})
+					: undefined;
+				return React.createElement(DbToolRoot, {
+					ctx: ctx,
+					visible: info.tab.visible,
+					scope: { sessionId: props.sessionId, cwd: cwd },
 				});
-			}, "dsh-db-tool: register tab");
+			}
+
+			// 页签标题（chip）：数据库图标 + 当前语言标题，随语言切换重渲染。
+			function DbToolTitle() {
+				const localeKey = React.useSyncExternalStore(
+					React.useCallback(function (cb) {
+						if (!ctx.locale || typeof ctx.locale.subscribe !== "function") return function () {};
+						return ctx.locale.subscribe(cb);
+					}, []),
+					React.useCallback(function () {
+						try {
+							return ctx.locale && ctx.locale.getSnapshot ? ctx.locale.getSnapshot().active : activeLocale;
+						} catch (e) { return activeLocale; }
+					}, []),
+					function () { return "zh"; },
+				);
+				return React.createElement("span", {
+					key: "db-tool-title-" + String(localeKey || "zh"),
+					style: { display: "inline-flex", alignItems: "center", gap: 6 },
+				}, icon(16), t("tabTitle"));
+			}
+
+			ctx.effect(function () {
+				return ctx.sidebarRightTabs.register({
+					id: TAB_ID,
+					kind: TAB_ID,
+					title: function () { return t("tabTitle"); },
+					// guide 条目：右侧栏空态（无页签）时显示成入口卡片，点一下即打开本页签；
+					// order 45 与旧侧边栏排序一致，保持工具栏里的相对位置。
+					guide: [{
+						id: TAB_ID,
+						order: 45,
+						title: function () { return t("tabTitle"); },
+						description: function () { return t("tabDesc"); },
+						icon: DbIcon,
+					}],
+				});
+			}, "dsh-db-tool: register tab type");
+
+			ctx.effect(function () {
+				return ctx.slots.inject("sidebar.right.pane.tab", function () {
+					return ctx.slots.register({ name: "sidebar.right.pane.tab", key: TAB_ID }, DbToolBody);
+				});
+			}, "dsh-db-tool: register tab body");
+
+			ctx.effect(function () {
+				return ctx.slots.inject("sidebar.right.pane.tab.title", function () {
+					return ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: TAB_ID }, DbToolTitle);
+				});
+			}, "dsh-db-tool: register tab title");
 		}
 		exports.apply = apply;
 		exports.inject = inject;
