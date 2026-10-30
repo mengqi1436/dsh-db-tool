@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches:
+      - master
+      # 贡献者分支：让协作者在自己的分支上就能拿到反馈，不必等开 PR 才发现失败。
+      # 新增贡献者时在此追加，或直接改成 'contributor/**'（通配符在 push 过滤器里有效）。
+      - 'contributor/**'
   pull_request:
     branches: [master]
   workflow_dispatch:
