@@ -208,7 +208,7 @@ DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令：
 2. 安装插件（npm 安装须钉精确版本，`@latest` 会因 release-age 校验回落）：
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.2 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.3 --registry=https://registry.npmjs.org/
    ```
 
 3. **重启桌面端**生效
