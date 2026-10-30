@@ -1,0 +1,127 @@
+name: Bug 报告
+description: 报告可复现的故障（连接失败、操作异常、界面问题等）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请尽量填全下面的信息——数据库类问题对版本与环境很敏感，缺一项往往就要多问一轮。
+
+        > 安全提示：**不要**粘贴真实密码、连接串里的 userinfo、生产库的完整表数据。日志里的连接串请先把密码替换成 `***`。
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 涉及的数据库类型
+      description: 不确定就选「不确定 / 与具体库无关」
+      options:
+        - MySQL
+        - PostgreSQL
+        - GaussDB
+        - SQLite
+        - Redis
+        - MongoDB
+        - Oracle
+        - 达梦 DM
+        - SQL Server
+        - 不确定 / 与具体库无关
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 出问题的入口
+      options:
+        - 侧边栏 · 连接管理
+        - 侧边栏 · 项目授权
+        - 侧边栏 · 数据浏览
+        - 侧边栏 · SQL 控制台
+        - 聊天中的 DatabaseManager 工具
+        - 数据传输（transfer）
+        - 安装 / 加载插件
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 实际发生了什么
+      description: 现象 + 完整报错文案。整段贴进来，不要只截一句话，中文提示往往已含排查指引。
+      placeholder: |
+        展开连接后一直转圈，看不到库和表。
+        控制台报：sqlserver 查询失败: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望的结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从安装到出错的最小步骤。能稳定复现请注明，偶发也请说明频率。
+      placeholder: |
+        1. 新建 MySQL 连接，测试连接显示成功
+        2. 项目授权设为只读（ro）
+        3. 切到「数据浏览」展开连接
+        4. 一直显示 …
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: dsh-db-tool 版本
+      description: 见 `package.json` 的 version，或侧边栏/日志中的版本号
+      placeholder: 1.8.5
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      description: 桌面端「关于」里的版本号
+      placeholder: 0.2.1-rc.3
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: Windows 11 23H2 / macOS 15.2 / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: db-version
+    attributes:
+      label: 数据库服务端版本
+      description: 服务端版本对 SQL Server / Oracle 尤其关键（TLS、分页语法都按版本分流）
+      placeholder: SQL Server 2012 SP4 / MySQL 8.0.36 / MariaDB 10.6
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 可选。`$DSH_HOME/db-tool/audit.jsonl` 里对应时段的行，或宿主控制台输出。**记得脱敏密码。**
+      render: shell
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue，没有重复
+          required: true
+        - label: 我已移除日志与截图中的密码、密钥与生产数据
+          required: true

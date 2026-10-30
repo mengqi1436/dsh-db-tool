@@ -1,0 +1,67 @@
+name: 功能请求
+description: 建议新能力或改进现有行为
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先说明**要解决什么问题**，而不是直接给方案——底层需求清楚了，往往有更简单的做法。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及范围
+      options:
+        - 新增数据库类型支持
+        - 连接与认证方式
+        - 权限与授权模型
+        - 数据浏览 / SQL 控制台
+        - 数据传输（transfer）
+        - 审计与可观测性
+        - 安装与分发
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的问题
+      description: 现在的行为哪里不够用？请描述具体场景，不要只写「希望支持 X」。
+      placeholder: |
+        我们有多套环境共用一套表结构，每次切环境都要手动改连接……
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的做法
+      description: 可选。如果你有具体方案可以写在这里；没有也没关系。
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你目前怎么绕过的
+      description: 可选。当前用的替代方案或 workaround。
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: 是否愿意自己实现
+      options:
+        - 愿意提 PR
+        - 可以帮忙测试
+        - 只是想提个建议
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue，没有重复
+          required: true

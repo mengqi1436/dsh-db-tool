@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题与安装配置
+    url: https://github.com/mengqi1436/dsh-db-tool/blob/master/README.md
+    about: 先看 README 的功能说明、安装步骤与常见限制；仍未解决的，用 Bug 模板提 Issue。
+  - name: 安全漏洞
+    url: https://github.com/mengqi1436/dsh-db-tool/security/advisories/new
+    about: 请勿公开提交安全漏洞，改用私密报告通道。
