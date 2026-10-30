@@ -21,8 +21,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 20 为 engines 下限，22 与 publish.yml 对齐，24 覆盖最新
-        node: [20, 22, 24]
+        # 22 为 engines 下限（tedious 20.x 及其 @azure/* 传递依赖要求 >=22，
+        # 用 Node 20 会在建连时报 Promise.withResolvers is not a function）；
+        # 24 覆盖最新。不再测 20——依赖本身跑不起来，测了只会红。
+        node: [22, 24]
 
     steps:
       - uses: actions/checkout@v4

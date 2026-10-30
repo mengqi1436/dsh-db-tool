@@ -13,7 +13,7 @@
   },
   "homepage": "https://github.com/mengqi1436/dsh-db-tool#readme",
   "engines": {
-    "node": ">=20",
+    "node": ">=22",
     "dsh": ">=0.1.0-rc.6 <0.2.0-0 || 0.1.7-rc.2 || >=0.2.0-rc.1 <0.3.0-0 || >=0.2.1-rc.2 <0.3.0-0"
   },
   "main": "dist/index.js",
