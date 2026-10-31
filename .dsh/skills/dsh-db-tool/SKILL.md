@@ -140,6 +140,15 @@ API 面（`lib/http/index.ts`，真实路径带 `/dsh-db-tool` 前缀）：`/api
 - 行宽校验：写入前逐行校验列数（`行宽不匹配` 报错），勿跳过。
 - 历史：`TransferLog` 写 `<我的文档>/DSH/transfer-log.jsonl`，`GET /api/transfer-history` 读；清空走 `/api/transfer-history/clear`。
 - 相关测试：`tests/adapters-sql/transfer-*.test.ts`（locate/mapping/oralike/sqlite/sqlserver/stress/task）。
+- 跑一次传输：从 `/api/connections` 取源/目标连接（口令加密存储，跨机迁移走导出/导入接口，不要手拼连接串）→ `POST /api/transfer/start`；发起前向用户复述源库、目标库、涉及表、是否并行。
+- 传输校验（全部通过才算完成）：① 源表与目标表 count 一致；② 按主键抽样逐字段比对（注意精度、时区、二进制映射差异）；③ 用 `describeTable` 对照列名/类型/可空性/默认值是否随迁一致。不通过时报告差异明细（表、行、字段、期望值与实际值），不要静默重传。
+
+## 改动前规划
+
+1. 判类型：新功能（确定扩展哪层 http → manager → adapters/store）/ 修复（先要复现现象，给根因假设与验证方式）/ 重构（承诺行为不变，列等价性验证）/ 传输相关（追加核对源库读取与目标库写入两侧边界）。
+2. 定位：仓库根若有 `.codegraph/`，用 `codegraph explore "<符号或问题>"` 及 `node`/`callers`/`callees`/`impact`，不做全量 grep；否则按模块路径定位，找到符号后枚举**全部调用方**。
+3. 输出：根因或改动点 → 影响面清单（具体文件、哪些行为变/哪些承诺不变）→ 测试策略（先写复现失败用例，覆盖 happy path + 边界/空值/异常，指明要跑的 vitest 文件）→ 风险与最小回滚方式。
+4. 规划经用户确认后才动手改代码。
 
 ## 构建与发版
 

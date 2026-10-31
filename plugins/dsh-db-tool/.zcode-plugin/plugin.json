@@ -1,8 +1,0 @@
-{
-  "name": "dsh-db-tool",
-  "version": "0.1.0",
-  "description": "DSH 数据库工具开发助手：9 种数据库适配器开发规范、数据传输工作流与任务规划斜杠命令",
-  "author": { "name": "mengqi1436" },
-  "commands": "./commands",
-  "skills": "./skills"
-}
