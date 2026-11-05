@@ -207,7 +207,12 @@ window.__ModuleLoader__.load({
 			emptyStructure: "暂无字段信息",
 			emptyData: "暂无数据",
 			retry: "重试",
-			selectTableHint: "在左侧选择表后查看数据",
+			selectTableHint: "在上方对象树选择表后查看数据",
+			browseCrumbEmpty: "未选择表",
+			browseNoGrant: "当前项目没有已授权的连接。数据浏览只显示已授权的连接，未授权的连接已隐藏。",
+			browseGoGrants: "前往授权",
+			browseHiddenGrant: "已隐藏 {n} 个未授权连接",
+			objects: "对象树",
 			// 单元格底部详情栏（Navicat 式就地写回）
 			cellValue: "完整值",
 			copyBtn: "复制",
@@ -446,7 +451,12 @@ window.__ModuleLoader__.load({
 			emptyStructure: "No columns",
 			emptyData: "No rows",
 			retry: "Retry",
-			selectTableHint: "Select a table on the left to view data",
+			selectTableHint: "Select a table in the object tree above to view data",
+			browseCrumbEmpty: "No table selected",
+			browseNoGrant: "No connections are granted to this project. Data browse only shows granted connections; ungranted ones are hidden.",
+			browseGoGrants: "Go to grants",
+			browseHiddenGrant: "{n} ungranted connections hidden",
+			objects: "Objects",
 			// Cell bottom detail bar (Navicat-style in-place write-back)
 			cellValue: "Full value",
 			copyBtn: "Copy",
@@ -690,15 +700,29 @@ window.__ModuleLoader__.load({
 				".dbt-chev.open{transform:rotate(90deg);}",
 				".dbt-chev.leaf{visibility:hidden;}",
 				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
-				/* ===== Navicat 式浏览（内嵌面板，纵向流式；浮窗壳类已随 DOM 回收） ===== */
+				/* ===== Navicat 式浏览（内嵌面板，纵向流式）：工具栏 → 对象树 → 面包屑 → 分段 → 内容 → 分页 → 详情栏 ===== */
 				".dbt-browse-body{display:flex;flex-direction:column;gap:10px;min-height:0;}",
-				".dbt-browse-tree{flex:none;max-height:280px;overflow-y:auto;background:var(--dbt-surface);border-radius:var(--dbt-radius-card);}",
+				// 顶部工具条：连接/库筛选 + 表名搜索（原树内内嵌行上提，树只负责导航）
+				".dbt-browse-toolbar{flex:none;padding:6px 10px;background:var(--dbt-surface);border-radius:var(--dbt-radius-card);}",
+				".dbt-browse-toolbar select{flex:none;max-width:150px;}",
+				".dbt-browse-toolbar input{flex:1 1 120px;min-width:80px;}",
+				".dbt-browse-toolbar .dbt-btn{flex:none;}",
+				// 对象树外壳：标题行（可折叠）+ 限高滚动树体
+				".dbt-browse-treeshell{flex:none;background:var(--dbt-surface);border-radius:var(--dbt-radius-card);overflow:hidden;}",
+				".dbt-browse-treehead{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:var(--dbt-caption,11px);font-weight:600;color:var(--dbt-text-secondary);cursor:pointer;user-select:none;background:transparent;border:none;width:100%;text-align:left;font-family:inherit;}",
+				".dbt-browse-treehead:focus-visible{outline:2px solid var(--dbt-accent);outline-offset:-2px;}",
+				".dbt-browse-tree{max-height:240px;overflow-y:auto;}",
+				// 面包屑：当前位置（连接 / 库[.模式] / 表），替代此前仅靠树高亮表达位置
+				".dbt-browse-crumb{flex:none;display:flex;align-items:center;gap:6px;font-size:var(--dbt-caption,11px);color:var(--dbt-text-secondary);min-width:0;}",
+				".dbt-browse-crumb .dbt-crumb-seg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38%;}",
+				".dbt-browse-crumb .dbt-crumb-sep{flex:none;opacity:.55;}",
+				".dbt-browse-crumb strong{color:var(--dbt-text);font-weight:600;}",
 				".dbt-browse-main{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;}",
 				".dbt-browse-tabs{flex:none;}",
 				".dbt-browse-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}",
 				".dbt-browse-tablewrap{flex:1 1 auto;min-height:120px;overflow:auto;border:none;border-radius:var(--dbt-radius-card);background:var(--dbt-surface);}",
 				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);}",
-				".dbt-browse-empty{display:flex;align-items:center;justify-content:center;color:var(--dbt-text-secondary);font-size:13px;padding:24px 12px;}",
+				".dbt-browse-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dbt-text-secondary);font-size:13px;padding:24px 12px;text-align:center;}",
 				".dbt-browse-errorbox{display:flex;flex-direction:column;gap:8px;align-items:flex-start;}",
 				".dbt-browse-skel{display:flex;flex-direction:column;gap:8px;}",
 				".dbt-browse-skelrow{display:flex;gap:8px;}",
@@ -1934,6 +1958,8 @@ window.__ModuleLoader__.load({
 			const [searchRes, setSearchRes] = React.useState({}); // connId -> TableSearchHit[] | null（非空 = 结果视图替代目录树）
 			const [searchBusy, setSearchBusy] = React.useState({});
 			const [searchErr, setSearchErr] = React.useState({});
+			// 树体折叠（默认展开）：树是导航入口，但长树会挤占下方内容区，故给显式折叠开关
+			const [treeCollapsed, setTreeCollapsed] = React.useState(false);
 
 			// 会话项目切换时清空树缓存，避免陈旧授权下的旧数据
 			React.useEffect(() => {
@@ -2017,16 +2043,19 @@ window.__ModuleLoader__.load({
 				setSearchRes((s) => Object.assign({}, s, { [c.id]: null }));
 				setSearchErr((s) => Object.assign({}, s, { [c.id]: undefined }));
 			}
-			// 连接展开后的内嵌筛选行（库下拉 + 表名搜索框）：普通 div 不参与 treeitem 键盘导航
-			function filterRow(c) {
-				const cid = c.id;
+			// 顶部工具条（库筛选 + 表名搜索）：原先嵌在连接展开行里，与树导航混在同一视觉流；
+			// 现上提到树体上方独立成条，树只承担导航职责。绑定「活动连接」= 当前选中表所属连接，
+			// 未选中时取第一个已授权连接，避免工具条跟着某一行展开状态忽隐忽现。
+			function toolbar(activeConn) {
+				if (!activeConn) return null;
+				const cid = activeConn.id;
 				const busy = !!searchBusy[cid];
 				const hasRes = !!searchRes[cid];
-				return React.createElement("div", { key: "f:" + cid, className: "dbt-row", style: { margin: "4px 12px 4px 28px", gap: 6, alignItems: "center" } },
+				return React.createElement("div", { className: "dbt-row dbt-browse-toolbar" },
+					React.createElement("span", { className: "dbt-muted", style: { flex: "none", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: activeConn.name || cid }, activeConn.name || cid),
 					React.createElement("select", {
 						value: dbFilter[cid] || "",
 						onChange: (e) => setDbFilter((m) => Object.assign({}, m, { [cid]: e.target.value })),
-						style: { maxWidth: 160, flex: "none" },
 						"aria-label": t("dbFilterLabel"),
 					},
 						React.createElement("option", { value: "" }, t("dbFilterAll")),
@@ -2035,12 +2064,11 @@ window.__ModuleLoader__.load({
 						value: searchKw[cid] || "",
 						placeholder: t("searchPlaceholder"),
 						onChange: (e) => setSearchKw((m) => Object.assign({}, m, { [cid]: e.target.value })),
-						onKeyDown: (e) => { if (e.key === "Enter") doSearch(c); },
-						style: { flex: "1 1 auto", minWidth: 80 },
+						onKeyDown: (e) => { if (e.key === "Enter") doSearch(activeConn); },
 						"aria-label": t("searchPlaceholder"),
 					}),
-					React.createElement("button", { className: "dbt-btn", disabled: busy, onClick: () => doSearch(c), style: { flex: "none" } }, busy ? "…" : t("searchGo")),
-					hasRes ? React.createElement("button", { className: "dbt-btn", onClick: () => clearSearch(c), "aria-label": t("searchBack"), title: t("searchBack"), style: { flex: "none" } }, "×") : null,
+					React.createElement("button", { className: "dbt-btn", disabled: busy, onClick: () => doSearch(activeConn) }, busy ? "…" : t("searchGo")),
+					hasRes ? React.createElement("button", { className: "dbt-btn", onClick: () => clearSearch(activeConn), "aria-label": t("searchBack"), title: t("searchBack") }, "×") : null,
 				);
 			}
 			function toggleConn(c) {
@@ -2143,8 +2171,6 @@ window.__ModuleLoader__.load({
 				if (loading[ck]) { treeRows.push(treerow(ck + ":l", 1, false, true, "…")); continue; }
 				if (error[ck]) { treeRows.push(treerow(ck + ":x", 1, false, true, t("loadFailed") + "：" + error[ck], () => retry(ck, () => toggleConn(c)), false)); continue; }
 				if (!list) continue;
-				// 内嵌筛选行：库下拉 + 表名模糊搜索（仅 mysql 原生；其余走服务端逐库回退）
-				treeRows.push(filterRow(c));
 				// 搜索错误行优先于结果视图渲染（与 hits 解耦：首次失败也要有反馈，点击重试）
 				if (searchErr[c.id]) { treeRows.push(treerow(ck + ":sx", 1, false, true, t("loadFailed") + "：" + searchErr[c.id], () => doSearch(c), false)); continue; }
 				// 搜索结果视图：替代目录树，点结果行打开对应表；「×」返回目录树
@@ -2209,16 +2235,31 @@ window.__ModuleLoader__.load({
 
 			// 停靠行失效检测以下一轮渲染的可见集合为准（commit 后写回，不污染渲染期）
 			React.useLayoutEffect(() => { liveKeysRef.current = liveKeys; });
+			// 活动连接：选中表所属连接优先，否则第一个已授权连接（工具条与树共用同一目标，避免错位）
+			const activeConn = (sel && conns.find((c) => c.id === sel.connId)) || conns[0] || null;
 			return React.createElement(
 				"div",
-				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
+				{ style: { display: "flex", flexDirection: "column", gap: 8, minHeight: 0 } },
 				// projectPath 为空时所有展开动作静默 no-op（toggleConn 等防御），必须就地说明原因，
 				// 否则用户点击连接无任何反馈（role=alert 使读屏播报，样式复用 dbt-err 醒目红字）
 				!projectPath ? React.createElement("div", { className: "dbt-err", role: "alert" }, t("needProjectPath")) : null,
-				// Navicat 式对象树：点击展开连接/库，点击表上报选中（由父组件就地预览）
-				conns.length === 0 ? React.createElement("div", { className: "dbt-muted" }, t("noConns")) :
-					React.createElement("div", { className: "dbt-group" },
-						React.createElement("div", { className: "dbt-tree", role: "tree", ref: treeRef, onKeyDown: onTreeKeyDown }, treeRows)),
+				// 1) 工具条（库筛选 + 表名搜索）固定在树上方：筛选/搜索是导航入口，不该藏在展开行里
+				toolbar(activeConn),
+				// 2) 对象树壳：标题行可折叠（树体限高 240px，长树不挤压下方内容区）
+				conns.length === 0
+					? React.createElement("div", { className: "dbt-browse-empty" }, t("noConns"))
+					: React.createElement("div", { className: "dbt-browse-treeshell" },
+						React.createElement("button", {
+							className: "dbt-browse-treehead", type: "button",
+							"aria-expanded": !treeCollapsed,
+							onClick: () => setTreeCollapsed((x) => !x),
+						},
+							React.createElement("span", { className: "dbt-chev" + (treeCollapsed ? "" : " open") }, "▶"),
+							React.createElement("span", null, t("objects")),
+							React.createElement("span", { style: { flex: 1 } }),
+							React.createElement("span", { className: "dbt-muted", style: { fontWeight: 400 } }, String(conns.length))),
+						treeCollapsed ? null : React.createElement("div", { className: "dbt-browse-tree" },
+							React.createElement("div", { className: "dbt-tree", role: "tree", ref: treeRef, onKeyDown: onTreeKeyDown }, treeRows))),
 			);
 		}
 
@@ -2440,6 +2481,24 @@ window.__ModuleLoader__.load({
 			const [loadErr, setLoadErr] = React.useState(""); // 内容区加载失败（就地显示 + 重试）
 			const openSeq = React.useRef(0); // 请求序号守卫
 
+			// 权限过滤（单一事实源）：数据浏览只呈现本项目已授权的连接。
+			// 服务端对未授权连接一律拒绝（manager.authorize），若仍在树里展示，用户点开每个库/表都只会
+			// 拿到一串拒绝错误 —— 属于「看得见但点不动」的死链，故在入口处直接隐藏，并给出隐藏计数与授权入口。
+			const grantedConns = React.useMemo(() => {
+				const ids = new Set((grants || []).map((g) => g && g.connId));
+				return (conns || []).filter((c) => c && ids.has(c.id));
+			}, [conns, grants]);
+			const hiddenGranted = (conns || []).length - grantedConns.length;
+			// 面包屑用的连接显示名（拿不到就回落 id，不编造）
+			const connNameOf = (connId) => {
+				const c = (conns || []).find((x) => x.id === connId);
+				return c ? (c.name || c.id) : connId;
+			};
+			// 项目切换/授权变更后，选中的表若已不在已授权集合内则清空选中，避免内容区展示越权残留
+			React.useEffect(() => {
+				if (sel && !grantedConns.some((c) => c.id === sel.connId)) setSel(null);
+			}, [grantedConns]); // eslint-disable-line
+
 			// 请求序号守卫（沿用面板）：快速切表/翻页时丢弃晚到旧响应，防止旧数据覆盖新选中项
 			const openTable = React.useCallback((s, pg) => {
 				if (!s || !projectPath) return;
@@ -2490,7 +2549,7 @@ window.__ModuleLoader__.load({
 					return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } }, t("emptyData"));
 				}
 				// Navicat 式单元格网格：kind/可编辑性由当前连接与授权决定（rw=可编辑），保存后重拉当前页
-				const conn = conns.find((c) => c.id === sel.connId);
+				const conn = grantedConns.find((c) => c.id === sel.connId) || conns.find((c) => c.id === sel.connId);
 				const grant = (grants || []).find((g) => g.connId === sel.connId);
 				// 分页条作为 children 传入：渲染顺序 表格 → 分页 → 详情栏（详情栏钉在面板最底部）
 				const footer = sel && view === "preview" && !loadErr ? React.createElement(
@@ -2519,24 +2578,40 @@ window.__ModuleLoader__.load({
 			}
 
 			// 内嵌面板纵向布局：撑满面板高度（.dbt-panel 为 height:100% 的 flex column），
+			// 分区顺序（自上而下）：对象树壳（含工具条）→ 面包屑 → 结构/数据分段 → 内容区 → 分页 → 单元格详情栏。
 			// 树限高 / main flex:1 内滚 / 分页与详情栏依次钉底。
 			// 根不再挂 .dbt-view：该类自带 dbt-in 入场动画，会与 Panel browse 容器同类叠加双播（4px+4px 位移），
 			// 与 Panel 层「入场动画只在面板首次打开播一次」意图相悖；布局职责（flex column + 10px 分区 gap）内联承担
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 10, flex: "1 1 auto", minHeight: 0 } },
-				React.createElement(
+				// 无任何已授权连接：整块引导替代空树（未授权连接不在此面板出现，见 grantedConns）
+				grantedConns.length === 0
+					? React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } },
+						React.createElement("div", null, t("browseNoGrant")),
+						props.onGoGrants ? React.createElement("button", { className: "dbt-btn primary", onClick: () => props.onGoGrants() }, t("browseGoGrants")) : null)
+					: null,
+				// 1) 对象树壳（内部先工具条后树体）：flex:none 固定限高不被压缩（面板过矮时收缩的是主区）
+				grantedConns.length === 0 ? null : React.createElement(
 					"div",
-					// flex:none：树卡固定限高不被压缩（面板过矮时收缩的是主区），对齐 DESIGN.md 分区规格
-					{ style: { flex: "none", maxHeight: 280, overflowY: "auto" } },
+					{ style: { flex: "none" } },
 					React.createElement(BrowseTree, {
-						conns, projectPath, sel,
+						conns: grantedConns, projectPath, sel,
 						autoExpand: !!active, // 首次激活才自动展开连接层级（常驻挂载下隐藏不发请求）
 						refreshTick: props.refreshTick, // 手动刷新按钮 / 侧边栏切回可见时重拉已展开层
 						onSelect: (s) => setSel(s), // 树内切表
 					}),
 				),
-				React.createElement(
+				// 2) 面包屑：连接 / 库[.模式] / 表，把当前位置从「树内高亮」提升为显式文字
+				React.createElement("div", { className: "dbt-browse-crumb" },
+					sel ? React.createElement("span", { className: "dbt-crumb-seg", title: connNameOf(sel.connId) }, connNameOf(sel.connId)) : null,
+					sel ? React.createElement("span", { className: "dbt-crumb-sep" }, "›") : null,
+					sel ? React.createElement("span", { className: "dbt-crumb-seg", title: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db }, sel.schemaName ? sel.db + "." + sel.schemaName : sel.db) : null,
+					sel ? React.createElement("span", { className: "dbt-crumb-sep" }, "›") : null,
+					sel ? React.createElement("strong", { className: "dbt-crumb-seg" }, sel.table.name) : React.createElement("span", null, t("browseCrumbEmpty")),
+					hiddenGranted > 0 ? React.createElement("span", { className: "dbt-muted", style: { marginLeft: "auto", flex: "none" }, title: t("browseHiddenGrant", { n: hiddenGranted }) }, t("browseHiddenGrant", { n: hiddenGranted })) : null),
+				// 3) 结构/数据分段 + 内容区（flex:1 吃满剩余高度）
+				grantedConns.length === 0 ? null : React.createElement(
 					"div",
 					{ className: "dbt-browse-main" },
 					// 结构/数据：mini segmented（复用面板同款与 i18n key）
@@ -3925,7 +4000,11 @@ window.__ModuleLoader__.load({
 							: (view === v ? undefined : { display: "none" }),
 					},
 						v === "browse"
-							? React.createElement(BrowsePane, { ctx: props.ctx, conns, projectPath, grants, askConfirm, active: view === "browse", refreshTick: treeRefresh })
+							? React.createElement(BrowsePane, {
+								ctx: props.ctx, conns, projectPath, grants, askConfirm,
+								active: view === "browse", refreshTick: treeRefresh,
+								onGoGrants: () => setView("grants"), // 空态引导直达授权页，避免用户自己找入口
+							})
 							: viewEls[v])),
 				React.createElement("div", { className: "dbt-muted" }, t("footerHint")),
 				confirmReq ? React.createElement(DangerDialog, { challenge: confirmReq, onClose: () => setConfirmReq(null) }) : null,
@@ -4083,6 +4162,7 @@ window.__ModuleLoader__.load({
 			Panel, TransferView, TransferLogView,
 			urlToFieldsPatch,
 			ConnForm, buildEditForm, EMPTY_FORM,
+			BrowseTree, BrowsePane, PreviewGrid,
 		};
 		return module.exports;
 	},
