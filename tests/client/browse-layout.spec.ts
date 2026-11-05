@@ -206,7 +206,62 @@ describe('2 权限过滤（未授权连接隐藏）', () => {
 	});
 });
 
-/* ---------- 3. 分区顺序与面包屑 ---------- */
+/* ---------- 4. 控件尺寸一致性（统一走 token，不靠各自 padding 拼高度） ---------- */
+
+/** 从样式块里取出某条规则体（第一个 .cls{ ... }） */
+function ruleBody(cls: string): string {
+	const m = new RegExp('\\.' + cls.replace(/[-.]/g, (c) => '\\' + c) + '\\{([^}]*)\\}').exec(src);
+	if (!m) throw new Error('样式规则未找到: ' + cls);
+	return m[1] as string;
+}
+
+describe('4 控件尺寸一致性', () => {
+	it('尺寸 token 已定义：控件高 / 行高 / 胶囊高', () => {
+		expect(src).toContain('--dbt-ctrl-h:');
+		expect(src).toContain('--dbt-row-h:');
+		expect(src).toContain('--dbt-chip-h:');
+	});
+
+	it('按钮、输入框、下拉框、分段项、标签页全部锁定同一控件高度 token', () => {
+		// 主按钮：固定高 + 上下 padding 归零（不再靠 padding 撑高）
+		const btn = ruleBody('dbt-btn');
+		expect(btn).toContain('height:var(--dbt-ctrl-h');
+		expect(btn).toMatch(/padding:0 12px/);
+		// 输入/下拉：同一 token
+		const inputRule = /\.dbt-row input,\.dbt-row select[^{]*\{([^}]*)\}/.exec(src);
+		expect(inputRule, '未找到输入框规则').toBeTruthy();
+		expect(inputRule![1]).toContain('height:var(--dbt-ctrl-h');
+		expect(inputRule![1]).toMatch(/padding:0 12px/);
+		// 分段项与标签页：token 减去容器 2px*2 内边距，保证与外层等高
+		expect(ruleBody('dbt-seg button')).toContain('height:calc(var(--dbt-ctrl-h');
+		expect(/\.dbt-tabs button\{([^}]*)\}/.exec(src)![1]).toContain('height:calc(var(--dbt-ctrl-h');
+		// 代码编辑器标签页
+		expect(ruleBody('dbt-cm-tab')).toContain('height:calc(var(--dbt-ctrl-h');
+	});
+
+	it('行级容器统一最小行高（树行/列表行/树标题行/面包屑）', () => {
+		expect(ruleBody('dbt-treerow')).toContain('min-height:var(--dbt-row-h');
+		expect(ruleBody('dbt-listrow')).toContain('min-height:var(--dbt-row-h');
+		expect(ruleBody('dbt-browse-treehead')).toContain('height:var(--dbt-row-h');
+		expect(ruleBody('dbt-browse-crumb')).toContain('min-height:var(--dbt-row-h');
+	});
+
+	it('胶囊统一高度 token（kind / route / NULL），不再各拼 padding', () => {
+		for (const cls of ['dbt-kindchip', 'dbt-routechip', 'dbt-nullchip']) {
+			const body = ruleBody(cls);
+			expect(body, `${cls} 未使用 chip token`).toContain('height:var(--dbt-chip-h');
+			expect(body, `${cls} 仍用纵向 padding 撑高`).toMatch(/padding:0 /);
+		}
+	});
+
+	it('kind 胶囊不再以内联 padding/lineHeight 拼装（两处视图均改用 .dbt-kindchip）', () => {
+		// 旧实现：style 里带 padding: "2px 6px" + lineHeight: 1.45 的 kind 胶囊
+		expect(src).not.toContain('padding: "2px 6px", fontFamily: MONO_FONT');
+		const uses = src.match(/className: "dbt-kindchip"/g) ?? [];
+		expect(uses.length).toBe(2); // 连接管理 + 授权两处列表行
+	});
+});
+
 
 describe('3 分区顺序与面包屑', () => {
 	it('面板内分区自上而下：面包屑 → 分段内容区（树壳在更上层由 BrowseTree 自持）', () => {
