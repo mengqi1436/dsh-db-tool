@@ -57,6 +57,11 @@ interface RedisRawClient {
   // 真实驱动逐页 yield 键数组（@redis/client index.d.ts：AsyncGenerator<Key[]>），不是逐键
   scanIterator(opts: { MATCH: string; COUNT: number }): AsyncIterable<Key[]>;
   sendCommand(args: CmdArg[]): Promise<unknown>;
+  /** pipeline：sendCommand 入队，execAsPipeline 按序返回结果（redis@6 的 multi 代理） */
+  multi(): {
+    sendCommand(args: CmdArg[]): unknown;
+    execAsPipeline(): Promise<unknown[]>;
+  };
 }
 
 // 固定 envelope 不是从源库推导的结构，不填 sourceType（该字段仅承载源库原始类型诊断）
@@ -142,20 +147,30 @@ function payloadOf(type: string, value: unknown): string {
   }
 }
 
+/** 值读取命令（与 readValue 一一对应），供 pipeline 批量发送 */
+function readValueCmds(type: string, key: CmdArg): CmdArg[][] {
+  switch (type) {
+    case 'string': return [['GET', key]];
+    case 'hash': return [['HGETALL', key]];
+    case 'list': return [['LRANGE', key, '0', '-1']];
+    case 'set': return [['SMEMBERS', key]];
+    case 'zset': return [['ZRANGE', key, '0', '-1', 'WITHSCORES']];
+    case 'stream': return [['XRANGE', key, '-', '+']];
+    default: return [];
+  }
+}
+
 export function createRedisTransferReader(raw: RedisRawClient): TransferReader {
   const iters = new Map<string, AsyncIterator<Key[]>>();
   const pendingKeys = new Map<string, Key[]>();
   const exhausted = new Set<string>();
 
-  async function readValue(type: string, key: Key): Promise<string> {    switch (type) {
-      case 'string': return payloadOf(type, await raw.get(key));
-      case 'hash': return payloadOf(type, await raw.hGetAll(key));
-      case 'list': return payloadOf(type, await raw.lRange(key, 0, -1));
-      case 'set': return payloadOf(type, await raw.sMembers(key));
-      case 'zset': return payloadOf(type, await raw.zRangeWithScores(key, '0', '-1'));
-      case 'stream': return payloadOf(type, await raw.xRange(key, '-', '+'));
-      default: return '{}';
-    }
+  /** pipeline 执行一组命令，按序返回结果（失败整体抛出，由调用方决定语义） */
+  async function pipeline(cmds: CmdArg[][]): Promise<unknown[]> {
+    if (cmds.length === 0) return [];
+    const m = raw.multi();
+    for (const c of cmds) m.sendCommand(c);
+    return m.execAsPipeline();
   }
 
   return {
@@ -179,39 +194,62 @@ export function createRedisTransferReader(raw: RedisRawClient): TransferReader {
         iters.set(table, raw.scanIterator({ MATCH: '*', COUNT: SCAN_COUNT })[Symbol.asyncIterator]());
       }
       const iter = iters.get(table)!;
-      const rows: TransferRow[] = [];
       // 驱动逐页 yield 键数组：页内键跨批次持久（局部变量会在批边界丢键）
       if (!pendingKeys.has(table)) pendingKeys.set(table, []);
       const pending = pendingKeys.get(table)!;
-      while (rows.length < n) {
-        if (pending.length === 0) {
-          const next = await iter.next();
-          if (next.done) {
-            exhausted.add(table);
-            break;
+
+      /** 从 SCAN 流里凑够 want 个键（跳过内部登记键）；返回不足表示已耗尽 */
+      const take = async (want: number): Promise<Key[]> => {
+        const out: Key[] = [];
+        while (out.length < want) {
+          if (pending.length === 0) {
+            const next = await iter.next();
+            if (next.done) {
+              exhausted.add(table);
+              break;
+            }
+            for (const k of next.value ?? []) pending.push(k);
+            continue;
           }
-          for (const k of next.value ?? []) pending.push(k);
-          continue;
+          const k = pending.shift()!;
+          if (isInternal(k)) continue; // 登记键不作为业务数据迁出
+          out.push(k);
         }
-        const key = pending.shift()!;
-        if (isInternal(key)) continue; // 登记键不作为业务数据迁出
-        const ttlRaw = Number(await raw.pTTL(key) ?? -2);
+        return out;
+      };
+
+      // 按批预取：PTTL/TYPE/OBJECT ENCODING/DUMP 互不依赖，整批合成一次 pipeline。
+      // 逐键串行时每键 5 次 RTT，30ms 链路下 1000 键要 150s。
+      const batchKeys = await take(n);
+      if (batchKeys.length === 0) return [];
+
+      const probe = await pipeline(batchKeys.flatMap((k) => [
+        ['PTTL', asArg(k)],
+        ['TYPE', asArg(k)],
+        ['OBJECT', 'ENCODING', asArg(k)],
+        ['DUMP', asArg(k)],
+      ]));
+
+      // 第二轮：按第一轮得到的 TYPE 取各自的值（取命令依赖 type，无法并入上一轮）
+      const live: Array<{ k: Key; ttl: number; type: string; encoding: unknown; dump: unknown }> = [];
+      for (let i = 0; i < batchKeys.length; i += 1) {
+        const ttlRaw = Number(probe[i * 4] ?? -2);
         if (ttlRaw === -2) continue; // 键在 SCAN 与 PTTL 之间消失
-        const type = String(await raw.type(key) ?? 'none');
+        const type = String(probe[i * 4 + 1] ?? 'none');
         if (type === 'none') continue;
-        // OBJECT ENCODING 是内存编码诊断值（与 payload 编码无关）；DUMP 走原始命令绕开读白名单
-        const encoding = await raw.sendCommand(['OBJECT', 'ENCODING', asArg(key)]);
-        const dump = await raw.sendCommand(['DUMP', asArg(key)]);
-        rows.push([
-          asArg(key),
-          type,
-          BigInt(ttlRaw < 0 ? 0 : ttlRaw), // PTTL -1 → 0（永不过期）
-          encoding === null || encoding === undefined ? null : String(encoding),
-          await readValue(type, key),
-          dump === null || dump === undefined ? null : Buffer.from(dump as Uint8Array),
-        ]);
+        live.push({ k: batchKeys[i]!, ttl: ttlRaw, type, encoding: probe[i * 4 + 2], dump: probe[i * 4 + 3] });
       }
-      return rows;
+      if (live.length === 0) return [];
+
+      const valRows = await pipeline(live.flatMap(({ k, type }) => readValueCmds(type, asArg(k))));
+      return live.map(({ k, ttl, type, encoding, dump }, vi) => [
+        asArg(k),
+        type,
+        BigInt(ttl < 0 ? 0 : ttl), // PTTL -1 → 0（永不过期）
+        encoding === null || encoding === undefined ? null : String(encoding),
+        payloadOf(type, valRows[vi]),
+        dump === null || dump === undefined ? null : Buffer.from(dump as Uint8Array),
+      ]);
     },
 
     close: async () => {
@@ -272,14 +310,23 @@ export function createRedisTransferWriter(raw: RedisRawClient, writeMode: WriteM
     if (drop) await raw.sendCommand(['DEL', markerOf(name)]);
   }
 
+  /** 本表已成功写入过数据（用于判断失败时是否应回收 marker，避免留下「空表」假象） */
+  const wroteAny = new Set<string>();
+
   return {
     kind: 'redis',
 
     tableExists: async (name) => exists(markerOf(name)),
 
-    dropTable: async (name) => clear(name, true),
+    dropTable: async (name) => {
+      await clear(name, true);
+      wroteAny.delete(name);
+    },
 
-    beforeLoad: async (table) => clear(table.name, false),
+    beforeLoad: async (table) => {
+      await clear(table.name, false);
+      wroteAny.delete(table.name);
+    },
 
     createTable: async (table) => {
       await raw.sendCommand(['SET', markerOf(table.name), '1']);
@@ -288,40 +335,86 @@ export function createRedisTransferWriter(raw: RedisRawClient, writeMode: WriteM
     writeBatch: async (table, rows: TransferRow[]): Promise<number> => {
       if (rows.length === 0) return 0;
       const width = table.columns.length;
+      // 列名必须与 envelope 一致：只校验宽度时，恰好 6 列的普通 SQL 表会被按位置静默错写
+      const names = table.columns.map((c) => c.name);
+      if (names.length !== columns.length || names.some((n, i) => n !== columns[i]!.name)) {
+        throw new Error(
+          `Redis 传输仅接受 envelope 列（${columns.map((c) => c.name).join('/')}），实际为 ${names.join('/')}`,
+        );
+      }
       for (const r of rows) {
         if (r.length !== width) {
           throw new Error(`行宽不匹配：期望 ${width} 列，实际 ${r.length} 列（表 ${table.name}）`);
         }
       }
-      let written = 0;
-      for (const r of rows) {
-        const key = asArg(r[0] ?? null);
-        const keyArg = asArg(key);
-        const type = String(r[1] ?? 'string');
-        const ttlBig = typeof r[2] === 'bigint' ? r[2] : BigInt(Math.max(0, Number(r[2] ?? 0)));
-        const ttl = ttlBig > 0n ? ttlBig.toString() : '0';
-        const payload = r[4] === null || r[4] === undefined ? '{}' : String(r[4]);
-        const dump = r[5] instanceof Uint8Array ? Buffer.from(r[5]) : null;
 
-        const present = await exists(keyArg);
-        if (present) {
-          if (writeMode === 'insert') {
-            throw new Error(`目标键已存在: ${b64(key)}（insert 不覆盖已有数据，请改用 ignore/replace/truncate 或开启覆盖表结构）`);
+      // model.ts:104 契约「单批单事务，失败整批回滚」：先全量预检，再统一写入。
+      // 任一键冲突即整批放弃（此时尚未写任何数据），避免留下半批脏数据。
+      const planned: Array<{ r: TransferRow; skip: boolean; present: boolean }> = [];
+      const dropMarkerIfEmpty = async (): Promise<void> => {
+        // createTable 已建 marker 但从未写入成功：清掉 marker，否则下次 insert 误报「表已存在」
+        if (wroteAny.has(table.name)) return;
+        await raw.sendCommand(['DEL', markerOf(table.name)]).catch(() => {});
+        await raw.sendCommand(['DEL', idxOf(table.name)]).catch(() => {});
+      };
+      try {
+        for (const r of rows) {
+          const keyArg = asArg(asArg(r[0] ?? null));
+          const present = await exists(keyArg);
+          if (present) {
+            if (writeMode === 'insert') {
+              throw new Error(`目标键已存在: ${b64(asArg(r[0] ?? null))}（insert 不覆盖已有数据，请改用 ignore/replace/truncate 或开启覆盖表结构）`);
+            }
+            if (writeMode === 'ignore') {
+              planned.push({ r, skip: true, present });
+              continue;
+            }
           }
-          if (writeMode === 'ignore') continue;
-          await raw.sendCommand(['DEL', keyArg]); // replace：先删再重建（含残留 TTL）
+          planned.push({ r, skip: false, present });
         }
+      } catch (e) {
+        await dropMarkerIfEmpty();
+        throw e;
+      }
 
-        if (dump !== null) {
-          // 同构 Redis 保真：RESTORE 自带 TTL 与 REPLACE，无需额外 PEXPIRE/PERSIST
-          await raw.sendCommand(['RESTORE', keyArg, ttl, dump, 'REPLACE']);
-        } else {
-          for (const cmd of rebuildCommands(type, keyArg, payload)) await raw.sendCommand(cmd);
-          // SET 不清旧 TTL：0 显式 PERSIST，正值 PEXPIRE
-          await raw.sendCommand(ttlBig > 0n ? ['PEXPIRE', keyArg, ttl] : ['PERSIST', keyArg]);
+      let written = 0;
+      try {
+        for (const { r, skip, present } of planned) {
+          if (skip) continue;
+          const key = asArg(r[0] ?? null);
+          const keyArg = asArg(key);
+          const type = String(r[1] ?? 'string');
+          const ttlBig = typeof r[2] === 'bigint' ? r[2] : BigInt(Math.max(0, Number(r[2] ?? 0)));
+          const ttl = ttlBig > 0n ? ttlBig.toString() : '0';
+          const payload = r[4] === null || r[4] === undefined ? '{}' : String(r[4]);
+          const dump = r[5] instanceof Uint8Array ? Buffer.from(r[5]) : null;
+
+          // replace：预检已确认存在，先删再重建（含残留 TTL）
+          if (writeMode === 'replace' && present) await raw.sendCommand(['DEL', keyArg]);
+
+          if (dump !== null) {
+            // 同构 Redis 保真：RESTORE 自带 TTL 与 REPLACE，无需额外 PEXPIRE/PERSIST
+            await raw.sendCommand(['RESTORE', keyArg, ttl, dump, 'REPLACE']);
+          } else {
+            for (const cmd of rebuildCommands(type, keyArg, payload)) await raw.sendCommand(cmd);
+            // SET 不清旧 TTL：0 显式 PERSIST，正值 PEXPIRE
+            await raw.sendCommand(ttlBig > 0n ? ['PEXPIRE', keyArg, ttl] : ['PERSIST', keyArg]);
+          }
+          await raw.sendCommand(['SADD', idxOf(table.name), keyArg]);
+          written += 1;
         }
-        await raw.sendCommand(['SADD', idxOf(table.name), keyArg]);
-        written += 1;
+        if (written > 0) wroteAny.add(table.name);
+      } catch (e) {
+        // 写入中途失败（网络/命令错误）：回滚本批已写的键与登记，保持「失败整批回滚」
+        for (const { r, skip } of planned) {
+          if (skip) continue;
+          const keyArg = asArg(asArg(r[0] ?? null));
+          await raw.sendCommand(['DEL', keyArg]).catch(() => {});
+          await raw.sendCommand(['SREM', idxOf(table.name), keyArg]).catch(() => {});
+        }
+        // createTable 已建 marker 但从未写入成功：清掉 marker，否则下次 insert 误报「表已存在」
+        await dropMarkerIfEmpty();
+        throw e;
       }
       return written;
     },

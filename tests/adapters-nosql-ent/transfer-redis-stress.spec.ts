@@ -71,13 +71,33 @@ function makeClient(specs: Spec[]) {
           for (const m of args.slice(2)) sets.get(k)!.set(b64(m as Key), m as Key);
           return args.length - 2;
         }
-        case 'SMEMBERS': return [...(sets.get(k)?.values() ?? [])];
+        case 'SMEMBERS': return sets.has(k) ? [...sets.get(k)!.values()] : (values.get(k) ?? []);
         case 'OBJECT': return meta.get(k)?.encoding ?? null;
         case 'DUMP': return meta.get(k)?.dump ?? null;
+        // 读端改走 pipeline 后改用原始命令
+        case 'PTTL': return meta.get(k)?.pttl ?? -2;
+        case 'TYPE': return meta.get(k)?.type ?? 'none';
+        case 'GET': return values.get(k) ?? null;
+        case 'HGETALL': return values.get(k) ?? {};
+        case 'LRANGE': return values.get(k) ?? [];
+        case 'ZRANGE': return values.get(k) ?? [];
+        case 'XRANGE': return values.get(k) ?? [];
         default: return 'OK';
       }
     }),
   };
+  // 真实驱动的 pipeline：sendCommand 入队，execAsPipeline 按序返回
+  client.multi = vi.fn(() => {
+    const queued: Args[] = [];
+    return {
+      sendCommand: (args: Args) => { queued.push(args); return undefined; },
+      execAsPipeline: async () => {
+        const out: unknown[] = [];
+        for (const a of queued) out.push(await (client.sendCommand as (x: Args) => Promise<unknown>)(a));
+        return out;
+      },
+    };
+  });
   return client;
 }
 

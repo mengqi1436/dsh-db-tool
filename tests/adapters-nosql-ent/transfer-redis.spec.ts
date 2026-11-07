@@ -73,6 +73,21 @@ function makeClient(entries: Entry[] = []): FakeClient {
     calls,
     connect: vi.fn(async () => undefined),
     quit: vi.fn(async () => 'OK'),
+    // 真实驱动的 pipeline：sendCommand 入队，execAsPipeline 按序返回结果
+    multi: vi.fn(() => {
+      const queued: Args[] = [];
+      return {
+        sendCommand: (args: Args) => {
+          queued.push(args);
+          return undefined;
+        },
+        execAsPipeline: async () => {
+          const out: unknown[] = [];
+          for (const a of queued) out.push(await (client.sendCommand as (x: Args) => Promise<unknown>)(a));
+          return out;
+        },
+      };
+    }),
     type: vi.fn(async (key: Key) => meta.get(b64(key))?.type ?? 'none'),
     pTTL: vi.fn(async (key: Key) => meta.get(b64(key))?.pttl ?? -2),
     dbSize: vi.fn(async () => entries.length),
@@ -114,9 +129,18 @@ function makeClient(entries: Entry[] = []): FakeClient {
           stored.set(k, 'set');
           return args.length - 2;
         }
-        case 'SMEMBERS': return [...(sets.get(k)?.values() ?? [])];
+        // sets 只服务于 __dbt_xfer:idx:* 登记；业务 set 类型的值在 values 里
+        case 'SMEMBERS': return sets.has(k) ? [...sets.get(k)!.values()] : (values.get(k) ?? []);
         case 'OBJECT': return meta.get(k)?.encoding ?? null;
         case 'DUMP': return meta.get(k)?.dump ?? null;
+        // 读端改走 pipeline 后改用原始命令，mock 必须支持同一形态
+        case 'PTTL': return meta.get(k)?.pttl ?? -2;
+        case 'TYPE': return meta.get(k)?.type ?? 'none';
+        case 'GET': return values.get(k) ?? null;
+        case 'HGETALL': return values.get(k) ?? {};
+        case 'LRANGE': return values.get(k) ?? [];
+        case 'ZRANGE': return values.get(k) ?? [];
+        case 'XRANGE': return values.get(k) ?? [];
         default: return 'OK'; // HSET/RPUSH/ZADD/XADD/PEXPIRE/PERSIST/DUMP 等写命令
       }
     }),
@@ -193,19 +217,21 @@ describe('Redis 读端按 6 种键类型全量读值', () => {
     await r.close();
   });
 
-  it('list → payload {"v":[...]} 全量（lRange 0 -1）', async () => {
+  it('list → payload {"v":[...]} 全量（LRANGE 0 -1）', async () => {
     const c = makeClient([{ key: 'l', type: 'list', value: ['a', 'b', 'c'] }]);
     const r = reader(c);
     const rows = await r.readBatch(REDIS_ENVELOPE_TABLE, { mode: 'offset', offset: 0 }, 10);
     expect(JSON.parse(String(rows[0]![4]))).toEqual({ v: ['a', 'b', 'c'] });
-    expect(c.lRange).toHaveBeenCalledWith('l', 0, -1);
+    expect(c.calls).toContainEqual(['LRANGE', 'l', '0', '-1']);
     await r.close();
   });
 
   it('set → payload {"v":[...]}', async () => {
-    const r = reader(makeClient([{ key: 's', type: 'set', value: ['m1', 'm2'] }]));
+    const c = makeClient([{ key: 's', type: 'set', value: ['m1', 'm2'] }]);
+    const r = reader(c);
     const rows = await r.readBatch(REDIS_ENVELOPE_TABLE, { mode: 'offset', offset: 0 }, 10);
     expect(JSON.parse(String(rows[0]![4]))).toEqual({ v: ['m1', 'm2'] });
+    expect(c.calls).toContainEqual(['SMEMBERS', 's']);
     await r.close();
   });
 
@@ -214,7 +240,7 @@ describe('Redis 读端按 6 种键类型全量读值', () => {
     const r = reader(c);
     const rows = await r.readBatch(REDIS_ENVELOPE_TABLE, { mode: 'offset', offset: 0 }, 10);
     expect(JSON.parse(String(rows[0]![4]))).toEqual({ v: [['a', 1], ['b', 2.5]] });
-    expect(c.zRangeWithScores).toHaveBeenCalledWith('z', '0', '-1');
+    expect(c.calls).toContainEqual(['ZRANGE', 'z', '0', '-1', 'WITHSCORES']);
     await r.close();
   });
 
@@ -223,7 +249,7 @@ describe('Redis 读端按 6 种键类型全量读值', () => {
     const r = reader(c);
     const rows = await r.readBatch(REDIS_ENVELOPE_TABLE, { mode: 'offset', offset: 0 }, 10);
     expect(JSON.parse(String(rows[0]![4]))).toEqual({ v: [['1-1', [['f', 'v']]]] });
-    expect(c.xRange).toHaveBeenCalledWith('st', '-', '+');
+    expect(c.calls).toContainEqual(['XRANGE', 'st', '-', '+']);
     await r.close();
   });
 });
@@ -460,6 +486,63 @@ describe('Redis 写端 DUMP/RESTORE 与 payload 重建', () => {
     const w = writer(c, 'truncate');
     await w.beforeLoad!(table());
     expect(await w.writeBatch(table(), [row('k', 'string', 0n, '{"v":"x"}')])).toBe(1);
+    await w.close();
+  });
+
+  it('批内无原子性回归：中段失败时整批不得留下已写数据', async () => {
+    // model.ts:104 契约「单批单事务，失败整批回滚」。原实现逐行写，第 2 行冲突时第 1 行已落库。
+    const c = makeClient([{ key: 'dup' }]);
+    const w = writer(c, 'insert');
+    const rows = [row('a', 'string', 0n, '{"v":"1"}'), row('dup', 'string', 0n, '{"v":"2"}'), row('b', 'string', 0n, '{"v":"3"}')];
+    await expect(w.writeBatch(table(), rows)).rejects.toThrow(/已存在/);
+    // 整批回滚：不应留下任何 SET/RESTORE，也不应把键登记进 idx
+    const writes = c.calls.filter((a) => ['SET', 'RESTORE', 'SADD'].includes(String(a[0]).toUpperCase()));
+    expect(writes).toEqual([]);
+    await w.close();
+  });
+
+  it('createTable 后写入全失败：marker 必须清掉，否则下次 insert 误报「表已存在」', async () => {
+    const c = makeClient([{ key: 'dup' }]);
+    const w = writer(c, 'insert');
+    const t = table();
+    await w.createTable(t);
+    // 一整批都因重复键失败
+    await expect(w.writeBatch(t, [row('dup', 'string', 0n, '{"v":"1"}')])).rejects.toThrow(/已存在/);
+    // marker 应已被清理：tableExists 不再为真，可重新建表
+    expect(await w.tableExists(t.name)).toBe(false);
+    await w.close();
+  });
+
+  it('读端按批走 pipeline：单批 RTT 次数与键数无关（回归性能）', async () => {
+    // 原实现每键 5 次串行 RTT；30ms 链路下 1000 键要 150s。改按批预取后应为常数轮。
+    const entries = Array.from({ length: 40 }, (_, i) => ({ key: `k${i}` }));
+    const c = makeClient(entries);
+    const r = reader(c);
+    const rows = await r.readBatch(REDIS_ENVELOPE_TABLE, { mode: 'offset', offset: 0 }, 40);
+    expect(rows).toHaveLength(40);
+    // 40 个键若逐键发送会产生 40*N 条独立 sendCommand；走 pipeline 时应聚合成少数几次 execAsPipeline
+    const pipelineCalls = (c.multi as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    expect(pipelineCalls).toBeGreaterThan(0);
+    expect(pipelineCalls).toBeLessThanOrEqual(4); // 两轮左右，与 40 键数量无关
+    await r.close();
+  });
+
+  it('列名不匹配（源表恰好 6 列但列名不同）→ 拒绝写入，不按位置静默错写', async () => {    // 只校验宽度的旧实现会把普通 6 列 SQL 行按 envelope 语义写进 Redis
+    const c = makeClient();
+    const w = writer(c, 'insert');
+    const wrong = {
+      name: REDIS_ENVELOPE_TABLE,
+      columns: [
+        { name: 'id', midType: 'number', nullable: false, primaryKey: true },
+        { name: 'name', midType: 'string', nullable: true, primaryKey: false },
+        { name: 'created', midType: 'string', nullable: true, primaryKey: false },
+        { name: 'updated', midType: 'string', nullable: true, primaryKey: false },
+        { name: 'status', midType: 'string', nullable: true, primaryKey: false },
+        { name: 'note', midType: 'string', nullable: true, primaryKey: false },
+      ],
+    } as unknown as TransferTable;
+    await expect(w.writeBatch(wrong, [['1', 'alice', 'x', 'y', 'z', 'n']])).rejects.toThrow(/列/);
+    expect(c.calls.filter((a) => String(a[0]).toUpperCase() === 'SET')).toEqual([]);
     await w.close();
   });
 
