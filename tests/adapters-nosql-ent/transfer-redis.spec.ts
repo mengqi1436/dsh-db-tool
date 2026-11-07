@@ -267,6 +267,18 @@ describe('Redis 读端 SCAN 游标与 TTL', () => {
     await r.close();
   });
 
+  it('迭代器耗尽后重复读稳定返回空批，且只创建一次迭代器', async () => {
+    // runOffset 靠 rows.length===0 终止，耗尽后必须持续返回空且不重建迭代器
+    const c = makeClient([{ key: 'a' }]);
+    const r = reader(c);
+    expect(await r.readBatch(REDIS_ENVELOPE_TABLE, { mode: 'offset', offset: 0 }, 10)).toHaveLength(1);
+    for (let i = 1; i <= 3; i += 1) {
+      expect(await r.readBatch(REDIS_ENVELOPE_TABLE, { mode: 'offset', offset: i }, 10)).toEqual([]);
+    }
+    expect(c.scanIterator).toHaveBeenCalledTimes(1);
+    await r.close();
+  });
+
   it('页边界跨批不丢键：SCAN 每页 3 键、批大小 2 时全量不重不漏', async () => {
     // 回归 C-1：驱动逐页 yield 数组，页内剩余键必须跨 readBatch 持久，否则批边界丢数据
     const keys = Array.from({ length: 7 }, (_, i) => ({ key: `k${i}` }));

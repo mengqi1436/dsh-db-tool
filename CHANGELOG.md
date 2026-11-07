@@ -1,5 +1,46 @@
 # Changelog — dsh-db-tool
 
+## 1.9.9
+
+Redis 接入数据传输（envelope 表 `__redis_keys` 降级方案），并修掉审查发现的 7 个缺陷。
+
+### 新增
+
+- **Redis 作为数据传输源/目标**：以固定 envelope 表 `__redis_keys` 参与，六列 `key`/`type`/`ttl_ms`/`encoding`/`payload`/`dump`。同构 Redis→Redis 走 DUMP/RESTORE 字节保真；跨引擎走 payload 的六类型重建（string/hash/list/set/zset/stream）。明确排除 stream consumer group、跨版本 `DUMP`、逻辑库 `dbN`。
+- **传输配置按项目持久化**：`transfer-config.json`（0600），自动保存、重启回填、失效连接自动清空。
+
+### 修复
+
+三个阻塞级缺陷（原实现会让 Redis 传输完全不可用）：
+
+- **Redis 作源 100% 失败**：`scanIterator` 被声明为 `AsyncIterable<Key>` 并按单键消费，而真实 `redis@6` 每次 yield 键数组。首次 `readBatch` 即崩在 `pTTL(array)`：`TypeError: "arguments[1]" must be of type "string | Buffer"`。改为按页摊平消费，页内键跨批次持久（局部变量会在批边界丢键）。同仓库浏览侧早有 `Array.isArray` 防御，传输侧漏了。
+- **所有非 UTF-8 值不可逆损坏**：`createClient` 未传 `typeMapping`，`@redis/client` 对非 Buffer 响应按 UTF-8 解码，`0x9a80fffe` 变 `EF BF BD`，DUMP 18B→28B 后 RESTORE 报 checksum 错；跨引擎时二进制值被写成 `"[object Object]"`。改为 `commandOptions: { typeMapping: { 36: Buffer, 37: Map } }`。
+- **hash 的 `__proto__`/`constructor` 字段静默丢失**：RESP3 map→plain object 用 `object['__proto__']=v` 赋值。同上 `37: Map` 一并解决，消费端适配 Map 分支。
+
+其余四项：
+
+- **批内无原子性**：违反「单批单事务，失败整批回滚」契约，第 3 行冲突时前 2 行已落库。改为整批 EXISTS 预检 + 中途失败回滚已写键与 idx 登记。
+- **marker 残留**：`createTable` 后整批写入失败仍留 marker，下次同表 `insert` 误报「目标表已存在」，只能手清库。改为从未成功写入时清理 marker 与 idx。
+- **只校验列宽不校验列名**：源表恰好 6 列时按位置硬解 envelope，普通 SQL 行被静默写坏。改为列名必须与 envelope 完全一致。
+- **读端逐键 5 次串行 RTT**：30ms 链路下 1000 键需 150s。改为按批两轮 pipeline（`PTTL`/`TYPE`/`OBJECT ENCODING`/`DUMP` 合批，取命令依赖 type 走第二轮），RTT 次数与键数无关。
+
+顺带修：`openRaw` 挂 `error` 监听（EventEmitter 异常会绕过编排层 try/catch 直接崩宿主进程）；传输配置 GET 失败不再用默认值回写覆盖服务端已存配置；`count()` 扣除内部登记键避免进度永远到不了 100%；payload 二进制用 `__b64` 标记；zset 的 ±Infinity/NaN score 不再被 `JSON.stringify` 变 null。
+
+### 清理
+
+- 删死代码 `transferLogDir()`（调用点已被 `path.dirname` 替换，全仓零调用）及 SKILL.md 中失效描述
+- 删与 `asArg` 逐分支等价的 `asKey()`、改 pipeline 后无调用者的 `readValue()`
+- 删 `exhausted` Set：迭代器耗尽后 `next()` 本就返回 done，该短路只省一次 await，属等价冗余
+- `replace` 分支复用预检结果，去掉重复 `EXISTS`
+- **`stryker.config.json` 忽略规则方向写反**：`ignorePatterns` 是忽略列表，`!vendor/**` 是 negate，实测 `match()` 为 false，等于从未生效。改为 `vendor/**` + `dist/**`
+
+### 测试
+
+- 新增 8 条回归测试，全部经变异验证有效：页边界跨批不丢键、值二进制往返、hash `__proto__` 保留、批内原子性、marker 清理、列名不匹配拒绝、按批 pipeline、耗尽后稳定返回空
+- 修正测试 mock 与真实驱动不符之处：`scanIterator` 原写成逐键 yield（这是阻塞缺陷全部逃过 33 个用例的直接原因）；补 `multi`/`execAsPipeline` 与 `PTTL`/`TYPE`/`GET`/`HGETALL`/`LRANGE`/`ZRANGE WITHSCORES`/`XRANGE` 分支；set 类型值改从 `values` 读（`sets` 仅服务 idx 登记）
+- 修正 `transfer-config` 归一用例的平台依赖：大小写整体折叠只在 win32 生效，原断言在 Linux CI 必失败
+- 基线：`typecheck` 0 错误、`build` 成功、`npm test` 1288 passed / 0 failed、`npm audit` 0 vulnerabilities
+
 ## 1.9.8
 
 清除 Dependabot 全部 open 告警（1 high / 3 medium / 1 low）：`npm audit` 由 5 vulnerabilities 降到 **0 vulnerabilities**。

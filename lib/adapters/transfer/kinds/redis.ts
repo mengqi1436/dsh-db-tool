@@ -163,7 +163,6 @@ function readValueCmds(type: string, key: CmdArg): CmdArg[][] {
 export function createRedisTransferReader(raw: RedisRawClient): TransferReader {
   const iters = new Map<string, AsyncIterator<Key[]>>();
   const pendingKeys = new Map<string, Key[]>();
-  const exhausted = new Set<string>();
 
   /** pipeline 执行一组命令，按序返回结果（失败整体抛出，由调用方决定语义） */
   async function pipeline(cmds: CmdArg[][]): Promise<unknown[]> {
@@ -189,7 +188,6 @@ export function createRedisTransferReader(raw: RedisRawClient): TransferReader {
     readBatch: async (_table: string, _cursor: TransferCursor, limit: number): Promise<TransferRow[]> => {
       const table = _table || REDIS_ENVELOPE_TABLE;
       const n = Math.max(1, Math.floor(Number(limit) || 1));
-      if (exhausted.has(table)) return [];
       if (!iters.has(table)) {
         iters.set(table, raw.scanIterator({ MATCH: '*', COUNT: SCAN_COUNT })[Symbol.asyncIterator]());
       }
@@ -205,7 +203,6 @@ export function createRedisTransferReader(raw: RedisRawClient): TransferReader {
           if (pending.length === 0) {
             const next = await iter.next();
             if (next.done) {
-              exhausted.add(table);
               break;
             }
             for (const k of next.value ?? []) pending.push(k);
