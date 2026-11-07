@@ -266,6 +266,23 @@ async function route(
     }
   }
 
+  // 传输页配置：项目级 7 项用户配置（连接 id 失效回退在 service 层）
+  if (path === '/api/transfer-config') {
+    if (req.method === 'GET') return sendOk(res, service.transferConfigGet(projectOf(q)));
+    if (req.method === 'PUT') {
+      const b = await readBody(req);
+      return sendOk(res, service.transferConfigSet(projectOfBody(b), {
+        sourceConnId: str(b['sourceConnId']),
+        targetConnId: str(b['targetConnId']),
+        writeMode: b['writeMode'],
+        batchSize: b['batchSize'],
+        tableConcurrency: b['tableConcurrency'],
+        shardConcurrency: b['shardConcurrency'],
+        overwriteStructure: b['overwriteStructure'],
+      }));
+    }
+  }
+
   if (path === '/api/databases' && req.method === 'GET') {
     return sendOk(res, await service.databases(projectOf(q), required(q, 'connId')));
   }

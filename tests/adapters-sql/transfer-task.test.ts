@@ -180,8 +180,14 @@ for (const mode of ['node', 'better'] as const) {
       expect(() => JSON.stringify(snap)).not.toThrow();
     }, 30000);
 
-    it('writer 创建失败（目标 kind 不支持写）→ 单表失败进 failures，任务不挂起、失败表有终态', async () => {
-      const task = startTransferTask(connOf('s', src), { meta: { id: 'bad', kind: 'redis' }, fields: {} }, {
+    it('writer 创建失败（目标库不可打开）→ 单表失败进 failures，任务不挂起、失败表有终态', async () => {
+      // 第九个 kind（redis）已注册传输读写端，不能再拿它当「不支持写」样本；
+      // 改用父目录不存在的 sqlite 目标，createTransferWriter 在 openRaw 处稳定抛错。
+      const badTarget: ResolvedConnection = {
+        meta: { id: 'bad', kind: 'sqlite' },
+        fields: { database: join(dir, 'no-such-parent', 'nope.db') },
+      };
+      const task = startTransferTask(connOf('s', src), badTarget, {
         tables: ['big', 'small'],
         writeMode: 'insert',
         batchSize: 10,
@@ -191,7 +197,7 @@ for (const mode of ['node', 'better'] as const) {
       expect(snap.status).toBe('failed');
       // 失败按真实表名记录（旧实现会以 table:'*' 兜底且表级停留在 pending）
       expect(snap.failures.map((f) => f.table).sort()).toEqual(['big', 'small']);
-      expect(snap.failures[0]?.error).toContain('暂不支持写入');
+      expect(snap.failures[0]?.error).toMatch(/打开失败|unable to open|CANTOPEN/i);
       expect(snap.tables.find((t) => t.name === 'big')?.status).toBe('failed');
     }, 30000);
   });

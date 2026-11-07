@@ -127,12 +127,31 @@ function ownValue(doc: Record<string, unknown>, k: string): unknown {
 export function createMongoTransferReader(raw: MongoRaw): TransferReader {
   const { db, M } = raw;
 
+  /** Decimal128 字符串 → precision/scale；超目标端默认上限（38,10）时显式失败，
+   *  避免 pg/sqlserver/oralike 写端按 scale 10 静默吞掉小数位。 */
+  function decimalParts(v: unknown): { precision: number; scale: number } | null {
+    if (v === null || v === undefined) return null;
+    const s = typeof v === 'string' ? v : String(v);
+    const m = /^-?(\d+)(?:\.(\d+))?(?:[Ee]([+-]?\d+))?$/.exec(s.trim());
+    if (!m) return null;
+    const exp = m[3] ? Number(m[3]) : 0;
+    const intDigits = m[1]!.replace(/^0+(?=\d)/, '').length;
+    const frac = m[2] ?? '';
+    const scale = Math.max(0, frac.length - exp);
+    const precision = Math.max(intDigits + scale, 1);
+    if (precision > 38 || scale > 10) {
+      throw new Error(`Decimal128「${s}」超出目标端上限 precision=38 scale=10（precision=${precision} scale=${scale}），请先收敛精度再传输`);
+    }
+    return { precision, scale };
+  }
+
   const describe = async (name: string): Promise<TransferTable> => {
     const coll = db.collection(name);
     const sample = (await coll.find({}).limit(SAMPLE_LIMIT).toArray()) as Record<string, unknown>[];
     // 字段并集（首次出现顺序）+ 类型推断（首个非 null 类型）
     const cols = new Map<string, MidType>();
     const present = new Map<string, number>();
+    const decimalCols = new Map<string, { precision: number; scale: number }>();
     for (const doc of sample) {
       for (const [k, v] of Object.entries(doc)) {
         if (!cols.has(k)) {
@@ -140,6 +159,7 @@ export function createMongoTransferReader(raw: MongoRaw): TransferReader {
           present.set(k, 0);
         }
         if (v !== null && v !== undefined) present.set(k, (present.get(k) ?? 0) + 1);
+        if (v instanceof M.Decimal128) decimalCols.set(k, decimalParts(v.toString()) ?? { precision: 38, scale: 10 });
       }
     }
     if (!cols.has('_id')) {
@@ -153,6 +173,7 @@ export function createMongoTransferReader(raw: MongoRaw): TransferReader {
       // 抽样缺失 = 可空；样本为空时按可空（required 从无样本推断不安全）；_id 恒非空
       nullable: fieldName === '_id' ? false : sample.length === 0 || (present.get(fieldName) ?? 0) < sample.length,
       primaryKey: fieldName === '_id',
+      ...(decimalCols.has(fieldName) ? decimalCols.get(fieldName)! : {}),
     }));
     return { name, columns };
   };
@@ -175,17 +196,24 @@ export function createMongoTransferReader(raw: MongoRaw): TransferReader {
     },
 
     shardKey: async (name) => {
-      // _id 是 mongo 唯一可靠的分片键；类型唯一才可用（评审 #4）
+      // _id 是 mongo 唯一可靠的分片键；全集合巡检类型唯一才可用——只看前 50 条时
+      // 样本外出现混 BSON 类型会让 range 区间过滤静默漏行（评审 #4 的残留洞）。
       const coll = db.collection(name);
-      const sample = (await coll.find({}).limit(SAMPLE_LIMIT).toArray()) as Record<string, unknown>[];
       const kinds = new Set<string>();
-      for (const doc of sample) {
-        const v = doc._id;
-        if (v instanceof M.ObjectId) kinds.add('ObjectId');
-        else if (typeof v === 'string') kinds.add('string');
-        else if (typeof v === 'number') kinds.add('number');
-        else if (v instanceof M.Long) kinds.add('Long');
-        else if (v !== null && v !== undefined) kinds.add('other');
+      const classify = (v: unknown): string | null => {
+        if (v instanceof M.ObjectId) return 'ObjectId';
+        if (typeof v === 'string') return 'string';
+        if (typeof v === 'number') return 'number';
+        if (v instanceof M.Long) return 'Long';
+        if (v !== null && v !== undefined) return 'other';
+        return null;
+      };
+      // 仅投影 _id，逐游标扫全集合；发现两类即提前收口（不必继续拉数据）
+      const cursor = coll.find({}, { projection: { _id: 1 } });
+      for await (const doc of cursor as AsyncIterable<Record<string, unknown>>) {
+        const k = classify(doc._id);
+        if (k) kinds.add(k);
+        if (kinds.size > 1) break;
       }
       const kindsArr = [...kinds];
       const kind = kindsArr.length === 1 ? (kindsArr[0] as 'ObjectId' | 'string' | 'number' | 'Long') : null;

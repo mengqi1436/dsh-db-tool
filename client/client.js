@@ -3337,16 +3337,65 @@ window.__ModuleLoader__.load({
 			const dbsCacheRef = React.useRef({}); // connId -> string[]
 			const schemasCacheRef = React.useRef({}); // connId + "/" + db -> string[]
 			const verCacheRef = React.useRef({}); // connId -> serverInfo（含失败空串）
+			// 配置持久化的 ref 无条件固定在 state/refs 块末尾：两处 React stub 按 hookIdx 分配 slot，
+			// 中间插入会打乱既有 state 与 useEffect 的槽位。
+			const loadedProjectRef = React.useRef("");
+			const saveTimerRef = React.useRef(null);
 			React.useEffect(() => () => { mountedRef.current = false; }, []);
 			const srcVer = useServerVer(srcId, verCacheRef);
 			const dstVer = useServerVer(dstId, verCacheRef);
 
+			// 按项目加载 7 项用户配置；GET 失败时回默认值并置 ref，
+			// 既防沿用上一项目的连接 id，也保证后续修改仍能自动保存。
+			React.useEffect(() => {
+				loadedProjectRef.current = "";
+				if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+				if (!projectPath) return undefined;
+				let stopped = false;
+				api("transfer-config" + qs({ project: projectPath }))
+					.then((cfg) => {
+						if (stopped) return;
+						const c = cfg && typeof cfg === "object" ? cfg : {};
+						setSrcId(typeof c.sourceConnId === "string" ? c.sourceConnId : "");
+						setDstId(typeof c.targetConnId === "string" ? c.targetConnId : "");
+						setWriteMode(["insert", "ignore", "replace", "truncate"].indexOf(c.writeMode) >= 0 ? c.writeMode : "insert");
+						setBatchSize(Number.isFinite(Number(c.batchSize)) ? Number(c.batchSize) : 1000);
+						setTableConcurrency(Number.isFinite(Number(c.tableConcurrency)) ? Number(c.tableConcurrency) : 4);
+						setShardConcurrency(Number.isFinite(Number(c.shardConcurrency)) ? Number(c.shardConcurrency) : 4);
+						setOverwriteStructure(c.overwriteStructure === true);
+						loadedProjectRef.current = projectPath;
+					})
+					.catch((e) => {
+						if (stopped) return;
+						setSrcId(""); setDstId(""); setWriteMode("insert");
+						setBatchSize(1000); setTableConcurrency(4); setShardConcurrency(4); setOverwriteStructure(false);
+						// 不置 loadedProjectRef：置了会让 debounce 把这批默认值回写服务端，覆盖用户已存配置
+						setError(String(e && e.message ? e.message : e));
+					});
+				return () => { stopped = true; };
+			}, [projectPath]);
+			// 配置变更 400ms debounce 自动保存；门控确保加载完成前与项目切换瞬间不写盘。
+			React.useEffect(() => {
+				if (!projectPath || loadedProjectRef.current !== projectPath) return undefined;
+				const body = {
+					projectPath, sourceConnId: srcId, targetConnId: dstId, writeMode,
+					batchSize, tableConcurrency, shardConcurrency, overwriteStructure,
+				};
+				const timer = setTimeout(() => {
+					saveTimerRef.current = null;
+					api("transfer-config", { method: "PUT", body })
+						.catch((e) => setError(String(e && e.message ? e.message : e)));
+				}, 400);
+				saveTimerRef.current = timer;
+				return () => { clearTimeout(timer); if (saveTimerRef.current === timer) saveTimerRef.current = null; };
+			}, [projectPath, srcId, dstId, writeMode, batchSize, tableConcurrency, shardConcurrency, overwriteStructure]);
+
 			const srcConn = conns.find((c) => c.id === srcId);
 			const dstConn = conns.find((c) => c.id === dstId);
 			const dstGrant = (props.grants || []).find((x) => x.connId === dstId);
-			// PG/GaussDB/SQL Server 三层（库→模式→表），与 BrowsePane 同一张表；sqlite 无库层（连接默认上下文）
+			// PG/GaussDB/SQL Server 三层（库→模式→表），与 BrowsePane 同一张表；sqlite/redis 无库层（连接默认上下文）
 			const HAS_SCHEMAS = { postgresql: true, gaussdb: true, sqlserver: true };
-			const NO_DB_LEVEL = { sqlite: true };
+			const NO_DB_LEVEL = { sqlite: true, redis: true };
 
 			// 项目切换清层级缓存（对齐 BrowsePane：避免陈旧授权下的旧数据）
 			React.useEffect(() => {
@@ -3410,6 +3459,11 @@ window.__ModuleLoader__.load({
 				setSrcTables([]); setSelected([]); setTablesErr("");
 				if (!srcId || !projectPath) return undefined;
 				const kind = srcConn && srcConn.kind;
+				// redis 的 listTables 忽略 database：不走 /api/tables，前端固定一个虚拟表供后端读写端识别
+				if (kind === "redis") {
+					setSrcTables([{ name: "__redis_keys", type: "TABLE", comment: "" }]);
+					return undefined;
+				}
 				let database;
 				if (NO_DB_LEVEL[kind]) database = undefined;
 				else if (HAS_SCHEMAS[kind]) {
@@ -3525,7 +3579,7 @@ window.__ModuleLoader__.load({
 				});
 				if (!yes) return;
 				api("transfer-history/clear", { method: "POST", body: { projectPath } })
-					.then((r) => { setMessage(t("ok") + " (" + (r && r.removed != null ? r.removed : 0) + ")"); setHistory([]); })
+					.then(() => { setHistory([]); })
 					.catch((e) => setError(String(e && e.message ? e.message : e)));
 			}
 			const historyStatus = (s2) => s2 === "done" ? t("trStatusDone") : s2 === "failed" ? t("trStatusFailed") : s2 === "cancelled" ? t("trStatusCancelled") : s2;
@@ -3534,7 +3588,7 @@ window.__ModuleLoader__.load({
 			const statusLabel = (s) => s === "pending" ? t("trStatusPending") : s === "running" ? t("trStatusRunning") : s === "done" ? t("trStatusDone") : s === "failed" ? t("trStatusFailed") : s === "cancelled" ? t("trStatusCancelled") : s;
 			const connOptions = (value, onPick, disabled, label) => React.createElement("select", { value, disabled: !!disabled || busy, "aria-label": label, onChange: (e) => onPick(e.target.value) },
 				React.createElement("option", { value: "" }, t("selectConn")),
-				conns.filter((c) => c.kind !== "redis").map((c) => {
+				conns.map((c) => {
 					const g = (props.grants || []).find((x) => x.connId === c.id);
 					const suffix = g && g.mode ? " · " + g.mode : "";
 					return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + suffix + ")");

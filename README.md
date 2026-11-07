@@ -23,7 +23,7 @@
 | 关系型 | MySQL、PostgreSQL、GaussDB、SQLite、Oracle、达梦 DM、SQL Server |
 | NoSQL | Redis、MongoDB |
 
-每种数据库都实现了完整的连接、元数据浏览、查询、预览与数据传输能力，方言差异在适配器内部处理——对上层统一暴露 `?` 占位符与标准结果集。
+连接、元数据浏览、查询与预览覆盖九种数据库；数据传输按能力分层：8 个 kind（`mysql`/`postgresql`/`gaussdb`/`sqlite`/`mongodb`/`oracle`/`dmdb`/`sqlserver`）走原生表级互传，Redis 通过固定 envelope 表 `__redis_keys` 降级参与。Redis 原生键空间保真（stream consumer group、跨版本 `DUMP`、逻辑库 `dbN`）明确排除；方言差异在适配器内部处理——对上层统一暴露 `?` 占位符与标准结果集。
 
 ---
 
@@ -96,6 +96,9 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 - **自动建表**：目标表不存在时按源表结构生成 DDL
 - **分页读取**：有序游标（keyset）/ 范围 / 偏移三种策略，按目标库版本自动选择
 - **进度与历史**：实时进度推送 + 按项目隔离的传输历史
+- **传输配置**：按项目保存，自动保存、重启后回填、失效连接自动清空。保存连接配对与任务配置的既有产品做法见 [DBeaver Task management](https://dbeaver.com/docs/dbeaver/Task-Management)、[Airbyte Configuring schemas](https://docs.airbyte.com/platform/using-airbyte/configuring-schema)、[AWS DMS task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.html) 与 [Navicat Save Profiles](https://www.navicat.com/manual/pdf_manual/en/navicat_16/win_manual/navicat_en.pdf)（【官方页面动态壳/搜索摘要已确认】：Navicat 手册为 PDF 搜索摘要，未逐页解析）
+- **中间类型模型**：异构列先归一化到统一中间类型再映射目标列，避免九库点对点转换。【官方文档已确认】[AWS DMS built-in data types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Reference.DataTypes.html) 与 [Airbyte supported data types](https://docs.airbyte.com/platform/understanding-airbyte/supported-data-types) 均采用内置/公共类型系统；九库由 N×N 降为 2N 的复杂度结论属【项目推断】，官方未逐字给出
+- **Redis envelope 降级**：Redis 以固定表 `__redis_keys` 参与，六列语义为 `key`（键名）、`type`（string/hash/list/set/zset/stream 等）、`ttl_ms`（剩余 TTL 毫秒，无过期为 0；PTTL `-1` 落 `0n`、PTTL `-2` 读瞬间键已消失则跳过该键，正值原样毫秒）、`encoding`（`OBJECT ENCODING` 内存编码诊断值，如 raw/hashtable/listpack/quicklist，与 `payload` 列的序列化无关）、`payload`（按类型展平的值，恒为 UTF-8 JSON 字符串）、`dump`（[DUMP](https://redis.io/docs/latest/commands/dump/) 的 RDB 序列化字节，仅同构 Redis 经 [RESTORE](https://redis.io/docs/latest/commands/restore/) 恢复用）。【官方文档已确认】[Redis data types](https://redis.io/docs/latest/develop/data-types/) 定义其为 data structure server，[SCAN](https://redis.io/docs/latest/commands/scan/) 是 keyspace cursor，[TTL](https://redis.io/docs/latest/commands/ttl/) 按 key 返回秒级剩余时间；【项目推断】因此无法把 Redis 当成表到表无损迁移，官方未逐字声明。降级边界明确排除：stream consumer group、跨版本 `DUMP`、逻辑库 `dbN`
 
 ### 连接导出 / 导入
 
@@ -246,14 +249,17 @@ DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令；已在 **0.2.2-rc.1** 上逐�
 
 ## 数据存放
 
-`$DSH_HOME/db-tool/`（目录权限 0700）：
+`<我的文档>/DSH/db-tool/`（目录权限 0700；与传输日志同根，用户可直接打开查看）：
 
 | 文件 | 内容 |
 |---|---|
 | `connections.json` | 连接定义（`urlSafe` 中密码脱敏为 `***`） |
 | `secrets.json` | 0600，密码与完整 URL，永不返回给模型 |
 | `grants.json` | 项目授权（归一化路径 → connId → ro/rw） |
+| `transfer-config.json` | 0600，数据传输页按项目的连接与选项配置（自动保存、重启回填、失效连接清空） |
 | `audit.jsonl` | 追加式审计日志，每行一条 JSON |
+
+同级还有 `transfer-log.jsonl`（传输过程日志与历史）。路径解析优先级：显式注入（测试）> `DSH_DB_TOOL_DIR` > `<我的文档>/DSH`。「我的文档」由 Windows Shell API `GetFolderPath('MyDocuments')` 解析，自动跟随重定向（OneDrive 等）；非 Windows 走 `XDG_DOCUMENTS_DIR` 或 `~/Documents`。旧版本存放于 `$DSH_HOME/db-tool/` 的数据在首次启动时**按文件粒度迁移**（目标已存在则跳过，旧文件保留不删）。
 
 ---
 

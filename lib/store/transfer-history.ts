@@ -75,16 +75,9 @@ function detectDocumentsDir(): string {
   return dir;
 }
 
-/** 传输日志存储目录：<我的文档>/DSH/；DSH_TRANSFER_DIR 环境变量可覆盖 */
-export function transferLogDir(): string {
-  const override = process.env.DSH_TRANSFER_DIR;
-  if (override && override !== '') {
-    fs.mkdirSync(override, { recursive: true });
-    return override;
-  }
-  const dir = path.join(detectDocumentsDir(), 'DSH');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+/** 「我的文档」真实路径（重定向到任意盘/目录时由 Shell API 解析），供 db-tool 数据根复用 */
+export function documentsDir(): string {
+  return detectDocumentsDir();
 }
 
 export class TransferLog {

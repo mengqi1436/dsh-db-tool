@@ -151,11 +151,13 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 | PostgreSQL | `$1, $2…` | `information_schema` / `pg_catalog` | `LIMIT n OFFSET m` | |
 | GaussDB | `$1, $2…` | `information_schema` / `pg_catalog` | `LIMIT n OFFSET m` | PG 系（默认端口 8000，见下方注记） |
 | SQLite | `?` | `sqlite_master` / `PRAGMA` | `LIMIT n OFFSET m` | 库列表固定 `['main']` |
-| Redis | 无（命令数组） | `SCAN`（禁用 `KEYS` 遍历） | `SCAN cursor` | `run_script` 传 `["SCAN","0","MATCH","user:*","COUNT","100"]` |
+| Redis | 无（命令数组） | `SCAN`（禁用 `KEYS` 遍历） | `SCAN cursor` | `run_script` 传 `["SCAN","0","MATCH","user:*","COUNT","100"]`；传输走 `__redis_keys` envelope 降级 |
 | MongoDB | 无（BSON 文档） | `listCollections` | `find().skip().limit()` | `run_script` 传 `{"find":"users","filter":{},"limit":20,"skip":40}` |
 | Oracle | `:name` | `ALL_TABLES` / `USER_TABLES` | `OFFSET m ROWS FETCH NEXT n ROWS ONLY` | |
 | 达梦(DM) | `:name` | 系统视图同 Oracle 风格 | `OFFSET m ROWS FETCH NEXT n ROWS ONLY`（8a 支持 `LIMIT`） | |
 | SQL Server | `?`（适配器内部重写为 `@p1`） | `sys.*` catalog views | 2012+ `OFFSET m ROWS FETCH NEXT n ROWS ONLY`；2008/2008R2 降级 `ROW_NUMBER` | 标识符 `[x]`，名中含 `]` 双写为 `]]`；**仅 SQL 认证**（不支持 Windows 集成认证 / Azure AD）；其余边界见下方「SQL Server 覆盖范围与边界」 |
+
+**Redis 传输口径（降级，非无损表到表）**：上表 Redis 行是命令与浏览口径；数据传输中 Redis 通过固定 envelope 表 `__redis_keys` 降级参与，六列为 `key`/`type`/`ttl_ms`/`encoding`/`payload`/`dump`。其中 `ttl_ms` 无过期为 0（PTTL `-1` 落 `0n`、PTTL `-2` 读瞬间键已消失则跳过该键，正值原样毫秒），`encoding` 为 `OBJECT ENCODING` 内存编码诊断值（如 raw/hashtable/listpack/quicklist，与 `payload` 列的序列化无关），`payload` 恒为 UTF-8 JSON 字符串。`ttl_ms` 来自 [TTL](https://redis.io/docs/latest/commands/ttl/)（及 PTTL），`dump` 来自 [DUMP](https://redis.io/docs/latest/commands/dump/)，仅在同构 Redis→Redis 时经 [RESTORE](https://redis.io/docs/latest/commands/restore/) 恢复；[SCAN](https://redis.io/docs/latest/commands/scan/) 的 cursor 语义决定 keyspace 枚举不是一次性快照。【官方文档已确认】[Redis data types](https://redis.io/docs/latest/develop/data-types/) 把 Redis 定义为 data structure server；【项目推断】因此 stream consumer group、跨版本 `DUMP`、逻辑库 `dbN` 等原生键空间语义明确排除，「不能无损表到表」是依据官方命令语义的项目判断，官方未逐字声明。异构迁移使用中间类型模型的依据见【官方文档已确认】[AWS DMS built-in data types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Reference.DataTypes.html) 与 [Airbyte supported data types](https://docs.airbyte.com/platform/understanding-airbyte/supported-data-types)；任务配置持久化的产品依据见 [DBeaver Task management](https://dbeaver.com/docs/dbeaver/Task-Management) 与 [Navicat Save Profiles](https://www.navicat.com/manual/pdf_manual/en/navicat_16/win_manual/navicat_en.pdf)（后者为【官方页面动态壳/搜索摘要已确认】的 PDF 摘要，未逐页解析）。
 
 **类型规范化**（工具返回值已自动处理，引用结果时注意）：`DECIMAL/NUMERIC` → string（避免精度丢失）；`Date/TIMESTAMP` → ISO 8601 string；`LOB/CLOB/BLOB` → string；MongoDB `ObjectId` → string。生成写语句时，DECIMAL 直接传字符串值、日期传 ISO 字符串即可。
 

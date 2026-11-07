@@ -23,7 +23,7 @@ The complete path of one database operation, from entry point to audit trail —
 | Relational | MySQL, PostgreSQL, GaussDB, SQLite, Oracle, Dameng DM, SQL Server |
 | NoSQL | Redis, MongoDB |
 
-Every engine supports connection, metadata browsing, query, preview and data transfer. Dialect differences are handled inside the adapters — callers only ever see `?` placeholders and a uniform result set.
+Connection, metadata browsing, query and preview cover all nine engines. Data transfer is capability-tiered: 8 kinds (`mysql`/`postgresql`/`gaussdb`/`sqlite`/`mongodb`/`oracle`/`dmdb`/`sqlserver`) use native table-level transfer, while Redis participates through a fixed envelope table `__redis_keys`. Native Redis keyspace fidelity (stream consumer groups, cross-version `DUMP`, logical databases `dbN`) is explicitly out of scope. Dialect differences are handled inside the adapters — callers only ever see `?` placeholders and a uniform result set.
 
 ---
 
@@ -96,6 +96,9 @@ Move table data between databases of the same or different engines:
 - **Automatic DDL**: the target table is created from the source structure when missing
 - **Paged reads**: keyset, range and offset strategies, selected automatically per target version
 - **Progress and history**: live progress plus per-project transfer history
+- **Transfer configuration**: saved per project, auto-saved, refilled after restart and cleared automatically for stale connections. Existing product practice for saving connection pairs and task settings: [DBeaver Task management](https://dbeaver.com/docs/dbeaver/Task-Management), [Airbyte Configuring schemas](https://docs.airbyte.com/platform/using-airbyte/configuring-schema), [AWS DMS task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.html) and [Navicat Save Profiles](https://www.navicat.com/manual/pdf_manual/en/navicat_16/win_manual/navicat_en.pdf) ([officially confirmed via search summary only]: the Navicat manual is a PDF snippet, not parsed page by page)
+- **Intermediate type model**: heterogeneous columns are normalised into a shared intermediate type before being mapped to target columns, avoiding point-to-point converters for all nine engines. [Officially confirmed] [AWS DMS built-in data types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Reference.DataTypes.html) and [Airbyte supported data types](https://docs.airbyte.com/platform/understanding-airbyte/supported-data-types) both use a built-in/common type system; the N×N→2N complexity claim is a [project inference], not an official statement
+- **Redis envelope fallback**: Redis participates through a fixed table `__redis_keys` whose six columns are `key` (key name), `type` (string/hash/list/set/zset/stream, etc.), `ttl_ms` (remaining TTL in milliseconds, 0 when no expiry; PTTL `-1` maps to `0n`, PTTL `-2` skips a key that vanished at read time, positive values stay as milliseconds), `encoding` (`OBJECT ENCODING` value — an in-memory encoding diagnostic such as raw/hashtable/listpack/quicklist, unrelated to the `payload` column), `payload` (value flattened per type, always a UTF-8 JSON string) and `dump` (RDB bytes from [DUMP](https://redis.io/docs/latest/commands/dump/), only for same-engine Redis restore via [RESTORE](https://redis.io/docs/latest/commands/restore/)). [Officially confirmed] [Redis data types](https://redis.io/docs/latest/develop/data-types/) defines Redis as a data structure server, [SCAN](https://redis.io/docs/latest/commands/scan/) is a keyspace cursor, and [TTL](https://redis.io/docs/latest/commands/ttl/) is key-scoped; [project inference] Redis therefore cannot be treated as lossless table-to-table transfer, and Redis docs do not state this verbatim. Explicitly excluded: stream consumer groups, cross-version `DUMP`, and logical databases `dbN`
 
 ### Connection export / import
 
@@ -248,14 +251,17 @@ DSH desktop 0.2.0-rc.2+ bundles the `dsh` command; host contracts were checked i
 
 ## Data layout
 
-`$DSH_HOME/db-tool/` (directory mode 0700):
+`<My Documents>/DSH/db-tool/` (directory mode 0700; same root as the transfer log, so you can open it directly):
 
 | File | Contents |
 |---|---|
 | `connections.json` | Connection definitions (passwords redacted to `***` in `urlSafe`) |
 | `secrets.json` | Mode 0600; passwords and full URLs, never returned to the model |
 | `grants.json` | Project grants (normalized path → connId → ro/rw) |
+| `transfer-config.json` | Mode 0600; per-project data-transfer page configuration (auto-saved, restored on restart, stale connection IDs cleared) |
 | `audit.jsonl` | Append-only audit log, one JSON object per line |
+
+`transfer-log.jsonl` (transfer progress log and history) lives in the same root. Path resolution: explicit injection (tests) > `DSH_DB_TOOL_DIR` > `<My Documents>/DSH`. "My Documents" is resolved via the Windows Shell API `GetFolderPath('MyDocuments')`, so redirected folders (OneDrive and similar) are followed automatically; on other platforms it falls back to `XDG_DOCUMENTS_DIR` or `~/Documents`. Data left in the legacy `$DSH_HOME/db-tool/` location is **migrated file by file** on first start (existing targets are never overwritten; legacy files are kept).
 
 ---
 

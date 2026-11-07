@@ -14,6 +14,7 @@ import { join, dirname } from 'node:path';
 
 let mod: any; // client.js factory 产物
 let T: any; // exports.__testables
+let clientSrc = ''; // client.js 源码文本：供配置持久化/回归点的静态断言
 
 /* ---------- stub 基建（console-view.spec.ts 同款最小 React stub） ---------- */
 
@@ -86,6 +87,7 @@ function flatText(n: any): string {
 			},
 		};
 		const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
+		clientSrc = src;
 		new Function('window', 'console', 'fetch', src)(fakeWindow, console, stubFetch);
 		mod = fakeWindow.__DEF__.factory((name: string) => {
 			if (name === 'react') return reactStub.React;
@@ -236,3 +238,87 @@ describe('TransferView 内的传输日志区块', () => {
 		expect(logElActive!.props.visible).toBe(false);
 	});
 });
+
+/* ---------- S1 配置持久化 / S4 Redis / clearHistory 回归 ---------- */
+
+describe('传输页配置持久化与放开 Redis（浅渲染不改结构契约）', () => {
+	const askConfirm = () => Promise.resolve(false);
+	const redisConn = { id: 'rd', kind: 'redis', name: 'rd-cache' };
+
+	it('S1：TransferView 声明了配置加载/自动保存所需的 ref 与 7 字段 PUT', () => {
+		expect(clientSrc).toContain('loadedProjectRef');
+		expect(clientSrc).toContain('saveTimerRef');
+		expect(clientSrc).toContain('api("transfer-config" + qs({ project: projectPath }))');
+		expect(clientSrc).toContain('api("transfer-config", { method: "PUT", body })');
+		expect(clientSrc).toContain('loadedProjectRef.current !== projectPath');
+		for (const f of ['sourceConnId', 'targetConnId', 'writeMode', 'batchSize', 'tableConcurrency', 'shardConcurrency', 'overwriteStructure']) {
+			expect(clientSrc).toContain(f);
+		}
+	});
+
+	it('S1：浅渲染结构不变——不新增 select、不新增 role=tab 按钮、不加 dbt-view 壳', () => {
+		reactStub.reset();
+		fetchCalls = [];
+		const tree = reactStub.render(T.TransferView, {
+			conns: [redisConn], grants: [], projectPath: 'E:/proj', visible: false, askConfirm,
+		});
+		const nodes = (function walk(n: any, out: El[] = []): El[] {
+			if (Array.isArray(n)) { n.forEach((x) => walk(x, out)); return out; }
+			if (!n || typeof n !== 'object' || !n.type) return out;
+			out.push(n);
+			const kids = Array.isArray(n.children) ? n.children : [n.children];
+			for (const k of kids) walk(k, out);
+			return out;
+		})(tree);
+		const tabs = nodes.filter((n) => n.type === 'button' && n.props.role === 'tab');
+		expect(tabs.map((b) => flatText(b).trim())).toEqual(['传输历史', '传输日志']);
+		expect(nodes.filter((n) => n.type === 'div' && String(n.props.className || '').includes('dbt-view'))).toHaveLength(0);
+		// 未选连接时的基线是 5 个 select（源/目标连接 + 源/目标库 + 写入模式），配置保存不得新增
+		expect(nodes.filter((n) => n.type === 'select')).toHaveLength(5);
+		expect(logPropsOf(tree)).toMatchObject({ projectPath: 'E:/proj', visible: false, askConfirm });
+		expect(logPropsOf(tree)).not.toHaveProperty('busy');
+		expect(logPropsOf(tree)).not.toHaveProperty('error');
+	});
+
+	it('S4：连接下拉含 redis；NO_DB_LEVEL 含 redis；redis 源走虚拟表', () => {
+		reactStub.reset();
+		fetchCalls = [];
+		const tree = reactStub.render(T.TransferView, {
+			conns: [redisConn], grants: [], projectPath: 'E:/proj', visible: false, askConfirm,
+		});
+		const selectTexts = (function walk(n: any, out: string[] = []): string[] {
+			if (Array.isArray(n)) { n.forEach((x) => walk(x, out)); return out; }
+			if (!n || typeof n !== 'object' || !n.type) return out;
+			if (n.type === 'select') out.push(flatText(n));
+			const kids = Array.isArray(n.children) ? n.children : [n.children];
+			for (const k of kids) walk(k, out);
+			return out;
+		})(tree);
+		expect(selectTexts.join('|')).toContain('rd-cache (redis)');
+		const m = /const NO_DB_LEVEL = \{([^}]*)\}/.exec(clientSrc);
+		expect(m![1]).toMatch(/redis:\s*true/);
+		expect(clientSrc).toContain('__redis_keys');
+		expect(clientSrc).toContain('kind === "redis"');
+	});
+
+	it('clearHistory 成功回调不再引用未定义的 setMessage，仅清空历史列表', () => {
+		const clearTail = clientSrc.match(/api\("transfer-history\/clear"[\s\S]{0,320}?\.catch/g);
+		expect(clearTail).not.toBeNull();
+		expect(clearTail![0]).toContain('.then(() => { setHistory([]); })');
+		expect(clearTail![0]).not.toContain('setMessage');
+	});
+});
+
+/** TransferView 树内 TransferLogView 的 props（复用既有 props 断言口径） */
+function logPropsOf(tree: El): any {
+	let found: El | null = null;
+	(function walk(n: any): void {
+		if (found || !n) return;
+		if (Array.isArray(n)) { n.forEach(walk); return; }
+		if (typeof n !== 'object' || !n.type) return;
+		if (n.type === T.TransferLogView) found = n;
+		const kids = Array.isArray(n.children) ? n.children : [n.children];
+		for (const k of kids) walk(k);
+	})(tree);
+	return found ? (found as El).props : {};
+}

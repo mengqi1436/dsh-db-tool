@@ -350,8 +350,8 @@ export function createOraLikeTransferWriter(
       const conn = await pool.getConnection();
       try {
         const r = await conn.execute(
-          `SELECT COUNT(*) AS N FROM ALL_TABLES WHERE OWNER = :o AND TABLE_NAME = :t`,
-          [sanitize(owner, 'owner'), sanitize(name, '表名')],
+          `SELECT COUNT(*) AS N FROM ALL_TABLES WHERE OWNER = :o AND (TABLE_NAME = :t OR TABLE_NAME = UPPER(:t))`,
+          [sanitize(owner, 'owner'), sanitize(name, '表名'), sanitize(name, '表名')],
           { maxRows: 1 },
         );
         const rows = r.rows ?? [];
@@ -363,7 +363,8 @@ export function createOraLikeTransferWriter(
     dropTable: async (name) => {
       const conn = await pool.getConnection();
       try {
-        await conn.execute(`DROP TABLE "${escIdent(sanitize(name, '表名'))}"`, [], { autoCommit: true });
+        // 必须用 owner 限定：非默认 owner 的 overwriteStructure 若缺前缀会落到当前用户 schema
+        await conn.execute(`DROP TABLE ${qual(name)}`, [], { autoCommit: true });
       } finally {
         await conn.close().catch(() => {});
       }

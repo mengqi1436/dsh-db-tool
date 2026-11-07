@@ -171,6 +171,7 @@ describe('2 传输页接线（TransferView 浅渲染）', () => {
 	const conns = [
 		{ id: 'ss1', kind: 'sqlserver', name: 'ss-prod' },
 		{ id: 'sq1', kind: 'sqlite', name: 'local-file' },
+		{ id: 'rd', kind: 'redis', name: 'rd-cache' },
 	];
 	const grants = [{ connId: 'ss1', mode: 'rw' }];
 
@@ -192,11 +193,12 @@ describe('2 传输页接线（TransferView 浅渲染）', () => {
 		return n;
 	}
 
-	it('源/目标下拉列出 sqlserver 连接（仅 redis 被排除）', () => {
+	it('源/目标下拉列出全部连接（redis 也出现在下拉，不再被排除）', () => {
 		const tree = render();
 		const all = selects(tree).map((s) => flatText(s)).join('|');
 		expect(all).toContain('ss-prod (sqlserver · rw)');
 		expect(all).toContain('local-file (sqlite)');
+		expect(all).toContain('rd-cache (redis)'); // S4：redis 连接现在可作为源/目标
 	});
 
 	it('选中 sqlserver 源 → 出现「库 + 模式」两级；选中 sqlite 源 → 无库层（HAS_SCHEMAS / NO_DB_LEVEL 行为差异）', () => {
@@ -246,10 +248,11 @@ describe('3 控制台/浏览的 kind 集合接线（静态断言）', () => {
 		for (const d of defs) expect(d).not.toMatch(/sqlite:\s*true/);
 	});
 
-	it('NO_DB_LEVEL 只含 sqlite（sqlserver 必须走库层，否则跨库传输会静默错库）', () => {
+	it('NO_DB_LEVEL 含 sqlite/redis、不含 sqlserver（sqlserver 必须走库层，redis 无库层）', () => {
 		const m = /const NO_DB_LEVEL = \{([^}]*)\}/.exec(src);
 		expect(m, '未找到 NO_DB_LEVEL 定义').not.toBeNull();
 		expect(m![1]).toMatch(/sqlite:\s*true/);
+		expect(m![1]).toMatch(/redis:\s*true/); // S4：redis listTables 忽略 database，归到无库层
 		expect(m![1]).not.toContain('sqlserver');
 	});
 });

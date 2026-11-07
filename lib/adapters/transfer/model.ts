@@ -1,12 +1,15 @@
 /**
  * 数据传输统一中间模型。
  *
- * 7 库互传（除 Redis 外任意源 → 任意目标）的核心：每库实现一对 TransferReader /
- * TransferWriter（读端 = 元数据 + 数据导出；写端 = 建表 + 批量写入），全部经
- * 中间模型转换，用 7 组读写端支撑 7×7 任意方向，而不是点对点管道。
+ * 九库传输共用同一套 TransferReader / TransferWriter 契约：8 个 kind
+ * （mysql/postgresql/gaussdb/sqlite/mongodb/oracle/dmdb/sqlserver）按原生表级互传；
+ * Redis 通过固定 envelope 表 `__redis_keys` 降级参与，六列为
+ * key/type/ttl_ms/encoding/payload/dump，按 SCAN cursor 枚举、PTTL/TTL 取过期时间；
+ * DUMP/RESTORE 仅适用于同构 Redis，明确排除 stream consumer group、跨版本 DUMP、逻辑库 dbN。
  *
- * 与浏览路径的区别：浏览单元格走 normalizeCell 规范化（BLOB 截断 / bigint 降位），
- * 传输必须保真，所以读写端持原始驱动句柄，TransferCell 覆盖 bigint / Uint8Array。
+ * 源端列先归一到 MidType/TransferCell 中间模型，再由目标端映射到本地列类型，
+ * 避免九库之间 N×N 点对点转换；与浏览路径不同，传输持原始驱动句柄以保真，
+ * TransferCell 覆盖 bigint / Uint8Array，浏览侧 normalizeCell 的 BLOB 截断与 bigint 降位不适用于此处。
  */
 import type { DbKind, ResolvedConnection } from '../types.js';
 
@@ -169,6 +172,10 @@ export async function createTransferReader(rc: ResolvedConnection, loc?: Transfe
     const { createSqlserverTransferReaderFromConn } = await import('./kinds/sqlserver.js');
     return createSqlserverTransferReaderFromConn(rc, loc);
   }
+  if (kind === 'redis') {
+    const { createRedisTransferReaderFromConn } = await import('./kinds/redis.js');
+    return createRedisTransferReaderFromConn(rc); // redis 无库/模式层级，loc 忽略
+  }
   throw new Error(`数据传输暂不支持读取 ${kind}（待后续版本支持）`);
 }
 
@@ -214,6 +221,10 @@ export async function createTransferWriter(
   if (kind === 'sqlserver') {
     const { createSqlserverTransferWriterFromConn } = await import('./kinds/sqlserver.js');
     return createSqlserverTransferWriterFromConn(rc, writeMode, loc);
+  }
+  if (kind === 'redis') {
+    const { createRedisTransferWriterFromConn } = await import('./kinds/redis.js');
+    return createRedisTransferWriterFromConn(rc, writeMode); // redis 无库/模式层级，loc 忽略
   }
   throw new Error(`数据传输暂不支持写入 ${kind}（待后续版本支持）`);
 }

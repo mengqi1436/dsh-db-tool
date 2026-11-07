@@ -2,7 +2,7 @@
  * 数据传输类型映射矩阵离线测试（纯函数，不连服务器）。
  * 覆盖：各库声明类型 → midType 读向映射、midType → 目标列类型写向映射、绑定值转换。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   mysqlTypeToMid,
   midToMysqlType,
@@ -16,7 +16,9 @@ import {
   toOraBind,
   toOraDateTime,
 } from '../../lib/adapters/transfer/kinds/oralike.js';
-import { cellToBson, toUtcParse } from '../../lib/adapters/transfer/kinds/mongo.js';
+import { createMongoTransferReader, cellToBson, toUtcParse } from '../../lib/adapters/transfer/kinds/mongo.js';
+import * as MongoM from 'mongodb';
+import type { MongoRaw } from '../../lib/adapters/mongodb/index.js';
 import type { TransferColumn } from '../../lib/adapters/transfer/model.js';
 
 const col = (over: Partial<TransferColumn>): TransferColumn => ({
@@ -170,6 +172,40 @@ describe('mongo 值转换', () => {
   // date 分支不触碰 M：以最小 stub 满足类型即可
   const M = {} as unknown as Parameters<typeof cellToBson>[2];
 
+  /** mongo reader 最小 stub：find() 返回全集合文档（同时实现 AsyncIterable / toArray），
+   *  shardKey 必须巡检样本外类型 */
+  function mongoRaw(docs: Record<string, unknown>[]): MongoRaw {
+    const cursor = (n?: number): any => {
+      const list = n === undefined ? docs : docs.slice(0, n);
+      return {
+        sort: () => cursor(n),
+        skip: () => cursor(n),
+        limit: (m: number) => cursor(m),
+        toArray: async () => list,
+        [Symbol.asyncIterator]: async function* () {
+          for (const d of list) yield d;
+        },
+      };
+    };
+    const collection = {
+      find: () => cursor(),
+      countDocuments: async () => docs.length,
+    };
+    return {
+      client: { close: async () => undefined },
+      db: {
+        collection: () => collection,
+        listCollections: () => ({ toArray: async () => [{ name: 'c' }] }),
+      } as never,
+      M: {
+        ObjectId: MongoM.ObjectId,
+        Long: MongoM.Long,
+        Decimal128: MongoM.Decimal128,
+        Binary: MongoM.Binary,
+      } as never,
+    } as never;
+  }
+
   it('无时区日期串按 UTC 解析（进程本地时区不再参与）', () => {
     expect(toUtcParse('2024-01-01 10:00:00')).toBe('2024-01-01T10:00:00Z');
     expect(toUtcParse('2024-01-01T10:00:00')).toBe('2024-01-01T10:00:00Z');
@@ -182,5 +218,34 @@ describe('mongo 值转换', () => {
     const got = cellToBson('2024-01-01 10:00:00', 'datetime', M) as Date;
     expect(got.toISOString()).toBe('2024-01-01T10:00:00.000Z');
     expect(() => cellToBson('not-a-date', 'datetime', M)).toThrow(/非法日期值/);
+  });
+
+  it('shardKey：样本外混 _id 类型仍返回 null（全集合巡检，防区间漏行）', async () => {
+    const oidDocs = Array.from({ length: 60 }, (_, i) => ({ _id: new MongoM.ObjectId(), v: i }));
+    const mixed = [...oidDocs, { _id: 'string-id', v: 99 }];
+    const r = createMongoTransferReader(mongoRaw(mixed));
+    expect(await r.shardKey('c')).toBeNull();
+    await r.close();
+  });
+
+  it('shardKey：单一 _id 类型（ObjectId）仍返回 string 分片键', async () => {
+    const docs = Array.from({ length: 60 }, (_, i) => ({ _id: new MongoM.ObjectId(), v: i }));
+    const r = createMongoTransferReader(mongoRaw(docs));
+    expect(await r.shardKey('c')).toBe('string');
+    await r.close();
+  });
+
+  it('describe：Decimal128 推 precision/scale；超出 38,10 显式失败', async () => {
+    const ok = createMongoTransferReader(mongoRaw([{ _id: 'a', amount: MongoM.Decimal128.fromString('12345678901234567890.1234') }]));
+    const t = await ok.describe('c');
+    const c = t.columns.find((x) => x.name === 'amount')!;
+    expect(c.midType).toBe('decimal');
+    expect(c.precision).toBe(24);
+    expect(c.scale).toBe(4);
+    await ok.close();
+
+    const bad = createMongoTransferReader(mongoRaw([{ _id: 'b', amount: MongoM.Decimal128.fromString('1.123456789012') }]));
+    await expect(bad.describe('c')).rejects.toThrow(/scale/);
+    await bad.close();
   });
 });

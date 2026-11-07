@@ -35,8 +35,10 @@ import {
   mergeUrlCredentials,
   normalizeProjectKey,
   DECRYPT_FAIL_MESSAGE,
+  DEFAULT_TRANSFER_CONFIG,
   type AuditEntry,
   type DangerLevel,
+  type TransferConfig,
 } from './store/index.js';
 import { runScriptInChild } from './script/runner.js';
 import { decryptPayload, encryptPayload } from './store/export-crypto.js';
@@ -117,6 +119,33 @@ function assertNonEmpty(v: string | undefined, label: string): string {
   const s = typeof v === 'string' ? v.trim() : '';
   if (s === '') throw new DbToolError('INVALID_ARGUMENT', `缺少必填参数: ${label}`);
   return s;
+}
+
+/** 传输页配置收敛：枚举回退默认值，数字按前端控件范围钳制，布尔严格取 === true */
+function normalizeTransferConfig(input: {
+  sourceConnId?: unknown;
+  targetConnId?: unknown;
+  writeMode?: unknown;
+  batchSize?: unknown;
+  tableConcurrency?: unknown;
+  shardConcurrency?: unknown;
+  overwriteStructure?: unknown;
+}): TransferConfig {
+  const cap = (v: unknown, min: number, max: number, fallback: number): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback;
+  };
+  const mode = input.writeMode;
+  return {
+    sourceConnId: typeof input.sourceConnId === 'string' ? input.sourceConnId : '',
+    targetConnId: typeof input.targetConnId === 'string' ? input.targetConnId : '',
+    writeMode: mode === 'insert' || mode === 'ignore' || mode === 'replace' || mode === 'truncate'
+      ? mode : DEFAULT_TRANSFER_CONFIG.writeMode,
+    batchSize: cap(input.batchSize, 1, 5000, DEFAULT_TRANSFER_CONFIG.batchSize),
+    tableConcurrency: cap(input.tableConcurrency, 1, 16, DEFAULT_TRANSFER_CONFIG.tableConcurrency),
+    shardConcurrency: cap(input.shardConcurrency, 1, 32, DEFAULT_TRANSFER_CONFIG.shardConcurrency),
+    overwriteStructure: input.overwriteStructure === true,
+  };
 }
 
 /** searchTables 回退白名单：listTables(database) 语义为「库名」的 kind（pg/gaussdb 有原生实现；
@@ -965,6 +994,33 @@ export class DbToolService {
   }
 
   /* -- 数据传输（并行任务） -- */
+
+  /**
+   * 读取项目级传输页配置。连接 id 是弱引用：删除连接、撤销授权或目标授权降级为 ro 后，
+   * 对应字段就地回退为空，其余选项原样保留。源端 ro 即可，目标端必须 rw（对齐 transferStart）。
+   */
+  transferConfigGet(projectPath: string | undefined): TransferConfig {
+    if (!projectPath || projectPath.trim() === '') return { ...DEFAULT_TRANSFER_CONFIG };
+    const key = normalizeProjectKey(projectPath);
+    const cfg = this.store.transferConfig.get(key);
+    const alive = (id: string, needWrite: boolean): boolean => {
+      if (!id) return true;
+      if (!this.store.connections.get(id)) return false;
+      const mode = this.store.grants.check(key, id);
+      return needWrite ? mode === 'rw' : mode !== undefined;
+    };
+    return {
+      ...cfg,
+      sourceConnId: alive(cfg.sourceConnId, false) ? cfg.sourceConnId : '',
+      targetConnId: alive(cfg.targetConnId, true) ? cfg.targetConnId : '',
+    };
+  }
+
+  transferConfigSet(projectPath: string | undefined, input: Parameters<typeof normalizeTransferConfig>[0]): { saved: true } {
+    const key = assertNonEmpty(projectPath, 'projectPath');
+    this.store.transferConfig.set(key, normalizeTransferConfig(input));
+    return { saved: true };
+  }
 
   /** 运行中的传输任务（taskId → 条目）；终态后保留一个轮询窗口再清除（见 finished 回调） */
   private readonly transferTasks = new Map<string, {

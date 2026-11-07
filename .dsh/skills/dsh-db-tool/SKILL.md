@@ -20,15 +20,15 @@ description: dsh-db-tool（DSH 宿主数据库工具模块，TypeScript）开发
 | `lib/adapters/types.ts` | 适配器统一契约 `DatabaseAdapter`：`query`/`execute`/`listDatabases`/`listTables`/`describeTable`/`previewRows`/`testConnect`/`close`，可选 `listSchemas?`/`searchTables?`/`tx?` |
 | `lib/adapters/sql-shared/common.ts` | 共享 SQL 工具：`assertIdent`、`quoteIdent`、`clampLimit`、`clampOffset`、`normalizeCell`、`humanize`（高扇入热点，改前查全部调用方） |
 | `lib/adapters/sql-shared/pg-like.ts` | PostgreSQL/GaussDB 共享实现：`normalizeUrl`（多主机 URL 解析/重组）、`pickHost`（探活选主机）、`createPgLikeAdapter`、`TxHandle` |
-| `lib/adapters/transfer/` | 传输模型 `model.ts`（`TransferCursor`/`TransferRow`/`readBatch`）+ `kinds/`（mongo、mysql、oralike、pg、sqlite、sqlserver 六类方言实现，覆盖除 redis 外的八个 kind） |
+| `lib/adapters/transfer/` | 传输模型 `model.ts`（`TransferCursor`/`TransferRow`/`readBatch`）+ `kinds/`（mongo、mysql、oralike、pg、sqlite、sqlserver、redis 七类实现，覆盖九个 kind；新增 `kinds/redis.ts` 为 Redis 固定 envelope 表 `__redis_keys` 降级实现） |
 | `lib/transfer.ts` | 传输编排器 `startTransferTask`：表级并行 + 大表按 `keyAt` 分片并行；并发上限 `MAX_TRANSFER_TASKS = 8` |
-| `lib/store/index.ts` | `DbToolStore` 聚合：数据根 `$DSH_HOME/db-tool`（缺省 `~/.dsh`，目录 `0700`）；`DSH_HOME=""` 按未设置处理 |
+| `lib/store/index.ts` | `DbToolStore` 聚合：数据根 `<我的文档>/DSH/db-tool`（目录 `0700`，与 `transfer-log.jsonl` 同根）；解析优先级：显式 `homeDir`（测试注入）> `DSH_DB_TOOL_DIR` > `<我的文档>/DSH`。「我的文档」由 `documentsDir()`（`transfer-history.ts`，Windows Shell API `GetFolderPath`）解析，自动跟随重定向；旧位置 `$DSH_HOME/db-tool` 在首次启动时按文件粒度迁移（`migrateLegacyDir`，目标存在则跳过、旧文件保留），注入 `homeDir` 时跳过迁移 |
 | `lib/store/io.ts` | `writeJsonAtomic`（临时文件 + rename 原子写）、`readJson`、`chmodBestEffort` |
 | `lib/store/connections.ts` | 连接元数据（不含密码）+ `redactUrl`、`mergeUrlCredentials`、`DuplicateConnectionError` |
 | `lib/store/secrets.ts` | `SecretsBox`：密码/完整 URL，落 `secrets.json`（`0600`），明文绝不出库 |
 | `lib/store/grants.ts` | 项目级连接授权 `grants.json` |
 | `lib/store/audit.ts` | `AuditLog` 追加式 `audit.jsonl` |
-| `lib/store/transfer-history.ts` | `TransferLog` → `transfer-log.jsonl`；目录为 `<我的文档>/DSH/`，`DSH_TRANSFER_DIR` 可覆盖；vitest 下（`VITEST=true`）写到临时数据根，避免污染真实文档目录 |
+| `lib/store/transfer-history.ts` | `TransferLog` → `transfer-log.jsonl`，与 `db-tool/` 同根（`<我的文档>/DSH/`）；导出 `documentsDir()` 供 store 复用；vitest 下（`VITEST=true`）写到临时数据根，避免污染真实文档目录 |
 | `lib/store/normalize.ts` | `normalizeProjectKey`（高扇入：跨平台路径归一） |
 | `lib/store/export-crypto.ts` | `encryptPayload`/`decryptPayload`，连接导出/导入的跨机口令加密 |
 | `scripts/` | `build-mongodb.mjs`/`build-sqlserver.mjs`/`build-codemirror.mjs`（esbuild 产物）、`hotfix-core.mjs`（宿主热修复核心）、`apply-dsh-hotfix.ps1`/`.sh`、`diag-profile.mjs`、`verify-host.mjs`、`fix-dsh-install.ps1` |
@@ -36,9 +36,9 @@ description: dsh-db-tool（DSH 宿主数据库工具模块，TypeScript）开发
 | `assets/` | `feature-flow.png`/`.html`，README 用功能流程图 |
 | `.github/workflows/` | `ci.yml`（Node 22/24 矩阵：`npm ci` → `npm run build` → typecheck → test）、`publish.yml`（版本变更才发版） |
 | `client/client.js` | 侧边栏前端（单文件），运行时 `require("../vendor/codemirror-sql.cjs")` 加载编辑器；加载失败即降级纯 textarea（单例 promise 失败后置空允许重试），不做同源 fetch（防 `Function` 动态执行投毒） |
-| `tests/` | vitest，61 个测试文件：`adapters-sql`(21)、`store`(10)、`adapters-nosql-ent`(7)、`tool`(7)、`client`(6)、`guard`(3)、`http`(3)、`e2e-mock`(3)、`plugin`(2)、`scripts`(1)；仓库根 `stryker.config.json` 变异测试（只 mutate `lib/index.ts` 与 `lib/http/index.ts`） |
+| `tests/` | vitest，69 个测试文件：`adapters-sql`(22)、`store`(11)、`adapters-nosql-ent`(8)、`client`(9)、`tool`(7)、`guard`(3)、`http`(3)、`e2e-mock`(3)、`plugin`(2)、`scripts`(1)；仓库根 `stryker.config.json` 变异测试（只 mutate `lib/index.ts` 与 `lib/http/index.ts`） |
 
-API 面（`lib/http/index.ts`，真实路径带 `/dsh-db-tool` 前缀）：`/api/state`、`/api/project-context`、`/api/connections`（CRUD + `/export`、`/import` 口令加密跨机迁移）、`/api/test-draft`、`/api/grants`、`/api/databases`、`/api/tables`、`/api/schemas`、`/api/schema`、`/api/search-tables`、`/api/preview`、`/api/query`、`/api/execute`、`/api/script`、`/api/transfer/start`、`/api/transfer/live`、`/api/transfer-log`、`/api/transfer-history`、`/api/transfer-history/clear`、`/api/console/begin|exec|commit|rollback`（粘性连接，begin 发 token，事务内必须走同一连接读）、`/api/audit`。新增路由要同步 `tests/http/api.spec.ts` 的契约断言。
+API 面（`lib/http/index.ts`，真实路径带 `/dsh-db-tool` 前缀）：`/api/state`、`/api/project-context`、`/api/connections`（CRUD + `/export`、`/import` 口令加密跨机迁移）、`/api/test-draft`、`/api/grants`、`/api/databases`、`/api/tables`、`/api/schemas`、`/api/schema`、`/api/search-tables`、`/api/preview`、`/api/query`、`/api/execute`、`/api/script`、`GET/PUT /api/transfer-config`（按项目持久化传输配置，自动保存、重启回填、失效连接清空）、`/api/transfer/start`、`/api/transfer/live`、`/api/transfer-log`、`/api/transfer-history`、`/api/transfer-history/clear`、`/api/console/begin|exec|commit|rollback`（粘性连接，begin 发 token，事务内必须走同一连接读）、`/api/audit`。新增路由要同步 `tests/http/api.spec.ts` 的契约断言。
 
 ### guard：风险分级与确认凭据
 
@@ -133,13 +133,15 @@ API 面（`lib/http/index.ts`，真实路径带 `/dsh-db-tool` 前缀）：`/api
 
 ## 传输工作流要点
 
-- 入口：`POST /api/transfer/start` → `lib/transfer.ts` 的 `startTransferTask` → `lib/adapters/transfer/` 按 source/target kind 取 `kinds/*` 实现。
+- 入口：`POST /api/transfer/start` → `lib/transfer.ts` 的 `startTransferTask` → `lib/adapters/transfer/` 按 source/target kind 取 `kinds/*` 实现；`GET/PUT /api/transfer-config` 按项目保存/回填传输配置，失效连接自动清空。产品依据见 [DBeaver Task management](https://dbeaver.com/docs/dbeaver/Task-Management)、[Airbyte Configuring schemas](https://docs.airbyte.com/platform/using-airbyte/configuring-schema)、[AWS DMS task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.html) 与 [Navicat Save Profiles](https://www.navicat.com/manual/pdf_manual/en/navicat_16/win_manual/navicat_en.pdf)（【官方页面动态壳/搜索摘要已确认】：Navicat 为 PDF 搜索摘要，未逐页解析）。
+- 中间类型：源列先归一到 `MidType`/统一中间模型，再映射到目标列，避免九库点对点转换；【官方文档已确认】[AWS DMS built-in data types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Reference.DataTypes.html) 与 [Airbyte supported data types](https://docs.airbyte.com/platform/understanding-airbyte/supported-data-types) 均使用内置/公共类型系统；N×N→2N 复杂度结论为【项目推断】。
 - 结构随迁：目标端建表在 `kinds/*` 的 `createTable`（Oracle/DM 族 DDL 隐式提交，需 `autoCommit: true`）。
 - 游标：`TransferCursor` 支持 `keyset` 与 `range`（分片并行，hi 端恒开区间）；源未实现 `keyAt` 切块时编排层回退 keyset 链。
+- Redis envelope 契约：Redis 以固定表 `__redis_keys` 降级参与，六列为 `key`/`type`/`ttl_ms`/`encoding`/`payload`/`dump`；`ttl_ms` 无过期为 0（PTTL `-1` 落 `0n`、PTTL `-2` 读瞬间键已消失则跳过该键，正值原样毫秒），`encoding` 为 `OBJECT ENCODING` 内存编码诊断值（如 raw/hashtable/listpack/quicklist，与 `payload` 列的序列化无关），`payload` 按 `type` 展平且恒为 UTF-8 JSON 字符串，`dump` 仅为同构 Redis 经 [RESTORE](https://redis.io/docs/latest/commands/restore/) 恢复的 [DUMP](https://redis.io/docs/latest/commands/dump/) 字节。源端按 [SCAN](https://redis.io/docs/latest/commands/scan/) cursor 从 0 迭代到 0，[TTL](https://redis.io/docs/latest/commands/ttl/)/PTTL 按 key 取剩余时间；【官方文档已确认】[Redis data types](https://redis.io/docs/latest/develop/data-types/) 说明 Redis 是 data structure server，故【项目推断】不能把 Redis 当成无损表到表迁移，明确排除 stream consumer group、跨版本 `DUMP`、逻辑库 `dbN`。
 - 并行：表级每表独立 reader/writer 连接；表内分片并行依赖源 `keyAt`；全局任务上限 `MAX_TRANSFER_TASKS = 8`。
 - 行宽校验：写入前逐行校验列数（`行宽不匹配` 报错），勿跳过。
 - 历史：`TransferLog` 写 `<我的文档>/DSH/transfer-log.jsonl`，`GET /api/transfer-history` 读；清空走 `/api/transfer-history/clear`。
-- 相关测试：`tests/adapters-sql/transfer-*.test.ts`（locate/mapping/oralike/sqlite/sqlserver/stress/task）。
+- 相关测试：`tests/adapters-sql/transfer-*.test.ts`（locate/mapping/oralike/sqlite/sqlserver/stress/task）与 Redis envelope 读写端等价用例。
 - 跑一次传输：从 `/api/connections` 取源/目标连接（口令加密存储，跨机迁移走导出/导入接口，不要手拼连接串）→ `POST /api/transfer/start`；发起前向用户复述源库、目标库、涉及表、是否并行。
 - 传输校验（全部通过才算完成）：① 源表与目标表 count 一致；② 按主键抽样逐字段比对（注意精度、时区、二进制映射差异）；③ 用 `describeTable` 对照列名/类型/可空性/默认值是否随迁一致。不通过时报告差异明细（表、行、字段、期望值与实际值），不要静默重传。
 
@@ -264,7 +266,7 @@ node -e "require('node:dns').lookup('host.invalid',(e,a)=>console.log(e?e.code:a
 
 - bug 修复先写复现失败的测试，再定位根因、在共享函数一处修；禁止顺手重构无关代码。
 - 只跑相关测试：`npx vitest run tests/adapters-sql/<相关>.test.ts`；改 HTTP 路由配 `tests/http/api.spec.ts`，改 guard 配 `tests/guard/classify.spec.ts` + `challenge.spec.ts`，改 store 配 `tests/store/<相关>.spec.ts`，改前端配 `tests/client/<相关>.spec.ts`。
-- 全量基线（`npm run build` 之后，本机 pnpm + Windows）：61 个文件、1101 条，**1061 passed / 4 failed / 36 skipped**。4 条已知失败 = 3 条行尾（`.gitattributes` 未生效）+ 1 条 DNS 劫持，都不属于回归。加 `core.autocrlf=false` 后应为 **1064 passed / 1 failed**。
-- 变异测试：`npx stryker run`，只覆盖 `lib/index.ts` 与 `lib/http/index.ts`；存活变异体要补强用例。
+- 全量基线（`npm run build` 之后，本机 pnpm + Windows）：67 个测试文件、1269 条，**1200 passed / 0 failed / 69 skipped**（2026-11-05 实测，`GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=false npx vitest run`）。历史上曾出现 4 条已知失败 = 3 条行尾（`.gitattributes` 未生效，加 `core.autocrlf=false` 可全绿）+ 1 条 DNS 劫持（`host.invalid` 被解析到 `198.18.0.x`），后者随本机 DNS 状态变化可能自动通过，**不是代码修复，不得据此宣称回归消失**；核对方式 `node -e "require('node:dns').lookup('host.invalid',(e,a)=>console.log(e?e.code:a))"`，返回 IP 即劫持、返回 ENOTFOUND 即正常。验收按「失败集合对比」而非绝对数字。
+- 变异测试：`npx stryker run`，只覆盖 `lib/index.ts` 与 `lib/http/index.ts`；存活变异体要补强用例。新增 `GET/PUT /api/transfer-config` 路由位于 `lib/http/index.ts` 的 mutate 范围内，需按路由契约断言补强；新 store/Redis 读写端不在 stryker mutate 范围，需手工做等价变异（如保存/回填字段删除、cursor 终止条件、TTL 边界、DUMP/RESTORE 分支）验证用例有效性。
 - 注释与提交信息用简体中文；提交格式 `类型(范围): 描述`，类型取：新增/修复/文档/重构/测试/性能/杂项。
 - Windows 环境：无 shell 时 spawn npm 需写 `npm.cmd`。

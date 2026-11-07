@@ -3,7 +3,7 @@
  * 覆盖：结构映射（含 bigint 保真 / BLOB / NULL / 无主键表）、keyset 与 offset 游标
  * 不重不漏、写入冲突三态、事务回滚（一批中一条失败→零残留）。
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,9 @@ import { createRequire } from 'node:module';
 import { createSqliteAdapter } from '../../lib/adapters/sqlite/index.js';
 import { createTransferReader, createTransferWriter } from '../../lib/adapters/transfer/model.js';
 import type { ResolvedConnection } from '../../lib/adapters/types.js';
+
+const { createClientMock } = vi.hoisted(() => ({ createClientMock: vi.fn() }));
+vi.mock('redis', () => ({ createClient: createClientMock }));
 
 const nodeSqliteAvailable = await import('node:sqlite')
   .then((m) => typeof (m as { DatabaseSync?: unknown }).DatabaseSync === 'function')
@@ -252,16 +255,31 @@ for (const mode of ['node', 'better'] as const) {
       }
     });
 
-    it('createTable 重复建表抛错；未注册的 kind 给出明确错误', async () => {
+    it('createTable 重复建表抛错；redis 已注册，createTransferReader/Writer 均返回对应端', async () => {
       const reader = await createTransferReader(connOf('r', src));
       const writer = await createTransferWriter(connOf('w2', join(dir, 'w2.db')));
+      const fakeRedis = {
+        connect: vi.fn(async () => undefined),
+        // openRaw 会挂 error 监听避免 EventEmitter 异常崩宿主进程
+        on: vi.fn(),
+        quit: vi.fn(async () => 'OK'),
+        scanIterator: vi.fn(async function* () { /* 空库 */ }),
+        dbSize: vi.fn(async () => 0),
+        sendCommand: vi.fn(async () => 'OK'),
+        type: vi.fn(async () => 'none'),
+        pTTL: vi.fn(async () => -1),
+      };
+      createClientMock.mockReturnValue(fakeRedis);
       try {
         const t = await reader.describe('t_pk');
         await writer.createTable(t);
         await expect(writer.createTable(t)).rejects.toThrow();
-        await expect(
-          createTransferReader({ meta: { id: 'x', kind: 'redis' }, fields: {} }),
-        ).rejects.toThrow(/暂不支持读取 redis/);
+        const rr = await createTransferReader({ meta: { id: 'x', kind: 'redis' }, url: 'redis://localhost:6379' });
+        const ww = await createTransferWriter({ meta: { id: 'y', kind: 'redis' }, url: 'redis://localhost:6379' });
+        expect(rr.kind).toBe('redis');
+        expect(ww.kind).toBe('redis');
+        await rr.close();
+        await ww.close();
       } finally {
         await reader.close();
         await writer.close();

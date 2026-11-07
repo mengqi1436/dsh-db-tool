@@ -223,6 +223,56 @@ describe('rc.3 bind 地址放行（isBindAddressAuthority 语义的本地兜底�
     );
     expect(res.statusCode).toBe(403);
   });
+
+  it.each(['::1', '::ffff:127.0.0.1', '127.0.0.1', '127.0.0.5'])(
+    'loopback bind 地址 %s 不补进 trustedHosts（非 loopback Host 仍 403）',
+    async (bindHost) => {
+      // 这些地址本身就是 loopback：若被当 bind 权威补进 trustedHosts，会放宽 DNS rebinding 攻击面
+      const lan = await request(
+        { services: { webStartup: {} }, host: bindHost, port: 3080 },
+        optionsReq('evil.example:3080'),
+      );
+      expect(lan.res.statusCode, bindHost).toBe(403);
+    },
+  );
+
+  it('bind host 非 IP 字面量（主机名）不补进 trustedHosts', async () => {
+    const { res } = await request(
+      { services: { webStartup: {} }, host: 'my-host.local', port: 3080 },
+      optionsReq('my-host.local:3080'),
+    );
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('bind 端口非法（0 / 负数 / NaN）时只补裸主机名，仍可按 hostname 命中', async () => {
+    for (const port of [0, -1, Number.NaN]) {
+      // 裸主机名进 trustedHosts；带端口的 Host 经 `e === url.hostname` 分支命中
+      const bare = await request(
+        { services: { webStartup: {} }, host: '192.168.1.5', port },
+        optionsReq('192.168.1.5'),
+      );
+      expect(bare.res.statusCode, 'port=' + port).toBe(204);
+      const withPort = await request(
+        { services: { webStartup: {} }, host: '192.168.1.5', port },
+        optionsReq('192.168.1.5:3080'),
+      );
+      expect(withPort.res.statusCode, 'port=' + port).toBe(204);
+      // 但绝不放宽到无关主机
+      const evil = await request(
+        { services: { webStartup: {} }, host: '192.168.1.5', port },
+        optionsReq('evil.example:3080'),
+      );
+      expect(evil.res.statusCode, 'port=' + port).toBe(403);
+    }
+  });
+
+  it('bind host 为 IPv6 单播时补带方括号的 host:port 形态', async () => {
+    const withPort = await request(
+      { services: { webStartup: {} }, host: 'fd00::1', port: 3080 },
+      optionsReq('[fd00::1]:3080'),
+    );
+    expect(withPort.res.statusCode).toBe(204);
+  });
 });
 
 describe('宿主 Connection 栅栏（requestRejection 兜底）', () => {

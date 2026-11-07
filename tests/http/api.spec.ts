@@ -561,3 +561,129 @@ describe('/api/version 插件版本', () => {
     expect(String(json.error)).toMatch(/未知路由/);
   });
 });
+
+/* ---------------- 传输页配置（项目级持久化的 HTTP 契约） ---------------- */
+
+const DEFAULT_CFG = {
+  sourceConnId: '',
+  targetConnId: '',
+  writeMode: 'insert',
+  batchSize: 1000,
+  tableConcurrency: 4,
+  shardConcurrency: 4,
+  overwriteStructure: false,
+};
+
+async function putCfg(pathname: string, body: unknown): Promise<{ status: number; json: any }> {
+  const { base } = await ensureStarted();
+  const res = await fetch(base + pathname, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, json: (await res.json()) as any };
+}
+
+describe('/api/transfer-config 传输页配置', () => {
+  it('GET 无存档 → 完整默认 7 项；PUT 往返；按项目隔离', async () => {
+    const { fx } = await ensureStarted();
+    // 前面的导出/导入用例删除连接时会级联清理 c1 授权，这里恢复 rw 供失效校验用
+    await putCfg('/api/grants', { projectPath: fx.projectA, connId: CONN_ID, mode: 'rw' });
+    const before = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectB)}`);
+    expect(before.json).toMatchObject({ ok: true, data: DEFAULT_CFG });
+
+    const cfg = {
+      sourceConnId: CONN_ID, targetConnId: CONN_ID, writeMode: 'replace',
+      batchSize: 250, tableConcurrency: 8, shardConcurrency: 12, overwriteStructure: true,
+    };
+    const put = await putCfg('/api/transfer-config', { projectPath: fx.projectA, ...cfg });
+    expect(put.json).toMatchObject({ ok: true, data: { saved: true } });
+    const after = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectA)}`);
+    expect(after.json.data).toEqual(cfg); // projectA 的 c1 授权为 rw：源 ro 与目标 rw 均通过
+    const other = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectB)}`);
+    expect(other.json.data).toEqual(DEFAULT_CFG);
+  });
+
+  it('project 别名取参；跨站 Origin 仍 403', async () => {
+    const { fx } = await ensureStarted();
+    const put = await putCfg('/api/transfer-config', {
+      project: fx.projectB, sourceConnId: 'x', targetConnId: 'y',
+    });
+    expect(put.json.ok).toBe(true);
+    const denied = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectA)}`, { origin: 'https://evil.example' });
+    expect(denied.status).toBe(403);
+    expect(denied.json.code).toBe('FORBIDDEN');
+  });
+
+  it('非法字段钳制：writeMode 回退 insert、数字按前端范围、布尔严格判等', async () => {
+    const { fx } = await ensureStarted();
+    const put = await putCfg('/api/transfer-config', {
+      projectPath: fx.projectB,
+      sourceConnId: 'a', targetConnId: 'b', writeMode: 'bogus',
+      batchSize: 99999, tableConcurrency: 0, shardConcurrency: 999,
+      overwriteStructure: 'true',
+    });
+    expect(put.json.ok).toBe(true);
+    const got = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectB)}`);
+    expect(got.json.data).toMatchObject({
+      writeMode: 'insert', batchSize: 5000, tableConcurrency: 1,
+      shardConcurrency: 32, overwriteStructure: false,
+    });
+  });
+
+  it('缺 projectPath → INVALID_ARGUMENT；空 project 的 GET 返回默认值且不写盘', async () => {
+    const put = await putCfg('/api/transfer-config', { sourceConnId: 'a' });
+    expect(put.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+    const empty = await get('/api/transfer-config');
+    expect(empty.json.data).toEqual(DEFAULT_CFG);
+  });
+
+  it('连接不存在/被删除/授权撤销与降级时，失效 id 就地回退为空串', async () => {
+    const { fx } = await ensureStarted();
+    const base = (await ensureStarted()).base;
+    await putCfg('/api/grants', { projectPath: fx.projectA, connId: CONN_ID, mode: 'rw' });
+
+    // 幽灵连接：GET 即回退，其余选项字段保留
+    await putCfg('/api/transfer-config', {
+      projectPath: fx.projectA, sourceConnId: 'ghost', targetConnId: CONN_ID,
+      batchSize: 77, tableConcurrency: 3, shardConcurrency: 5,
+      writeMode: 'ignore', overwriteStructure: true,
+    });
+    const ghost = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectA)}`);
+    expect(ghost.json.data).toMatchObject({ sourceConnId: '', targetConnId: CONN_ID, batchSize: 77 });
+
+    // 真连接：建连接 → 授权 rw → 存档可用 → 降级 ro → 目标 id 回退 → 删除连接 → 授权级联清理
+    await post('/api/connections', { id: 'cfg-tmp', kind: 'sqlite', fields: { file: 'cfg-tmp.db' } });
+    await putCfg('/api/grants', { projectPath: fx.projectA, connId: 'cfg-tmp', mode: 'rw' });
+    await putCfg('/api/transfer-config', { projectPath: fx.projectA, sourceConnId: 'cfg-tmp', targetConnId: 'cfg-tmp' });
+    const alive = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectA)}`);
+    expect(alive.json.data).toMatchObject({ sourceConnId: 'cfg-tmp', targetConnId: 'cfg-tmp' });
+
+    // 项目键大小写变体：授权按归一化键查，GET 不得把有效连接误判为失效（锁住 service 层的 normalizeProjectKey）
+    const variant = fx.projectA.charAt(0).toUpperCase() + fx.projectA.slice(1);
+    const variantRes = await get(`/api/transfer-config?project=${encodeURIComponent(variant)}`);
+    expect(variantRes.json.data).toMatchObject({ sourceConnId: 'cfg-tmp', targetConnId: 'cfg-tmp' });
+
+    await putCfg('/api/grants', { projectPath: fx.projectA, connId: 'cfg-tmp', mode: 'ro' });
+    const downgraded = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectA)}`);
+    expect(downgraded.json.data).toMatchObject({ sourceConnId: 'cfg-tmp', targetConnId: '' }); // 源 ro 可，目标 rw 不可
+
+    await fetch(`${base}/api/grants`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectPath: fx.projectA, connId: 'cfg-tmp' }),
+    });
+    const revoked = await get(`/api/transfer-config?project=${encodeURIComponent(fx.projectA)}`);
+    expect(revoked.json.data).toMatchObject({ sourceConnId: '', targetConnId: '' });
+
+    await fetch(`${base}/api/connections/cfg-tmp`, { method: 'DELETE' }); // 清理一次性连接
+  });
+
+  it('非 GET/PUT 方法 → 404（不误接 transfer/:id 通配）', async () => {
+    const post404 = await post('/api/transfer-config', {});
+    expect(post404.status).toBe(404);
+    expect(post404.json.code).toBe('NOT_FOUND');
+    const { base } = await ensureStarted();
+    const del = await fetch(`${base}/api/transfer-config`, { method: 'DELETE' });
+    expect(del.status).toBe(404);
+  });
+});

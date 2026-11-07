@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createOraLikeTransferReader,
+  createOraLikeTransferWriter,
   oralikeSessionStmts,
 } from '../../lib/adapters/transfer/kinds/oralike.js';
 import type { OraLikeConn, OraLikePool } from '../../lib/adapters/transfer/kinds/oralike.js';
@@ -95,6 +96,27 @@ describe('oralike 读端 readBatch/keyAt 分页（内联 clamp 整数）', () =>
     await r.listTables();
     const stmts = pool.connObj.execute.mock.calls.slice(0, 3).map((c) => c[0] as string);
     expect(stmts[0]).toBe("SET TIME ZONE '+00:00'");
+  });
+});
+
+describe('oralike 写端 owner 定位（dropTable / tableExists）', () => {
+  it('dropTable 带 owner 前缀（非默认 owner + overwriteStructure 不再错删当前 schema 表）', async () => {
+    const pool = makePool();
+    const w = createOraLikeTransferWriter('dmdb', pool, 'insert', 'APP_OWNER');
+    await w.dropTable('T1');
+    const sql = pool.connObj.execute.mock.calls.at(-1)![0] as string;
+    expect(sql).toBe('DROP TABLE "APP_OWNER"."T1"');
+    await w.close();
+  });
+
+  it('tableExists 对小写表名做 UPPER 兜底（与 describe/listTables 同口径）', async () => {
+    const pool = makePool();
+    const w = createOraLikeTransferWriter('oracle', pool, 'insert', 'APP_OWNER');
+    await w.tableExists('t1');
+    const call = pool.connObj.execute.mock.calls.at(-1)!;
+    expect(call[0] as string).toContain('TABLE_NAME = :t OR TABLE_NAME = UPPER(:t)');
+    expect(call[1]).toEqual(['APP_OWNER', 't1', 't1']);
+    await w.close();
   });
 });
 
