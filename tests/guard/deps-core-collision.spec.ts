@@ -13,7 +13,7 @@
  *   黑名单（module.builtinModules + punycode）的交集必须为空。
  */
 import { readFileSync } from 'node:fs';
-import { builtinModules } from 'node:module';
+import { builtinModules, createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -81,5 +81,65 @@ describe('依赖树 core-module 同名包守卫（宿主 resolve.paths bug 规�
     }
     const collisions = [...prodNames].filter((name) => CORE_NAME_BLACKLIST.has(name));
     expect(collisions).toEqual([]);
+  });
+});
+
+/**
+ * 已知漏洞包的 overrides 守卫。
+ *
+ * 背景：这几条漏洞全部落在开发依赖链（变异测试链 @stryker-mutator/core / stryker-cli）上，
+ * 生产运行时零暴露，但 Dependabot 仍会持续告警。上游迟迟不发修复版：external-editor 仍锁
+ * `tmp ^0.0.33`、stryker-cli 仍锁 `inquirer ^6.2.2`，只能在 package.json 的 overrides 里
+ * 强制提到修复版本（与既有的 `tedious` 覆盖同一手法）。
+ *
+ * 断言：lockfile 实树中这些包的实际解析版本必须 ≥ 各自的修复下限。删掉 overrides 条目会让
+ * 版本回落到漏洞区间，此用例即失败——防止「以为修好了其实没生效」。
+ */
+const VULN_FLOORS: Record<string, string> = {
+  // GHSA: tmp 经未净化 prefix/postfix 做路径穿越（high），0.2.6 修复
+  tmp: '0.2.7',
+  // GHSA: qs arrayFormat 'comma' 下非可调用 toString 触发未捕获 TypeError（medium），6.16.1 修复
+  qs: '6.17.1',
+  // GHSA: minimatch 经 globparts 放大的拒绝服务（medium），11.0.1 修复（10.x 无修复版）
+  minimatch: '11.0.5',
+  // GHSA: zod 校验超大受限集合时可耗尽内存（high），4.6.6 修复
+  zod: '4.6.7',
+};
+
+describe('已知漏洞包 overrides 守卫（Dependabot open 告警回归）', () => {
+  it('lockfile 实树中漏洞包版本均不低于修复下限', () => {
+    const lock = JSON.parse(readFileSync(lockUrl, 'utf8')) as {
+      packages?: Record<string, { version?: string }>;
+    };
+    const resolve = createRequire(import.meta.url);
+    const semver = resolve('semver') as {
+      satisfies(version: string, range: string): boolean;
+      lt(a: string, b: string): boolean;
+      valid(v: string): string | null;
+    };
+
+    const offenders: string[] = [];
+    const seen = new Set<string>();
+    for (const [key, meta] of Object.entries(lock.packages ?? {})) {
+      const name = packageNameFromLockKey(key);
+      if (!name || !(name in VULN_FLOORS)) continue;
+      const ver = meta?.version;
+      if (typeof ver !== 'string' || semver.valid(ver) === null) continue;
+      seen.add(name);
+      const floor = VULN_FLOORS[name]!;
+      if (semver.lt(ver, floor)) offenders.push(`${name}@${ver} < ${floor} (${key})`);
+    }
+
+    expect(offenders).toEqual([]);
+    // 四条都应实装（防止某条覆盖被整体移除后用例因「没找到包」而空转通过）
+    expect([...seen].sort()).toEqual(Object.keys(VULN_FLOORS).sort());
+  });
+
+  it('package.json overrides 声明了这些包的修复范围', () => {
+    const pkg = JSON.parse(readFileSync(pkgUrl, 'utf8')) as { overrides?: Record<string, string> };
+    const overrides = pkg.overrides ?? {};
+    for (const name of Object.keys(VULN_FLOORS)) {
+      expect(overrides[name], `package.json overrides 缺少 ${name}，版本会回落到漏洞区间`).toBeDefined();
+    }
   });
 });

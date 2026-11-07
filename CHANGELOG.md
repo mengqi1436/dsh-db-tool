@@ -1,5 +1,33 @@
 # Changelog — dsh-db-tool
 
+## 1.9.8
+
+清除 Dependabot 全部 open 告警（1 high / 3 medium / 1 low）：`npm audit` 由 5 vulnerabilities 降到 **0 vulnerabilities**。
+
+### 修复
+
+全部 5 条告警都落在**开发依赖链（变异测试链）**上，生产运行时零暴露——`tmp` / `qs` / `minimatch` / `zod` 在 lockfile 中均为 `dev: true`，不会随插件发布安装。但仍通过 `overrides` 强制提到修复版本，终止持续告警：
+
+| 包 | 漏洞 | 等级 | 原版本 | 修复后 | 引入链 |
+|---|---|---|---|---|---|
+| `tmp` | 未净化 prefix/postfix 导致路径穿越、可越出临时目录写文件 | high | 0.0.33 | **0.2.7** | `stryker-cli` → `inquirer` → `external-editor` |
+| `qs` | `arrayFormat: 'comma'` 下数组元素携带不可调用 `toString` 触发未捕获 TypeError（DoS） | medium | 6.15.1 | **6.17.1** | `@stryker-mutator/core` → `typed-rest-client` |
+| `minimatch` | `globparts` 放大的拒绝服务 | medium | 10.2.6 | **11.0.5** | `@stryker-mutator/core` |
+| `qs` | `qs.stringify` 对 null/undefined 条目在 comma 格式下崩溃（DoS） | medium | 6.15.1 | **6.17.1** | 同上 |
+| `tmp` | 符号链接 `dir` 参数可任意写临时文件/目录 | low | 0.0.33 | **0.2.7** | 同上 |
+
+**为什么必须用 `overrides` 而不能靠升级上游**：上游迟迟不发修复版——`external-editor@latest` 仍声明 `tmp ^0.0.33`（该范围**不覆盖** 0.2.x），`stryker-cli@1.1.0` 仍是 `inquirer ^6.2.2`，`@stryker-mutator/core@10.0.0` 声明 `minimatch ~10.2.4` 而 10.x **没有**修复版（修复从 11.0.1 才开始）。因此只能按本项目既有 `overrides.tedious` 的同一手法强制提升。
+
+**`minimatch` 10→11 跨大版本已实测无回归**：stryker 使用 `minimatch()` 函数与 `Minimatch` 类两种形态，v11 均保留且行为一致（含 `{ dot: true }` 选项）；实测 `require('minimatch')` 两形态可用、`**/*.ts` 匹配行为正确，并完整跑通 stryker 的 dry-run（`Initial test run succeeded. Ran 1255 tests in 24 seconds`），证明变异测试链路在 v11 下正常工作。
+
+### 测试
+
+- 新增 `tests/guard/deps-core-collision.spec.ts` 的「已知漏洞包 overrides 守卫」（2 条）：
+  - **实树层**：lockfile 中这四个包的实际解析版本必须 ≥ 各自修复下限，且四个包都必须存在（防止某条覆盖被移除后用例因「没找到包」而空转通过）。
+  - **声明层**：`package.json` 的 `overrides` 必须为这四个包各声明一条修复范围。
+- 变异验证双向均有效：① 移除 `overrides.tmp` → 声明层断言失败（`package.json overrides 缺少 tmp`）；② 把 lockfile 里 `tmp` 改回 `0.0.33` → 实树层断言失败（`tmp@0.0.33 < 0.2.7 (node_modules/tmp)`）。两处变异均已还原。
+- 基线：`npm run typecheck` 0 错误；`npm run build` 成功；`npm test` 1279 passed / 1 failed / 36 skipped，唯一失败仍为已知环境项 `sqlserver-driver-real.test.ts:614`（`no-such-host.invalid` 被本机 DNS 劫持返回 `ESOCKET` 而非 `ENOTFOUND`），与本次改动无关。
+
 ## 1.9.7
 
 适配 DSH 0.2.2-rc.1 宿主。

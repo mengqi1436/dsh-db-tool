@@ -1,6 +1,6 @@
 {
   "name": "dsh-db-tool",
-  "version": "1.9.7",
+  "version": "1.9.8",
   "description": "DSH community plugin: chat-operated multi-database admin tool with sidebar management, project-scoped grants, ro/rw modes and dangerous-operation confirmation",
   "type": "module",
   "license": "Apache-2.0",
@@ -60,7 +60,11 @@
     "better-sqlite3": "^13.0.3"
   },
   "overrides": {
-    "tedious": "^20.3.8"
+    "tedious": "^20.3.8",
+    "tmp": "^0.2.7",
+    "qs": "^6.17.1",
+    "minimatch": "^11.0.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",
