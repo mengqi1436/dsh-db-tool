@@ -1,5 +1,29 @@
 # Changelog — dsh-db-tool
 
+## 1.9.7
+
+适配 DSH 0.2.2-rc.1 宿主。
+
+### 新增
+
+- **`engines.dsh` 补 `>=0.2.2-rc.1 <0.3.0-0`**：严格 semver 下 prerelease 只在同一 `[主,次,补]` 元组描述符内比较，原范围 `>=0.2.1-rc.2 <0.3.0-0` **不命中 `0.2.2-rc.1`**——等于 npm 侧声明拒绝在新宿主上安装（宿主准入本身用 `includePrerelease: true` 会放行，故只有声明与实际准入不一致）。这是与 1.9.x 早期「`0.1.7-rc.2` 必须显式列出」同类的坑，按同样方式补元组。
+
+### 适配确认
+
+- **DSH 0.2.2-rc.1 宿主契约逐项对照（零代码改动）**：对照上游 master `fcc0ad4621`（`release-dsh-0.2.2-rc.1` 合回 master）核对——`tools.register`（`ToolDefinition extends ToolSchema`，`register()` 仅校验 `output.{schema,render}` 与 `timeoutMs`，JSON Schema 风格 `parameters` 仍合规）、`webServer.register({kind:'prefix'})`、`connection.requestRejection`（401/403/undefined）、`sessions.header.cwd`、`webStartup.trustedHosts`、`ctx.effect`、客户端 `dsh.client.inject`（`@deepseek-ai/dsh-client-locale`、`@deepseek-ai/dsh-client-ui-sidebar-right` 两包在 0.2.2-rc.1 仍存在且 `inject` 仍含 `slots`/`locale`、`sidebarRightTabs` 仍由 `ctx.reflect.provide` 提供）、`ctx.locale.register/subscribe/getSnapshot`、`window.__ModuleLoader__.load`、`cordis.patch.yml` 的 `insert` 形态（Cordis 4.1.0 的 `applyEntryPatches` 仍解析）——均无实质变更，`client/client.js`、`lib/**`、`cordis.patch.yml` 与构建脚本无需改动。
+- **`@deepseek-ai/cordis` 依赖范围**：devDep `^4.0.5` 与 peerDep `^4.0.1` 同时覆盖上游 4.1.0，未改依赖。
+- **未使用本次迁移的高风险接口**：`tools.resolve/executable`、Session Projection 异步注册、PTC 工具执行拆分（`tools.mode`/`DSH_TOOLS_MODE`）、`agent/request` 路由选择、`@deepseek-ai/dsh-official-bundles` 导入、`apply_patch`、SSH helper 协议——本项目源码未直接调用，升级影响为无。
+
+### 测试
+
+- 补强 `tests/scripts/hotfix.spec.ts` 的 `package.json engines.dsh（严格 semver）` 用例：把 `0.2.2-rc.1` 加入必须命中的版本数组，锁住「删掉 `>=0.2.2-rc.1 <0.3.0-0` 段即失败」。
+- 变异验证：移除该范围段后用例即刻失败（`0.2.2-rc.1 应在 engines.dsh 范围内` → 收到 `false`），确认断言真实有效而非空转。
+- 基线：`npm run typecheck` 0 错误；`npm run build` 成功（含 mongodb/sqlserver/codemirror 三个 vendor 产物）；`npm test` 1239 passed / 1 failed / 74 skipped，唯一失败为已知环境项 `sqlserver-driver-real.test.ts:614`（`no-such-host.invalid` 被本机 DNS 劫持返回 `ESOCKET` 而非 `ENOTFOUND`），与本次改动无关。
+
+### 升级提示
+
+- 已装 1.9.6 的用户在 DSH 0.2.2-rc.1 上如遇「插件与当前 DSH 版本不兼容」，升级到 1.9.7 即可；`dsh.profile.bundles` 中若仍保留 `@deepseek-ai/dsh-experimental-tool-worktree`，按官方 0.2.2-rc.1 说明手动移除（该入口已并入「变更请求与工作树」，与本插件无关）。
+
 ## 1.9.6
 
 「数据浏览」页面重排分区并隐藏未授权连接，全站控件尺寸统一到 token 层。

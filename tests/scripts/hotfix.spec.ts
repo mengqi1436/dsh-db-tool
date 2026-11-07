@@ -614,9 +614,11 @@ describe('package.json engines.dsh（严格 semver）', () => {
 		const require = createRequire(import.meta.url);
 		const semver = require('semver') as { satisfies(version: string, range: string): boolean };
 
-		for (const version of ['0.2.1-rc.3', '0.2.1-rc.2', '0.2.0-rc.2', '0.1.7-rc.2']) {
+		for (const version of ['0.2.2-rc.1', '0.2.1-rc.3', '0.2.1-rc.2', '0.2.0-rc.2', '0.1.7-rc.2']) {
 			expect(semver.satisfies(version, range!), `${version} 应在 engines.dsh 范围内`).toBe(true);
 		}
+		// 0.2.2 系列 prerelease 必须显式列元组：`>=0.2.1-rc.2 <0.3.0-0` 在严格 semver 下不命中 0.2.2-rc.1
+		// （prerelease 只在同一 [主,次,补] 元组描述符内比较），缺少 `>=0.2.2-rc.1 <0.3.0-0` 段会让宿主准入失败。
 		for (const version of ['0.3.0-0', '0.3.0']) {
 			expect(semver.satisfies(version, range!), `${version} 不应在 engines.dsh 范围内`).toBe(false);
 		}

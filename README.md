@@ -225,13 +225,13 @@ dsh plugin --profile web add "link:/path/to/dsh-db-tool"
 
 ### 桌面端
 
-DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令：
+DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令；已在 **0.2.2-rc.1** 上逐项核对宿主契约（`tools.register`、`webServer.register({kind:'prefix'})`、`connection.requestRejection`、`sessions.header.cwd`、`webStartup.trustedHosts`、客户端 `slots`/`sidebarRightTabs`/`locale`），无需改动插件代码：
 
 1. 打开桌面端菜单栏，点 **"Manage dsh command"** 把 `dsh` 注册到 PATH
 2. 安装插件（npm 安装须钉精确版本，`@latest` 会因 release-age 校验回落）：
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.6 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.7 --registry=https://registry.npmjs.org/
    ```
 
 3. **重启桌面端**生效

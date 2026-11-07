@@ -227,13 +227,13 @@ dsh plugin --profile web add "link:/path/to/dsh-db-tool"
 
 ### Desktop app
 
-DSH desktop 0.2.0-rc.2+ bundles the `dsh` command:
+DSH desktop 0.2.0-rc.2+ bundles the `dsh` command; host contracts were checked item by item on **0.2.2-rc.1** (`tools.register`, `webServer.register({kind:'prefix'})`, `connection.requestRejection`, `sessions.header.cwd`, `webStartup.trustedHosts`, and the client-side `slots`/`sidebarRightTabs`/`locale`), with no plugin code changes required:
 
 1. Open the desktop menu bar and click **"Manage dsh command"** to register `dsh` on your PATH
 2. Install the plugin (npm installs must pin an exact version — `@latest` falls back to an older release due to release-age checks):
 
    ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.6 --registry=https://registry.npmjs.org/
+   dsh plugin --profile desktop add dsh-db-tool@1.9.7 --registry=https://registry.npmjs.org/
    ```
 
 3. **Restart the desktop app** to load it
