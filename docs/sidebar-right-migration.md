@@ -1,8 +1,8 @@
 # 从第三方侧边栏迁移到 DSH 官方右侧栏
 
-> **验证状态**：所有源码结论均带 `路径:行号` 证据（上游 = `.tmp-ah/upstream`，commit `ce7073d5`；本仓库 = 仓库根）。**本机未做真机加载验证** —— 已核对宿主 `app.asar` 内 `@deepseek-ai/dsh-client-ui-sidebar-right` 包存在且与上游源码一致，但未重启桌面端实测面板渲染。
+> **验证状态**：所有源码结论均带 `路径:行号` 证据（上游 = deepseek-harness master，commit `ce7073d5`；本仓库 = 仓库根）。**本机未做真机加载验证** —— 已核对宿主 `app.asar` 内 `@deepseek-ai/dsh-client-ui-sidebar-right` 包存在且与上游源码一致，但未重启桌面端实测面板渲染。
 >
-> **路径简写**：`SR/` = `.tmp-ah/upstream/packages/client/ui-sidebar-right/src/client/`，`DK/` = `.tmp-ah/upstream/packages/client/ui-dockkit/src/components/`。
+> **路径简写**：`SR/` = 上游仓库 `packages/client/ui-sidebar-right/src/client/`，`DK/` = 上游仓库 `packages/client/ui-dockkit/src/components/`。上游源码需按 commit `ce7073d5` 从 `deepseek-ai/deepseek-harness` 重新检出；本地分析用的临时副本已清理。
 
 ---
 
