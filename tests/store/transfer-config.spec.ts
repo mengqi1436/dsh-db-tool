@@ -48,11 +48,15 @@ describe('TransferConfigStore', () => {
     expect(Object.keys(raw.configs)).toEqual([p1]);
   });
 
-  it('键按 normalizeProjectKey 归一（Windows 大小写/分隔符变体命中同一条）', () => {
-    const legacy = 'E:\\GitHub\\MyApp\\';
-    const variant = normalizeProjectKey('e:/github/myapp');
-    store.transferConfig.set(legacy, CFG);
-    expect(store.transferConfig.get(variant)).toEqual(CFG);
+  it('键按 normalizeProjectKey 归一（同一项目不同写法命中同一条）', () => {
+    // 分隔符/尾斜杠/相对路径的归一是跨平台的；大小写整体折叠只在 win32 生效
+    // （非 Windows 文件系统大小写敏感），故此处只断言跨平台成立的那部分，
+    // 大小写折叠由 normalize 自身用例覆盖，避免测试依赖 CI 运行平台。
+    const key = normalizeProjectKey(p1);
+    store.transferConfig.set(p1, CFG);
+    const trailing = p1.endsWith('/') ? `${p1}sub/..` : `${p1}/sub/..`;
+    expect(normalizeProjectKey(trailing)).toBe(key);
+    expect(store.transferConfig.get(trailing)).toEqual(CFG);
   });
 
   it('transfer-config.json 以 0600 落盘（POSIX 断言）', () => {
