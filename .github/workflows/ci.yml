@@ -64,8 +64,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any matrix job failed
-        if: needs.verify.result != 'success'
+        if: needs.verify.result == 'failure'
         run: |
           echo "verify 结果: ${{ needs.verify.result }}"
           exit 1
-      - run: echo "所有 Node 版本均通过"
+
+      # 并发覆盖（concurrency.cancel-in-progress 被连续快推顶掉）会把被取消 run 里
+      # 未完成的 matrix job 标成 cancelled。这不是代码失败，且同一 ref 的后继 run
+      # 会重跑完整测试。此前这里写 `!= 'success'`，把 cancelled 一并判失败，
+      # 配合 strict_required_status_checks 就产生假红阻塞合并（05de42b、07885fb 即此）。
+      - name: Report cancelled matrix jobs
+        if: needs.verify.result == 'cancelled'
+        run: |
+          echo "verify 被取消（通常是并发覆盖），本 check 不判失败"
+          echo "注意：该 commit 未跑完全部 Node 版本，后继 run 会补齐"
+
+      - name: Report success
+        if: needs.verify.result == 'success'
+        run: echo "所有 Node 版本均通过"
