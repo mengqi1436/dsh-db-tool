@@ -1,5 +1,22 @@
 # Changelog — dsh-db-tool
 
+## 1.9.10
+
+仓库维护性修复：CI 聚合判定不再把并发取消判成失败，Dependabot 压掉三个包的重复红，补回缺失的 1.9.2 章节。无运行时代码改动。
+
+### 修复
+
+- **`ci-ok` 把 `cancelled` 判成失败，产出假红**：`ci-ok` 是分支保护唯一要求的 check（ruleset `protected-branches` 的 context 为 `CI passed`）。原判定写 `needs.verify.result != 'success'`，而 `concurrency.cancel-in-progress` 被连续快推顶掉时，未跑完的 matrix job 会被标成 `cancelled`，聚合 job 随即 `exit 1`。实测两次：`05de42b`（Node 22 Test success、Node 24 Test cancelled）与 `07885fb`（两个 matrix 的 Test 均 success、job 整体 cancelled）的 `CI passed` 都是 failure，而 matrix 内没有任何失败步骤。配合 `strict_required_status_checks: true`，真走 PR 流程时这种假红会阻塞合并。改为显式三分流：`failure` 才 `exit 1`；`cancelled` 只提示并说明该 commit 未跑完全部 Node 版本、后继 run 会补齐；`success` 保留显式步骤。补 `tests/scripts/ci-workflow.spec.ts` 4 条用例钉死该判定与「cancelled 分支不得 exit 1」，两个变异体（改回 `!= 'success'`、cancelled 分支加 `exit 1`）均已实测被杀死。
+
+### 杂项
+
+- **新增 `.github/dependabot.yml`**，压掉 `Dependabot Updates` 工作流的重复失败（历史 8 次红）。这三个包的修复版都超出上游声明范围，Dependabot 判不出可行更新而报 `security_update_not_possible`：`minimatch` 修复要 `>= 11.0.1`，而 `@stryker-mutator/core@10.1.1`（latest）仍声明 `~10.2.4`，10.x 全线无修复版；`tmp` 修复要 `>= 0.2.6`，链路 `stryker-cli@1.1.0 → inquirer@6.5.2 → external-editor@3.1.0`（latest 未动）声明 `^0.0.33`；`qs` 修复要 `>= 6.16.1`（4 条告警取最高门槛，`GHSA-6pq8-jhm2-2vcw` 覆盖 `<= 6.16.0`），链路 `@stryker-mutator/core → typed-rest-client@2.3.1` 精确锁 `6.15.1`。三者位移均已在 `package.json` 的 `overrides` 强制完成（`minimatch ^11.0.5` / `tmp ^0.2.7` / `qs ^6.17.1`），`npm audit` 0 漏洞、告警全 fixed，故对这三个包关掉自动更新。`zod` 与 `tedious` 虽也在 `overrides`，但前者声明方 `mutation-server-protocol` 的 `^4.1.12` 本就容得下修复版 4.6.6、后者是直接 devDependency，两者从未报过该错，**不纳入**（写进去只会白挡正常升级 PR）。文件内注释逐项写明依据与解除路径：上游放宽声明范围后删对应 `ignore` 并去掉同名 `overrides`。
+- **补回 CHANGELOG 缺失的 1.9.2 章节**：`v1.9.2` 已发布到 npm 并有对应 tag，但该章节在 1.9.3 重写时被整体吞并，版本序列从 1.9.3 直接跳到 1.9.1，回溯时看不到该版本交付了什么。以 tag 原文为基准还原，并在导语后加一句说明指向 1.9.3 的增补与修正关系。
+
+### 测试
+
+- 基线：`typecheck` 0 错误、`npm test` 1291 passed / 0 failed / 36 skipped（1328，较 1.9.9 的 1288 条多 4 条新增 CI 守护用例与 1 条平台差异）、`npm audit` 0 vulnerabilities
+
 ## 1.9.9
 
 Redis 接入数据传输（envelope 表 `__redis_keys` 降级方案），并修掉审查发现的 7 个缺陷。
