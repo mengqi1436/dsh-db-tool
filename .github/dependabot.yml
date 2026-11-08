@@ -20,6 +20,13 @@
 # 声明的是 ^4.1.12，本身就容得下修复版（zod 修复为 4.6.6，实际装 4.6.7）。Dependabot
 # 从未对 zod 报 security_update_not_possible，它属于能正常自动升级的依赖；写进 ignore
 # 只会挡住以后正常的修复 PR。
+#
+# 为什么有 groups 段（stryker 家族）：@stryker-mutator/vitest-runner 对 core 声明的是
+# peerDependencies 精确锁定（"@stryker-mutator/core": "10.0.0"，无 ^ 范围），而 core 反向
+# 依赖 instrumenter/util/api 同样是精确锁定。Dependabot 默认每包单独开 PR，只升 core 时
+# lockfile 里就留下「core 10.1.1 必须满足 vitest-runner 声明的 10.0.0」这种无解约束，
+# npm ci 直接 EUSAGE 拒绝安装（PR #11 即此，两个 Node 版本全红）。分组后同批升，约束闭合。
+# 解除：vitest-runner 对 core 改成 ^ 范围后，删掉整段 groups。
 
 version: 2
 updates:
@@ -27,6 +34,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # 通配符写法按官方文档 patterns 语义（与 "@angular*" 同例，支持 * 匹配零或多字符）。
+      stryker:
+        patterns:
+          - "@stryker-mutator/*"
     ignore:
       # minimatch：修复要求 >= 11.0.1，而 @stryker-mutator/core@10.1.1（latest）仍声明
       # dependencies.minimatch = ~10.2.4，10.x 全线无修复版；overrides 已钉 ^11.0.5。
