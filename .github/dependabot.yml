@@ -1,0 +1,45 @@
+# Dependabot 版本更新配置
+#
+# 为什么有 ignore 段：
+# 仓库用 package.json 的 overrides 把几个传递依赖强制提到无漏洞版本，lockfile 与
+# npm audit 已经干净（0 vulnerabilities，开放告警 0 条）。但 Dependabot 判
+# security update 是否可行时看的是上游包自己声明的版本范围，不是 overrides 生效后的
+# 实际解析结果。于是它反复判「修复版在声明范围外、升不动」→ security_update_not_possible
+# → 工作流反复失败（minimatch 2 次、tmp 3 次、qs 3 次，见 Actions 的 Dependabot Updates）。
+#
+# 副作用（要知道）：ignore 按依赖名匹配，会同时挡住这些包将来的安全更新 PR。此处可接受，
+# 因为 lockfile 已装修复版、告警已是 fixed。它不影响 Dependabot 告警本身，也不影响
+# Settings 里的 automated security fixes 开关（enabled=true / paused=false）——那些开关
+# 不能用本文件配置。
+#
+# 维护方式（给未来的自己）：上游放宽声明范围并发布后，删掉对应 ignore 条目 + 去掉
+# package.json overrides 里的同名条目 → npm install 让 lockfile 回落到上游声明的版本
+# → 之后 Dependabot 能正常发 PR。
+#
+# 为什么 zod 不写进来：zod 虽也在 overrides（^4.6.7），但声明方 mutation-server-protocol
+# 声明的是 ^4.1.12，本身就容得下修复版（zod 修复为 4.6.6，实际装 4.6.7）。Dependabot
+# 从未对 zod 报 security_update_not_possible，它属于能正常自动升级的依赖；写进 ignore
+# 只会挡住以后正常的修复 PR。
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # minimatch：修复要求 >= 11.0.1，而 @stryker-mutator/core@10.1.1（latest）仍声明
+      # dependencies.minimatch = ~10.2.4，10.x 全线无修复版；overrides 已钉 ^11.0.5。
+      # 解除：core 声明 >= 11 后删本条 + 去掉 overrides.minimatch。
+      - dependency-name: "minimatch"
+
+      # tmp：修复要求 >= 0.2.6。链路 stryker-cli@1.1.0 → inquirer@6.5.2 →
+      # external-editor@3.1.0（latest 仍是 3.1.0）声明 tmp ^0.0.33，不含 0.2.x；
+      # overrides 已钉 ^0.2.7。解除：external-editor 声明 >= 0.2 后删本条 + 去掉 overrides.tmp。
+      - dependency-name: "tmp"
+
+      # qs：修复要求 >= 6.16.1（qs 共有 4 条告警，门槛最高那条 GHSA-6pq8-jhm2-2vcw 覆盖
+      # >= 6.7.0, <= 6.16.0，故取 6.16.1，不是最低那条的 6.15.2）。链路 @stryker-mutator/core → typed-rest-client@2.3.1
+      # 精确锁 qs 6.15.1；typed-rest-client 要到 3.x 才声明 ^6.16.0，但 core 只声明 ~2.3.0。
+      # overrides 已钉 ^6.17.1。解除：core 用上 typed-rest-client >= 3 后删本条 + 去掉 overrides.qs。
+      - dependency-name: "qs"
