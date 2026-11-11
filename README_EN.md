@@ -1,29 +1,31 @@
 # dsh-db-tool
 
-[简体中文](README.md) | English
+English | [简体中文](README.md)
 
-Operate databases safely from DSH chat: 9 database engines, project-scoped grants, dangerous-operation confirmation, full audit logging, plus a right-sidebar console and SQL editor.
+A DSH host plugin. Operate databases safely from chat: nine databases, project-scoped fine-grained grants, dangerous-operation confirmation, full audit logging, plus a right-sidebar admin console and SQL console.
 
 ## Feature flow
 
-The complete path of one database operation, from entry point to audit trail — both entry points share the same semantics, and every call must pass through two gates: project-level grants and statement-level risk classification.
+The full path of one database operation, from entry point to audit record — both entries (chat tool and right sidebar) share one set of semantics and must pass through two gates: project-scoped authorization and statement-level risk classification.
 
 ![dsh-db-tool feature flow](assets/feature-flow.png)
 
-[**Open the interactive version**](assets/feature-flow.html) — zoom, pan, path highlighting, and click any node to see its source evidence.
+[Open the interactive version](assets/feature-flow.html) — supports zoom, pan, path highlighting, and source-evidence inspection per node.
 
-> Questions or suggestions? [Open an issue](https://github.com/mengqi1436/dsh-db-tool/issues/new/choose) (bug report and feature request templates provided).
+> Questions or suggestions? [Open an issue](https://github.com/mengqi1436/dsh-db-tool/issues/new/choose).
 
 ---
 
 ## Supported databases
 
 | Category | Databases |
-|---|---|
+| --- | --- |
 | Relational | MySQL, PostgreSQL, GaussDB, SQLite, Oracle, Dameng DM, SQL Server |
 | NoSQL | Redis, MongoDB |
 
-Connection, metadata browsing, query and preview cover all nine engines. Data transfer is capability-tiered: 8 kinds (`mysql`/`postgresql`/`gaussdb`/`sqlite`/`mongodb`/`oracle`/`dmdb`/`sqlserver`) use native table-level transfer, while Redis participates through a fixed envelope table `__redis_keys`. Native Redis keyspace fidelity (stream consumer groups, cross-version `DUMP`, logical databases `dbN`) is explicitly out of scope. Dialect differences are handled inside the adapters — callers only ever see `?` placeholders and a uniform result set.
+Connections, metadata browsing, queries and previews cover all nine databases. Data transfer is layered by capability: eight kinds (MySQL / PostgreSQL / GaussDB / SQLite / MongoDB / Oracle / Dameng / SQL Server) transfer natively table-to-table, while Redis takes part through the fixed envelope table `__redis_keys`. Redis keyspace fidelity beyond that is out of scope (stream consumer groups, cross-version `DUMP`, logical databases `dbN`).
+
+Dialect differences are handled inside the adapters; the upper layers see a uniform `?` placeholder and a standard result set.
 
 ---
 
@@ -31,218 +33,161 @@ Connection, metadata browsing, query and preview cover all nine engines. Data tr
 
 ### Model tool `DatabaseManager`
 
-One tool, multiple actions — fewer ambiguities for the model to resolve:
+One tool with several actions, reducing ambiguity in tool selection:
 
 | action | Purpose |
-|---|---|
-| `list_connections` | List available connections (credentials never included) |
+| --- | --- |
+| `list_connections` | List available connections (no credentials) |
 | `query` | Run a read-only query, return columns and rows |
-| `execute` | Run a write statement; dangerous operations require confirmation |
-| `schema` | Inspect database/table/column structure |
-| `preview` | Preview table data (paged, ≤50 rows per page) |
-| `run_script` | Run a script in a sandbox that can call `db.query` / `db.execute` repeatedly |
+| `execute` | Run a write statement; dangerous operations need confirmation |
+| `schema` | Inspect database / table / column structure |
+| `preview` | Preview table data (paged, up to 50 rows per page) |
+| `run_script` | Run a script in the sandbox, calling `db.query` / `db.execute` repeatedly |
 
-`run_script` isolation: separate child process plus a `node:vm` sandbox, hard-killed 60 seconds after start, with only a restricted `db.{query,execute}` handle injected — no filesystem, network, or `require`.
+`run_script` isolation boundary: a separate child process plus a `node:vm` sandbox, killed at 60 seconds, with only a restricted `db.{query,execute}` handle injected — no filesystem, no network, no `require`.
 
 ### Project-scoped grants (ro / rw)
 
-Grants are stored as project path → connection → mode (`grants.json`):
+Grants are stored in three levels (project path → connection → mode) in `grants.json`:
 
-- **ro (read-only)**: query and browse allowed, every write rejected
+- **ro (read-only)**: queries and browsing allowed, all writes rejected
 - **rw (read-write)**: statements, scripts and transactions allowed
 
-Connections are always rejected for projects without a grant. Changing the mode (including an rw→ro downgrade) invalidates existing sessions immediately — no reconnect needed.
+An unauthorized project is rejected for every connection. Changing a grant mode (including rw → ro downgrade) invalidates old sessions immediately, no reconnect needed.
 
-On Windows, paths are normalized with NTFS case semantics, so `E:\GitHub\MyApp` and `e:\github\myapp` resolve to the same project.
+On Windows, paths are normalized with NTFS semantics (case-insensitive), so `E:\GitHub\MyApp` and `e:\github\myapp` are the same project.
 
 ### Dangerous-operation confirmation
 
-DDL, `FLUSHALL`, `dropDatabase` and similar statements return `NEEDS_CONFIRMATION` instead of executing:
+DDL, `FLUSHALL`, `dropDatabase` and similar statements return `NEEDS_CONFIRMATION` first instead of executing:
 
-1. The first call returns a pending state and a one-time `challengeId`
-2. The `challengeId` is bound to the statement's SHA256, valid for 5 minutes and single-use
-3. Execution happens only when retried with the same `challengeId` after user confirmation
+1. The first call returns a pending state with a one-time `challengeId`
+2. The `challengeId` is bound to the statement's SHA256, valid for 5 minutes, single use
+3. Execution happens only when the user confirms and retries with the same `challengeId`
 
-Confirmation comes through chat for model calls and through a dialog in the SQL console — both share the same semantics, so neither can bypass the gate.
+The chat tool confirms through conversation and the SQL console confirms through a dialog — both paths share the same semantics, and neither can be bypassed.
 
 ### Full audit logging
 
-Every execution — including rejected requests — appends one line to `audit.jsonl`: statement, danger level, whether it was confirmed, result and duration. The right sidebar tails it live.
+Every execution (including rejected requests) appends one line to `audit.jsonl`: statement, danger level, whether it was confirmed, result and duration. The right sidebar shows it live.
 
 ### Data browsing
 
 - Four-level tree: connection → database → schema → table
-- Database filter plus cross-database fuzzy table search (MySQL / PostgreSQL / GaussDB use native `information_schema` queries; other engines fall back to in-memory filtering)
-- Table structure and data preview, with sortable/paged grids and cell copy
+- Database filter plus cross-database table-name search (MySQL / PostgreSQL / GaussDB query `information_schema` natively; other kinds fall back to in-memory filtering)
+- Table structure viewing and data preview; the result grid supports sorting, paging and cell copying
 
 ### SQL console
 
 A Navicat-style multi-tab editor in the right sidebar (CodeMirror 6):
 
-- **Multiple tabs**: each keeps its own SQL, results and history (50 entries, click to refill)
-- **Highlighting and completion**: dialect switches automatically (MySQL / PostgreSQL / SQLite / PL/SQL / T-SQL), with table/column metadata injected into completion
+- **Multiple tabs**: each tab keeps its own SQL, results and history (50 entries, click to restore)
+- **Highlighting and completion**: dialect switches automatically (MySQL / PostgreSQL / SQLite / PL-SQL / T-SQL), with table and column metadata feeding completion
 - **Shortcuts**: `Ctrl/Cmd+Enter` runs everything, `Ctrl/Cmd+Shift+Enter` runs the selection
 - **Formatting**: sql-formatter per dialect, falling back to the original text when parsing fails
-- **Per-statement execution**: statements are pre-classified client-side and routed to the query or execute channel separately; writes are skipped and marked under an ro grant
-- **`GO` batch separator**: `GO` and `GO n` follow sqlcmd semantics (`GO 0` / `GO 1` both mean one pass), with a repeat cap of 1000 to prevent amplification
-- **Transactions**: begin/commit/rollback under an rw grant on a sticky server-side connection; idle sessions roll back automatically after 5 minutes and are audited
-- **Result grid**: three-state sorting, 50 rows per page, CSV/JSON export
+- **Per-statement execution**: the client pre-classifies read and write statements and routes them to the query and execute channels; under an ro grant, write statements are skipped and marked
+- **Batch separator `GO`**: supports `GO` and `GO n` (sqlcmd semantics, `GO 0` / `GO 1` both mean once), with a repeat cap of 1000 to prevent amplification
+- **Transactions**: under an rw grant you can begin / commit / roll back on a sticky server-side connection; idle sessions roll back automatically after 5 minutes and are audited
+- **Result grid**: three-state sorting, 50 rows per page, CSV / JSON export
 
 ### Data transfer
 
-Move table data between databases of the same or different engines:
+Moving table data between databases of the same or different kinds:
 
 - **Write modes**: `insert` (append), `ignore` (skip conflicts), `replace` (overwrite), `truncate` (clear first)
-- **Automatic DDL**: the target table is created from the source structure when missing
-- **Paged reads**: keyset, range and offset strategies, selected automatically per target version
-- **Progress and history**: live progress plus per-project transfer history
-- **Transfer configuration**: saved per project, auto-saved, refilled after restart and cleared automatically for stale connections. Existing product practice for saving connection pairs and task settings: [DBeaver Task management](https://dbeaver.com/docs/dbeaver/Task-Management), [Airbyte Configuring schemas](https://docs.airbyte.com/platform/using-airbyte/configuring-schema), [AWS DMS task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.html) and [Navicat Save Profiles](https://www.navicat.com/manual/pdf_manual/en/navicat_16/win_manual/navicat_en.pdf) ([officially confirmed via search summary only]: the Navicat manual is a PDF snippet, not parsed page by page)
-- **Intermediate type model**: heterogeneous columns are normalised into a shared intermediate type before being mapped to target columns, avoiding point-to-point converters for all nine engines. [Officially confirmed] [AWS DMS built-in data types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Reference.DataTypes.html) and [Airbyte supported data types](https://docs.airbyte.com/platform/understanding-airbyte/supported-data-types) both use a built-in/common type system; the N×N→2N complexity claim is a [project inference], not an official statement
-- **Redis envelope fallback**: Redis participates through a fixed table `__redis_keys` whose six columns are `key` (key name), `type` (string/hash/list/set/zset/stream, etc.), `ttl_ms` (remaining TTL in milliseconds, 0 when no expiry; PTTL `-1` maps to `0n`, PTTL `-2` skips a key that vanished at read time, positive values stay as milliseconds), `encoding` (`OBJECT ENCODING` value — an in-memory encoding diagnostic such as raw/hashtable/listpack/quicklist, unrelated to the `payload` column), `payload` (value flattened per type, always a UTF-8 JSON string) and `dump` (RDB bytes from [DUMP](https://redis.io/docs/latest/commands/dump/), only for same-engine Redis restore via [RESTORE](https://redis.io/docs/latest/commands/restore/)). [Officially confirmed] [Redis data types](https://redis.io/docs/latest/develop/data-types/) defines Redis as a data structure server, [SCAN](https://redis.io/docs/latest/commands/scan/) is a keyspace cursor, and [TTL](https://redis.io/docs/latest/commands/ttl/) is key-scoped; [project inference] Redis therefore cannot be treated as lossless table-to-table transfer, and Redis docs do not state this verbatim. Explicitly excluded: stream consumer groups, cross-version `DUMP`, and logical databases `dbN`
+- **Automatic table creation**: generates DDL from the source table structure when the target table is absent
+- **Paged reads**: ordered cursor (keyset), range, or offset strategies
+- **Progress and history**: live progress push plus per-project transfer history
+- **Transfer configuration**: saved per project, auto-saved, restored after restart, cleared when a connection becomes invalid
+- **Intermediate type model**: heterogeneous columns are normalized to a common intermediate type before mapping to the target column, avoiding point-to-point conversion across nine databases
+- **Redis envelope fallback**: Redis participates through the fixed table `__redis_keys` with these six columns
+
+| Column | Meaning |
+| --- | --- |
+| `key` | Key name |
+| `type` | string / hash / list / set / zset / stream, etc. |
+| `ttl_ms` | Remaining TTL in milliseconds, 0 when no expiry |
+| `encoding` | `OBJECT ENCODING` memory-encoding diagnostic value, unrelated to `payload` serialization |
+| `payload` | Value flattened by type, always a UTF-8 JSON string |
+| `dump` | `DUMP` RDB serialized bytes, used only by homogeneous Redis via `RESTORE` |
 
 ### Connection export / import
 
-Export all connections (including passwords) to a passphrase-encrypted file for cross-machine migration:
+Export every connection (including passwords) into a passphrase-encrypted file for cross-machine migration:
 
-- scrypt-derived key with AES-256-GCM over the whole payload — the file contains no plaintext
-- Minimum passphrase length of 8 characters, enforced server-side
-- Imports skip any connection id that already exists and report an "imported / skipped / failed" summary
+- scrypt-derived key plus AES-256-GCM over the whole payload; the file has no plaintext when opened
+- Passphrase minimum length 8, enforced server-side
+- On import, existing connection ids are skipped and never overwritten; the summary reports imported / skipped / failed
 
 ---
 
 ## Right sidebar
 
-One tab registered through the official DSH right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) — no third-party sidebar required. When the panel is expanded, **Databases** appears as a card on the sidebar's guide (empty-state) page and can sit next to, split with, or float out as a floating window alongside any other official tab. The tab holds five panels (bilingual):
+Registers one tab through the official DSH right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`), with no third-party sidebar dependency. The tab contains five panels (bilingual):
 
 | Panel | Purpose |
-|---|---|
-| Connections | Add, edit, delete connections; test connectivity; export/import |
-| Grants | Tick ro/rw per connection for the current project |
-| Browse | Tree navigation, search and data preview |
-| SQL Console | Multi-tab editor, transactions, history, result grid |
-| Transfer | Table-level data migration with batch/parallelism and write modes, plus a transfer log |
+| --- | --- |
+| Connections | Create / edit / delete connections, test connectivity, export and import |
+| Project grants | Tick ro / rw per connection for the current project |
+| Data browsing | Tree browsing, search, data preview |
+| SQL console | Multi-tab editor, transactions, history, result grid |
+| Data transfer | Table-level migration with batch / parallel options and a transfer log |
 
 ### Notes
 
-Both are contract behaviours of the official right sidebar and are easy to mistake for plugin defects:
+Both are contracts of the official right sidebar and are easily mistaken for plugin defects:
 
-- **Without a selected session the right sidebar shows no database panel.** The official right sidebar keys its layout state by session id, so with no session there is no docking surface — hence no guide card and no tab. Select a session first, then expand the right sidebar.
-- **If the only ready entry card is the database one, the "+" new-pane button opens the database tab directly instead of the guide page.** This is the official default-page rule (exactly one entry opens that page; zero or several entries open the guide), not a failure to show the guide.
+- **With no session selected, the right sidebar shows no database panel.** The official right sidebar keys its layout state by session id; without a session there is no docking surface, hence no entry card or tab — select a session first, then expand the right sidebar.
+- **When DSH has exactly one ready entry card, the "+" new-slot cell opens the database tab directly instead of the guide page.** This is the official default-page rule, not a skipped guide page.
 
 ---
 
 ## Security model
 
 | Layer | Mechanism |
-|---|---|
-| Storage | Passwords and full URLs live in `secrets.json` (0600) and are never returned to the model; credentials in data returned to the UI are redacted to `***` |
-| Authorization | Project-scoped ro/rw allowlist — no grant means rejection |
+| --- | --- |
+| Storage | Passwords and full URLs live in `secrets.json` (0600) and are never returned to the model; connection info returned to the UI is always masked as `***` |
+| Authorization | Project-scoped ro / rw allowlist; no grant means rejection |
 | Statement level | Risk classification (danger / warning / none) plus one-time confirmation |
-| Read-only enforcement | MySQL/PG use session-level `SET TRANSACTION READ ONLY`; SQL Server has no equivalent, so it degrades to five application-level gates (below) |
-| Error redaction | When URL parsing fails, userinfo is redacted from the error text so plaintext passwords never appear |
-| Script isolation | Separate child process, vm sandbox, 60s hard kill, only the `db` handle injected |
+| Read-only enforcement | MySQL / PostgreSQL use session-level `SET TRANSACTION READ ONLY`; SQL Server degrades to five application-level gates |
+| Error redaction | When connection-string parsing fails, userinfo in the error text is redacted; plaintext passwords are never echoed |
+| Script isolation | Separate child process + vm sandbox + 60-second hard kill + only the db handle injected |
 
-**SQL Server's ro enforcement is weaker than MySQL/PG**: SQL Server has no equivalent session-level read-only statement, so under an ro grant five application-level gates apply — first-word allowlist, multi-statement rejection, `SELECT ... INTO` rejection, `WITH ... (INSERT|UPDATE|DELETE|MERGE)` rejection, and `OPENQUERY`/`OPENROWSET`/`OPENDATASOURCE` rejection. This remains application-level interception; for hard isolation, configure a database-side read-only account for the connection.
-
----
-
-## SQL Server connection notes
-
-Covers SQL Server 2005 (9.0) through 2025 (17.0) and Azure SQL Database.
-
-**For normal use you only fill in host, port, user and password** (plus the database). Encryption and certificate parameters are not your problem. The form shows only those four required fields; everything else lives in a collapsed **Advanced options** section you open only when troubleshooting.
-
-### Default encryption policy: prefer plaintext, upgrade automatically when the server insists
-
-New connections default to `encrypt=auto` (the default option in the form's encryption field):
-
-1. Connect **without encryption** first — instances that do not force encryption (typically self-hosted, on an intranet) connect right away, no longer blocked by a self-signed certificate or an extra TLS layer.
-2. If the server **forces encryption** (`EENCRYPT` / "server requires encryption", e.g. `Force Encryption=Yes` or Azure SQL), retry **once** with `encrypt=true` + `trustServerCertificate=true`. The user does not see this.
-
-**Boundaries of the automatic retry (deliberately narrow — not an unlimited safety net)**:
-
-- **Exactly one retry.** No retry chains; on failure the original error is surfaced.
-- **Only for the "server forces encryption" cause.** Certificate-validation failures, TLS-version negotiation failures, bad credentials and everything else do **not** trigger a retry — blind retrying would bury the real cause and send troubleshooting in the wrong direction.
-- **No retry at all when `encrypt` is set explicitly** to `true` / `false` / `strict`. The policy you specify is final; the tool does not second-guess it.
-
-**On a server that does not force encryption, `auto` behaves exactly like `encrypt=false`, i.e. cleartext transmission** — that is the cost of this default; see "What `encrypt=false` really does" below. Do not skip it.
-
-**Connection URL parameters** (for advanced users and troubleshooting — **not needed** for everyday connections; the field-by-field form supports the same set):
-
-| Parameter | Values | Default |
-|---|---|---|
-| `encrypt` | `auto` / `true` / `false` / `strict` | `auto` (unencrypted first; upgrade with certificate trust when the server forces encryption — one retry only) |
-| `trustServerCertificate` | `true` / `false` | `false` |
-| `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4` (negotiated down automatically; normally leave unset) |
-| `tlsMinVersion` | `TLSv1` / `TLSv1.1` / `TLSv1.2` | unset (Node default TLSv1.2) |
-| `serverName` | Name to validate against the server certificate | unset (validate against the connected host) |
-| `caCert` | PEM file path or certificate text | unset (use the system trust store) |
-| `instanceName` | Named instance (mutually exclusive with port) | — |
-| `useUTC` | `true` / `false` | `true` |
-
-`caCert` / `serverName` / `trustServerCertificate` / `tlsMinVersion` / `tdsVersion` all live in the **Advanced options** section of the form (collapsed by default); they exist for certificate and legacy-instance troubleshooting and are not needed for normal connections.
-
-**You do not need to pick a TDS version**: the client always declares `7.4` and the server negotiates down to what it supports (2005→7.2, 2008→7.3.A, 2008 R2→7.3.B). This is mandated by [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) (when the client declares a higher version, the server **must** use the highest version it supports). `tdsVersion` remains only as a troubleshooting override.
-
-**When connecting to older instances, tell the two TLS failure families apart — their remedies are orthogonal and not interchangeable**:
-
-- **Certificate family** (`self signed certificate` / `unable to verify` / `CERT_`) → fails during certificate validation. ① Prefer installing the trusted CA via `?caCert=` (validation still applies); if the certificate names a host but you connect by IP, also set `?serverName=`. ② Only as a last resort use `?trustServerCertificate=true` to skip validation, or `?encrypt=false` when the server does not force encryption.
-- **Protocol-version family** (`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`) → client and server share no common TLS version, so the handshake fails during negotiation and **certificate validation never runs**; `trustServerCertificate` is useless here. The real fix is enabling TLS 1.2 on the server (KB4057113 for 2008 R2 SP3, KB4057114 for 2008 SP4, corresponding CU/GDR plus KB3052404 for 2012/2014); when the server cannot be touched, lower the client floor with `?tlsMinVersion=TLSv1`.
-
-TLS 1.2 support by version: 2016+ has it natively; 2012 SP4 / 2014 SP2 and later have it natively, earlier service packs need patches; 2008 / 2008 R2 need the updates above; **SQL Server 2005 has no patch that adds TLS 1.2** (officially "TLS 1.2 support is offered only for SQL Server 2008 and later"), so lowering the client TLS floor is the only option. See [KB3135244](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server).
-
-**What `encrypt=false` really does (verified by packet capture — do not read it as "just unencrypted data")**:
-
-- When the server does **not** force encryption (PRELOGIN replies `OFF`/`NOT_SUP`), `encrypt=false` **skips the TLS handshake entirely and sends LOGIN7 — including the credentials — in cleartext**. Measured against a fake TDS server: the client's next packet is `0x10` (LOGIN7) with no handshake at all. **This is plaintext transmission; never use it outside a trusted network.**
-- When the server **does** force encryption (`Force Encryption=Yes`, Azure SQL), `encrypt=false` is rejected ("server requires encryption"), so encryption is still mandatory there.
-- Microsoft's "the login packet is always encrypted" statement applies **only when the server forces encryption or the client sets `encrypt=true`**; it must not be generalised into "`encrypt=false` still performs a TLS handshake".
-
-Setting `encrypt=true` explicitly is therefore the secure setting; treat `encrypt=false` as an explicit downgrade.
-
-**The same paragraph defines what the default `encrypt=auto` means for security**: the first step of `auto` is an unencrypted connection, so against a server that does not force encryption it behaves **exactly** like `encrypt=false` — credentials in cleartext. `auto` only upgrades to TLS when the server refuses plaintext; it is not "automatically encrypt for you", it is "try unencrypted first, encrypt only when rejected". Therefore:
-
-- The default is fine on a **trusted intranet**; when the SQL Server is reached over the public internet or an untrusted segment, set `encrypt=true` explicitly (and use `caCert` / `serverName` for certificate issues) instead of relying on `auto`.
-- Set `encrypt=true` explicitly when you need a guaranteed secure setting: explicit values never retry, so behaviour is fully predictable.
-- Treat both `encrypt=false` and `encrypt=auto` as an **explicit downgrade**, not as "just left the advanced options closed".
-
-**`encrypt=strict` (TDS 8.0)**: only supported by SQL Server 2022+ instances with Force Strict Encryption enabled. In this mode TLS completes before the login packet, so **`trustServerCertificate` has no effect at all** (the driver omits `rejectUnauthorized` and validation is mandatory); use `caCert` or `serverName` instead.
-
-`tlsMinVersion` does not include `TLSv1.3`: the underlying tedious driver caps the TLS ceiling at 1.2, so setting 1.3 makes the minimum exceed the maximum and the handshake always fails.
-
-**System trust store**: the plugin merges the OS trust store into certificate validation (`tls.getCACertificates('system')`, requires Node ≥ 22.15; the DSH desktop ships Node 24.21). Importing a self-signed certificate into the Windows "Trusted Root Certification Authorities" store is therefore enough — **no `caCert` needed**. The injected list is bundled + system merged (measured 118 + 72 = 190); merging rather than replacing avoids breaking public-CA connections. On older runtimes without that API nothing is injected and Node's native default applies.
-
-**Other boundaries**: SQL authentication only (Windows integrated authentication and Azure AD are not supported); SQL Server 2000 and earlier are not supported; `tdsVersion=8_0` is not supported (TDS 8.0 is enabled via `encrypt=strict`).
+**SQL Server's ro enforcement is weaker than MySQL / PostgreSQL**: SQL Server has no equivalent session-level read-only statement, so under an ro grant five application-level gates apply — first-word allowlist, multi-statement rejection, `SELECT ... INTO` rejection, `WITH ... (INSERT|UPDATE|DELETE|MERGE)` rejection, and `OPENQUERY` / `OPENROWSET` / `OPENDATASOURCE` rejection. This remains application-level interception; for hard isolation, configure a database-side read-only account for the connection.
 
 ---
 
-## Dameng DM connection notes
+## Connection notes
 
-Normal use only needs host, port, user and password (default port 5236).
+### SQL Server
 
-**Communication encryption policy**: `dmdb` defaults to `loginEncrypt=true`. When the DM server sets `COMM_ENCRYPT_NAME=DES_CFB` (or negotiates DES/RC4), Node.js 22+ / OpenSSL 3 has DES and RC4 disabled by default, so the driver fails during the connection handshake with `[6071] 消息加密失败 / Unknown cipher`. The adapter handles it as follows:
+Supports SQL Server 2005 and later plus Azure SQL Database. Normal use needs only host, port, user and password (plus database name); encryption and certificate settings have defaults, and troubleshooting options for certificates and old instances sit in the form's collapsed **Advanced options** section.
 
-1. First connect with the driver default (encrypted).
-2. **Only when** the error is `[6071]` with `Unknown cipher` / `digital envelope routines::unsupported`, set `loginEncrypt` to `false` in the connection string's query part and retry once. Once a target (the same connection string with credentials stripped) has been confirmed, the result is remembered: later connections go straight to `loginEncrypt=false` instead of paying for another failed handshake.
-3. Other errors (bad credentials, network, permissions) are never retried, so the real cause is not hidden. If the fallback retry also fails, the message states that `loginEncrypt=false` has already been tried and points at the actual failure instead of repeating advice you already followed.
-4. An explicit `loginEncrypt=true` or `loginEncrypt=false` in the connection string disables automatic fallback — the specified policy is final. Parameter names are **case-insensitive**: `loginEncrypt`, `LOGINENCRYPT` and `LoginEncrypt` are equivalent, matching the `dmdb` driver's own behavior (the driver lowercases property names before matching).
+The default is `encrypt=auto`: connect without encryption first; only when the server **forces encryption** does it retry once with `encrypt=true` + `trustServerCertificate=true`. It retries once, for that reason only; an explicit `encrypt` is never retried.
 
-The fallback retry only rewrites the query part of the connection string (it removes every case variant of `loginEncrypt` and appends `loginEncrypt=false`); host, port, credentials, database name and any `#` fragment are preserved verbatim — the whole string is never rebuilt.
+**On servers that do not force encryption, both `auto` and `encrypt=false` transmit in plaintext** (including credentials). Acceptable on a trusted internal network; for public or untrusted networks set `encrypt=true` explicitly and use `caCert` or `serverName` when needed. `encrypt=strict` is supported only by SQL Server 2022+ with Force Strict Encryption enabled, and in that mode `trustServerCertificate` has no effect.
 
-The remembered fallback lives only in the current process: after the server switches `COMM_ENCRYPT_NAME` back to `AES_256_CFB` (or empty) so that encryption works again, this process keeps connecting with `loginEncrypt=false`. Restart the DSH desktop app to probe encryption afresh, or write `loginEncrypt=true` explicitly in URL mode — an explicit value always wins over the memo.
+SQL authentication only (no Windows integrated authentication, no Azure AD); SQL Server 2000 and earlier are not supported.
 
-**What `loginEncrypt=false` really means**: like SQL Server `encrypt=false`, messages are not encrypted; credentials and query results travel in plaintext. It is acceptable on a trusted internal network. For public or untrusted networks, set the DM server's `COMM_ENCRYPT_NAME` to `AES_256_CFB` (supported by Node 22+) or leave it empty (communication encryption disabled), restart the server, then connect with `loginEncrypt=true`.
+### Dameng DM
 
-**URL parameter**: `loginEncrypt=true|false` (DM only), case-insensitive.
+Default port 5236; normal use needs only host, port, user and password.
 
-**The Fields mode cannot set `loginEncrypt`**: new connections default to the **Fields** mode, which only collects host, port, user and password and builds `dm://user:pass@host:port` with no query part — the form has no switch to turn encryption off, so only the automatic policy above applies. To control encryption explicitly, switch to the **URL** mode and write the full string, e.g. `dm://user:pass@dm-host:5236?loginEncrypt=true`.
+If the Dameng server enables DES_CFB communication encryption, newer Node's OpenSSL has dropped DES, and the connection fails during the handshake with `[6071] message encryption failed`. The plugin handles it like this: only when both the error code and the error message match that signature does it set `loginEncrypt` to `false` in the connection string's query part and retry once; bad credentials, network errors and permission failures do not trigger a retry. A successful fallback for a given target is remembered, so later connections use that setting directly. An explicit `loginEncrypt` in the connection string disables automatic fallback entirely (parameter names are case-insensitive).
+
+**`loginEncrypt=false` means plaintext**: credentials and query results are not encrypted on the wire. Acceptable on a trusted internal network; for public networks set the server's `COMM_ENCRYPT_NAME` to `AES_256_CFB` or leave it empty, restart, then use `loginEncrypt=true` explicitly.
+
+The fields mode collects only host, port, user and password and cannot set `loginEncrypt`; to control encryption explicitly, switch to URL mode, for example `dm://user:pass@dm-host:5236?loginEncrypt=true`.
 
 ---
 
 ## Installation
 
+**Runtime requirements**: Node.js ≥ 22 (required by some database drivers); the DSH host must provide the official right sidebar.
+
 ```bash
-# npm (recommended)
-dsh plugin --profile web add dsh-db-tool
+# npm (recommended — pin the current version; @latest falls back to an older release due to release-age checks)
+dsh plugin --profile desktop add dsh-db-tool@<version> --registry=https://registry.npmjs.org/
 
 # From GitHub source
 dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
@@ -251,40 +196,27 @@ dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
 dsh plugin --profile web add "link:/path/to/dsh-db-tool"
 ```
 
-### Desktop app
+If the `dsh` command is not on PATH in the desktop app, open the menu bar and click **Manage dsh command** to register it. Restart the DSH desktop app after installing.
 
-DSH desktop 0.2.0-rc.2+ bundles the `dsh` command; host contracts were checked item by item on **0.2.2-rc.1** (`tools.register`, `webServer.register({kind:'prefix'})`, `connection.requestRejection`, `sessions.header.cwd`, `webStartup.trustedHosts`, and the client-side `slots`/`sidebarRightTabs`/`locale`), with no plugin code changes required:
+**About oracledb**: its install script is blocked by pnpm by default, so the first install reports a failure. Click **Allow these scripts and retry** in the DSH plugin installation UI — the script only checks the Node version and prints a banner, and the approval persists in the profile.
 
-1. Open the desktop menu bar and click **"Manage dsh command"** to register `dsh` on your PATH
-2. Install the plugin (npm installs must pin an exact version — `@latest` falls back to an older release due to release-age checks):
-
-   ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.11 --registry=https://registry.npmjs.org/
-   ```
-
-3. **Restart the desktop app** to load it
-
-**About oracledb**: its install script is blocked by pnpm by default, so the first install reports a failure. Click **"Allow these scripts and retry"** in the DSH plugin installer — the script only performs a Node version check and prints a banner, approving it is safe, and the approval persists to your profile so later upgrades do not prompt again.
-
-**Runtime requirement**: Node.js ≥ 22. Some database drivers (tedious and its Azure dependencies) require Node 22+; on Node 20 connections fail with `Promise.withResolvers is not a function`.
-
-**Where the UI is mounted**: the database panel docks into DSH's built-in right sidebar — no extra sidebar plugin needs installing. `dsh.client.inject` already declares `@deepseek-ai/dsh-client-ui-sidebar-right` as a load prerequisite.
+**Where the frontend mounts**: the database panel mounts on DSH's built-in right sidebar; no extra sidebar plugin is needed. `dsh.client.inject` already declares `@deepseek-ai/dsh-client-ui-sidebar-right` as a load prerequisite.
 
 ---
 
 ## Data layout
 
-`<My Documents>/DSH/db-tool/` (directory mode 0700; same root as the transfer log, so you can open it directly):
+`<My Documents>/DSH/db-tool/` (directory mode 0700; shares its root with the transfer log so users can open it directly):
 
 | File | Contents |
-|---|---|
-| `connections.json` | Connection definitions (passwords redacted to `***` in `urlSafe`) |
-| `secrets.json` | Mode 0600; passwords and full URLs, never returned to the model |
-| `grants.json` | Project grants (normalized path → connId → ro/rw) |
-| `transfer-config.json` | Mode 0600; per-project data-transfer page configuration (auto-saved, restored on restart, stale connection IDs cleared) |
+| --- | --- |
+| `connections.json` | Connection definitions (`urlSafe` masks passwords as `***`) |
+| `secrets.json` | 0600, passwords and full URLs, never returned to the model |
+| `grants.json` | Project grants (normalized path → connId → ro / rw) |
+| `transfer-config.json` | 0600, per-project connection and option config for the transfer page |
 | `audit.jsonl` | Append-only audit log, one JSON object per line |
 
-`transfer-log.jsonl` (transfer progress log and history) lives in the same root. Path resolution: explicit injection (tests) > `DSH_DB_TOOL_DIR` > `<My Documents>/DSH`. "My Documents" is resolved via the Windows Shell API `GetFolderPath('MyDocuments')`, so redirected folders (OneDrive and similar) are followed automatically; on other platforms it falls back to `XDG_DOCUMENTS_DIR` or `~/Documents`. Data left in the legacy `$DSH_HOME/db-tool/` location is **migrated file by file** on first start (existing targets are never overwritten; legacy files are kept).
+`transfer-log.jsonl` (transfer process log and history) sits alongside. Path resolution priority: explicit injection (tests) > `DSH_DB_TOOL_DIR` > `<My Documents>/DSH`. On Windows "My Documents" is resolved through the Shell API and follows redirection (OneDrive etc.); elsewhere it uses `XDG_DOCUMENTS_DIR` or `~/Documents`. Data from older versions stored under `$DSH_HOME/db-tool/` is migrated file-by-file on first start (skipped when the target exists; old files are kept).
 
 ---
 
@@ -293,34 +225,34 @@ DSH desktop 0.2.0-rc.2+ bundles the `dsh` command; host contracts were checked i
 ```bash
 npm install
 npm run build        # compile + build vendor bundles (mongodb / sqlserver / codemirror)
-npm test             # full vitest suite
+npm test             # full vitest run
 npm run typecheck    # tsc --noEmit
 ```
 
-Integration smoke tests are gated by environment variables and only run when set:
+Real-database smoke tests are gated by environment variables and only run when set:
 
 ```
 DBT_TEST_MYSQL_URL / DBT_TEST_PG_URL / DBT_TEST_REDIS_URL / DBT_TEST_DM_CONNECT
 DBT_TEST_MONGO_URL / DBT_TEST_ORACLE_CONNECT / DBT_TEST_SQLSERVER_URL
 ```
 
-CI is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Node 22 and 24, running `npm ci → build → typecheck → test`.
+CI lives in [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Node 22 and 24, running `npm ci → build → typecheck → test`.
 
 ### Repository layout
 
 ```
-lib/          plugin core
-  adapters/   nine database adapters plus transfer implementations
+lib/          plugin body
+  adapters/   9 database adapters + transfer implementations
   store/      connection / grant / audit / secret storage
   guard/      statement risk classification
-  manager.ts  business orchestration (auth, dispatch, confirm, audit)
+  manager.ts  business orchestration (authorize, dispatch, confirm, audit)
   http/       right-sidebar HTTP routes
   script/     run_script sandbox and child process
 client/       right-sidebar single-file bundle
 skills/       db-admin skill
 scripts/      build and tooling scripts
 patches/      DSH host hotfix patches
-tests/        vitest (offline mocks plus gated integration tests)
+tests/        vitest (offline mocks + gated real-database tests)
 assets/       feature flow diagram
 vendor/       driver and editor bundles (build artifacts, included on publish)
 ```
@@ -329,10 +261,10 @@ vendor/       driver and editor bundles (build artifacts, included on publish)
 
 ## Contributors
 
-Thanks to every external contributor whose work actually landed on `master`; per-item details in [CONTRIBUTORS.md](CONTRIBUTORS.md):
+Thanks to every external contributor whose work landed on `master`; per-item details are in [CONTRIBUTORS.md](CONTRIBUTORS.md):
 
-- [a19920714liou](https://github.com/a19920714liou) — [PR #1](https://github.com/mengqi1436/dsh-db-tool/pull/1): ro connection hook hang + Windows path case mismatch in grants (the two root causes behind "tables don't show up after configuring a data source")
-- [weicy98](https://github.com/weicy98) — [PR #12](https://github.com/mengqi1436/dsh-db-tool/pull/12): Dameng DM connection failure when communication encryption is DES-CFB
+- [a19920714liou](https://github.com/a19920714liou) — [PR #1](https://github.com/mengqi1436/dsh-db-tool/pull/1): ro connection hook hang + Windows path case mismatch in grants
+- [weicy98](https://github.com/weicy98) — [PR #12](https://github.com/mengqi1436/dsh-db-tool/pull/12): Dameng DM connection failure when communication encryption is DES_CFB
 
 Bug fixes and adapter support are welcome; contribution conventions are in [CONTRIBUTORS.md](CONTRIBUTORS.md#贡献方式).
 

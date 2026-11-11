@@ -2,28 +2,30 @@
 
 [English](README_EN.md) | 简体中文
 
-在 DSH 聊天中安全操作数据库：9 种数据库、项目级细粒度授权、危险操作确认、全量审计，配套右侧栏管理台与 SQL 控制台。
+DSH 宿主插件。在聊天中安全地操作数据库：九种数据库、项目级细粒度授权、危险操作确认、全量审计，配套右侧栏管理台与 SQL 控制台。
 
 ## 功能流程
 
-一次数据库操作从入口到落库审计的完整路径——两个入口共用一套语义，中间必须穿过项目级授权与语句级风险分级两道闸门：
+一次数据库操作从入口到落库审计的完整路径——聊天工具与右侧栏两个入口共用一套语义，中间必须穿过项目级授权与语句级风险分级两道闸门：
 
 ![dsh-db-tool 功能流程](assets/feature-flow.png)
 
-[**打开交互式版本**](assets/feature-flow.html) —— 支持缩放、拖动、路径高亮，可点节点查看源码证据。
+[打开交互式版本](assets/feature-flow.html) —— 支持缩放、拖动、路径高亮，可点节点查看源码证据。
 
-> 有问题或建议？[提 Issue](https://github.com/mengqi1436/dsh-db-tool/issues/new/choose)（已有 Bug 模板与功能请求模板）。
+> 有问题或建议？[提 Issue](https://github.com/mengqi1436/dsh-db-tool/issues/new/choose)。
 
 ---
 
 ## 支持的数据库
 
 | 类别 | 数据库 |
-|---|---|
+| --- | --- |
 | 关系型 | MySQL、PostgreSQL、GaussDB、SQLite、Oracle、达梦 DM、SQL Server |
 | NoSQL | Redis、MongoDB |
 
-连接、元数据浏览、查询与预览覆盖九种数据库；数据传输按能力分层：8 个 kind（`mysql`/`postgresql`/`gaussdb`/`sqlite`/`mongodb`/`oracle`/`dmdb`/`sqlserver`）走原生表级互传，Redis 通过固定 envelope 表 `__redis_keys` 降级参与。Redis 原生键空间保真（stream consumer group、跨版本 `DUMP`、逻辑库 `dbN`）明确排除；方言差异在适配器内部处理——对上层统一暴露 `?` 占位符与标准结果集。
+连接、元数据浏览、查询与预览覆盖九种数据库。数据传输按能力分层：八种数据库（MySQL / PostgreSQL / GaussDB / SQLite / MongoDB / Oracle / 达梦 / SQL Server）走原生表级互传，Redis 通过固定 envelope 表 `__redis_keys` 降级参与。Redis 原生键空间保真（stream consumer group、跨版本 `DUMP`、逻辑库 `dbN`）不在支持范围内。
+
+方言差异在适配器内部处理，对上层统一暴露 `?` 占位符与标准结果集。
 
 ---
 
@@ -34,15 +36,15 @@
 单一工具、多 action，减少模型选工具的歧义：
 
 | action | 作用 |
-|---|---|
+| --- | --- |
 | `list_connections` | 列出可选连接（不含凭据） |
 | `query` | 执行只读查询，返回列与行 |
 | `execute` | 执行写语句，危险操作需确认 |
-| `schema` | 查看库/表/列结构 |
-| `preview` | 预览表数据（分页，≤50 行/页） |
+| `schema` | 查看库 / 表 / 列结构 |
+| `preview` | 预览表数据（分页，每页最多 50 行） |
 | `run_script` | 在沙箱中跑脚本，可多次调用 `db.query` / `db.execute` |
 
-`run_script` 的隔离边界：独立子进程 + `node:vm` 沙箱，60 秒超时后进程级强杀，只注入受限的 `db.{query,execute}` 句柄——不给文件系统、网络与 `require`。
+`run_script` 的隔离边界：独立子进程 + `node:vm` 沙箱，60 秒超时后进程级强杀，只注入受限的 `db.{query,execute}` 句柄——不提供文件系统、网络与 `require`。
 
 ### 项目级授权（ro / rw）
 
@@ -51,7 +53,7 @@
 - **ro（只读）**：允许查询与浏览，拒绝一切写操作
 - **rw（读写）**：允许执行语句、脚本与事务
 
-未授权的项目对任何连接一律拒绝。授权模式变更（含 rw→ro 降级）会立即作废旧会话，不需要重连。
+未授权的项目对任何连接一律拒绝。授权模式变更（含 rw → ro 降级）会立即作废旧会话，无需重连。
 
 Windows 下路径按 NTFS 语义归一（大小写不敏感），`E:\GitHub\MyApp` 与 `e:\github\myapp` 视为同一项目。
 
@@ -63,7 +65,7 @@ DDL、`FLUSHALL`、`dropDatabase` 等语句先返回 `NEEDS_CONFIRMATION`，不�
 2. `challengeId` 绑定语句的 SHA256，5 分钟内有效、用后即废
 3. 用户确认后携同一 `challengeId` 重试才真正执行
 
-模型侧经对话确认，SQL 控制台侧经弹窗确认——两条路径共用同一套语义，任一处都无法绕过。
+聊天工具侧经对话确认，SQL 控制台侧经弹窗确认——两条路径共用同一套语义，任一处都无法绕过。
 
 ### 全量审计
 
@@ -80,25 +82,34 @@ DDL、`FLUSHALL`、`dropDatabase` 等语句先返回 `NEEDS_CONFIRMATION`，不�
 Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 
 - **多标签**：每标签独立保存 SQL、结果与历史（50 条上限，点击回填）
-- **语法高亮与补全**：按方言自动切换（MySQL / PostgreSQL / SQLite / PL/SQL / T-SQL），表列元数据注入补全
+- **语法高亮与补全**：按方言自动切换（MySQL / PostgreSQL / SQLite / PL-SQL / T-SQL），表列元数据注入补全
 - **快捷键**：`Ctrl/Cmd+Enter` 执行全部，`Ctrl/Cmd+Shift+Enter` 执行选中
 - **格式化**：按方言调用 sql-formatter，解析失败回退原文
 - **逐条执行**：客户端预分类读写语句，分别路由到查询与执行通道；ro 授权下写语句自动跳过并标注
-- **批分隔符 `GO`**：支持 `GO` 与 `GO n`（sqlcmd 语义，`GO 0`/`GO 1` 均等同 1 次），重复上限 1000 次防放大
-- **事务**：rw 授权下可开始/提交/回滚，服务端粘性连接；空闲 5 分钟自动回滚并审计
-- **结果网格**：三态排序、50 行/页、CSV/JSON 导出
+- **批分隔符 `GO`**：支持 `GO` 与 `GO n`（sqlcmd 语义，`GO 0` / `GO 1` 均等同 1 次），重复上限 1000 次防放大
+- **事务**：rw 授权下可开始 / 提交 / 回滚，服务端粘性连接；空闲 5 分钟自动回滚并审计
+- **结果网格**：三态排序、每页 50 行、CSV / JSON 导出
 
-### 数据传输（transfer）
+### 数据传输
 
 同类或跨类数据库之间的表数据搬运：
 
 - **写入模式**：`insert`（追加）、`ignore`（跳过冲突）、`replace`（覆盖）、`truncate`（先清空）
 - **自动建表**：目标表不存在时按源表结构生成 DDL
-- **分页读取**：有序游标（keyset）/ 范围 / 偏移三种策略，按目标库版本自动选择
+- **分页读取**：有序游标（keyset）/ 范围 / 偏移三种策略
 - **进度与历史**：实时进度推送 + 按项目隔离的传输历史
-- **传输配置**：按项目保存，自动保存、重启后回填、失效连接自动清空。保存连接配对与任务配置的既有产品做法见 [DBeaver Task management](https://dbeaver.com/docs/dbeaver/Task-Management)、[Airbyte Configuring schemas](https://docs.airbyte.com/platform/using-airbyte/configuring-schema)、[AWS DMS task settings](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Tasks.CustomizingTasks.TaskSettings.html) 与 [Navicat Save Profiles](https://www.navicat.com/manual/pdf_manual/en/navicat_16/win_manual/navicat_en.pdf)（【官方页面动态壳/搜索摘要已确认】：Navicat 手册为 PDF 搜索摘要，未逐页解析）
-- **中间类型模型**：异构列先归一化到统一中间类型再映射目标列，避免九库点对点转换。【官方文档已确认】[AWS DMS built-in data types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Reference.DataTypes.html) 与 [Airbyte supported data types](https://docs.airbyte.com/platform/understanding-airbyte/supported-data-types) 均采用内置/公共类型系统；九库由 N×N 降为 2N 的复杂度结论属【项目推断】，官方未逐字给出
-- **Redis envelope 降级**：Redis 以固定表 `__redis_keys` 参与，六列语义为 `key`（键名）、`type`（string/hash/list/set/zset/stream 等）、`ttl_ms`（剩余 TTL 毫秒，无过期为 0；PTTL `-1` 落 `0n`、PTTL `-2` 读瞬间键已消失则跳过该键，正值原样毫秒）、`encoding`（`OBJECT ENCODING` 内存编码诊断值，如 raw/hashtable/listpack/quicklist，与 `payload` 列的序列化无关）、`payload`（按类型展平的值，恒为 UTF-8 JSON 字符串）、`dump`（[DUMP](https://redis.io/docs/latest/commands/dump/) 的 RDB 序列化字节，仅同构 Redis 经 [RESTORE](https://redis.io/docs/latest/commands/restore/) 恢复用）。【官方文档已确认】[Redis data types](https://redis.io/docs/latest/develop/data-types/) 定义其为 data structure server，[SCAN](https://redis.io/docs/latest/commands/scan/) 是 keyspace cursor，[TTL](https://redis.io/docs/latest/commands/ttl/) 按 key 返回秒级剩余时间；【项目推断】因此无法把 Redis 当成表到表无损迁移，官方未逐字声明。降级边界明确排除：stream consumer group、跨版本 `DUMP`、逻辑库 `dbN`
+- **传输配置**：按项目保存，自动保存、重启后回填、失效连接自动清空
+- **中间类型模型**：异构列先归一化到统一中间类型再映射目标列，避免九库点对点转换
+- **Redis envelope 降级**：Redis 以固定表 `__redis_keys` 参与，六列语义如下
+
+| 列 | 语义 |
+| --- | --- |
+| `key` | 键名 |
+| `type` | string / hash / list / set / zset / stream 等 |
+| `ttl_ms` | 剩余 TTL 毫秒，无过期为 0 |
+| `encoding` | `OBJECT ENCODING` 内存编码诊断值，与 `payload` 的序列化无关 |
+| `payload` | 按类型展平的值，恒为 UTF-8 JSON 字符串 |
+| `dump` | `DUMP` 的 RDB 序列化字节，仅同构 Redis 经 `RESTORE` 恢复用 |
 
 ### 连接导出 / 导入
 
@@ -112,135 +123,71 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 
 ## 右侧栏
 
-通过 DSH **官方右侧栏**（`@deepseek-ai/dsh-client-ui-sidebar-right`）注册一个页签，不依赖任何第三方侧边栏。右侧栏展开时，「数据库」随侧边栏空态页（入口页）的卡片出现，可与其他官方页签并排、拆分或浮出为浮窗；页签内含五个面板（中英双语）：
+通过 DSH 官方右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`）注册一个页签，不依赖任何第三方侧边栏。页签内含五个面板（中英双语）：
 
 | 面板 | 用途 |
-|---|---|
-| 连接管理 | 新增/编辑/删除连接，测试连通性，导出导入 |
-| 项目授权 | 为当前项目勾选各连接的 ro/rw |
+| --- | --- |
+| 连接管理 | 新增 / 编辑 / 删除连接，测试连通性，导出导入 |
+| 项目授权 | 为当前项目勾选各连接的 ro / rw |
 | 数据浏览 | 树形浏览库表、搜索、预览数据 |
 | SQL 控制台 | 多标签编辑器、事务、历史、结果网格 |
-| 数据传输 | 库表级数据迁移，批量/并行与写入模式可选，附传输日志 |
+| 数据传输 | 库表级数据迁移，批量 / 并行与写入模式可选，附传输日志 |
 
 ### 使用须知
 
 两条都是官方右侧栏的契约行为，容易误判为插件缺陷：
 
 - **未选择会话时，右侧栏不显示数据库面板。** 官方右侧栏的布局状态按会话 id 键控，没有会话就没有停靠面，也就没有入口卡片与页签——先选一个会话再展开右侧栏。
-- **若当前 DSH 就绪的入口卡片只有一个，「+」新建格会直接打开数据库页签而不是引导页。** 这是官方默认页规则（入口恰为一个时直接打开该页；没有入口或多个入口时打开引导页），不是跳过引导页的异常。
+- **若当前 DSH 就绪的入口卡片只有一个，「+」新建格会直接打开数据库页签而不是引导页。** 这是官方默认页规则，不是跳过引导页的异常。
 
 ---
 
 ## 安全模型
 
 | 层次 | 机制 |
-|---|---|
+| --- | --- |
 | 存储 | 密码与完整 URL 存 `secrets.json`（0600），永不返回给模型，返回给界面的连接信息密码一律脱敏为 `***` |
-| 授权 | 项目级 ro/rw 白名单，未授权即拒绝 |
+| 授权 | 项目级 ro / rw 白名单，未授权即拒绝 |
 | 语句级 | 风险分级（danger / warning / none）+ 一次性确认 |
-| 只读强制 | MySQL/PG 走会话级 `SET TRANSACTION READ ONLY`；SQL Server 无等价语句，退化为应用层五道闸门（见下） |
+| 只读强制 | MySQL / PostgreSQL 走会话级 `SET TRANSACTION READ ONLY`；SQL Server 退化为应用层五道闸门 |
 | 错误脱敏 | 连接串解析失败时，错误文案中的 userinfo 已脱敏，不回显明文密码 |
-| 脚本隔离 | 独立子进程 + vm 沙箱 + 60s 强杀 + 仅注入 db 句柄 |
+| 脚本隔离 | 独立子进程 + vm 沙箱 + 60 秒强杀 + 仅注入 db 句柄 |
 
-**SQL Server 的 ro 强度弱于 MySQL/PG**：SQL Server 没有等价的会话级只读语句，ro 授权下由应用层五道拦截兜底——首词白名单、拒绝多语句、拒绝 `SELECT ... INTO`、拒绝 `WITH ... (INSERT|UPDATE|DELETE|MERGE)`、拒绝 `OPENQUERY`/`OPENROWSET`/`OPENDATASOURCE`。这仍是应用层拦截，需要数据库侧强隔离时请为连接配置只读账号。
-
----
-
-## SQL Server 连接说明
-
-覆盖 SQL Server 2005（9.0）→ 2025（17.0）与 Azure SQL Database。
-
-**常规使用只需要填主机、端口、账号、密码**（外加库名）就能连上，加密与证书参数一律不用管。表单默认只显示这四个必填项，其余参数收在「高级选项」折叠区里，需要排障时再展开。
-
-### 默认加密策略：不加密优先，被拒后自动升级
-
-新建连接默认 `encrypt=auto`（表单加密一栏的默认档）：
-
-1. 先**不带加密**建连——服务器没强制加密的实例（内网自建居多）直接连上，不再因为自签证书或多一层 TLS 卡住。
-2. 若服务器**强制加密**（报 `EENCRYPT` / 提示「服务器要求加密连接」，如开启 `Force Encryption=Yes` 或 Azure SQL），自动改用 `encrypt=true` + `trustServerCertificate=true` **重试一次**，用户无感。
-
-**自动重试的边界（有意收窄，不要理解成「无限自动兜底」）**：
-
-- **只重试一次**，不会连环重试，失败就把原始错误报给用户。
-- **只针对「服务器强制加密」这一种原因**。证书校验失败、TLS 版本协商失败、账号密码错误等其他失败**不会**触发重试——盲目重试只会把这些错误的真实原因盖掉，把排障引向错误方向。
-- **显式写 `encrypt=true` / `false` / `strict` 时不做任何重试**。你指定的策略就是最终策略，工具不替你改主意。
-
-**`auto` 在未强制加密的服务器上等同于 `encrypt=false`，也就是明文传输**——这是默认策略的代价，风险说明见下文「`encrypt=false` 的真实语义」，别跳过。
-
-**连接 URL 参数**（高级用户与排障时用，日常连接**无需**填这些；分字段表单同样支持）：
-
-| 参数 | 取值 | 默认 |
-|---|---|---|
-| `encrypt` | `auto` / `true` / `false` / `strict` | `auto`（先不加密，服务器强制加密时自动升级并信任其证书，仅重试一次） |
-| `trustServerCertificate` | `true` / `false` | `false` |
-| `tdsVersion` | `7_4` / `7_3_A` / `7_3_B` / `7_2` / `7_1` | `7_4`（服务器自动降级，通常无需设置） |
-| `tlsMinVersion` | `TLSv1` / `TLSv1.1` / `TLSv1.2` | 不设置（Node 默认 TLSv1.2） |
-| `serverName` | 证书校验用的服务器名 | 不设置（用连接主机名校验） |
-| `caCert` | PEM 文件路径或证书文本 | 不设置（用系统信任库） |
-| `instanceName` | 命名实例名（与 port 互斥） | — |
-| `useUTC` | `true` / `false` | `true` |
-
-`caCert` / `serverName` / `trustServerCertificate` / `tlsMinVersion` / `tdsVersion` 都在表单的**「高级选项」**折叠区里（默认收起），专供证书与老版本实例排障；正常连接不需要展开它。
-
-**TDS 版本不需要手动选**：客户端固定声明 `7.4`，服务器会按自身能力自动降级（2005→7.2、2008→7.3.A、2008 R2→7.3.B）。这是 [MS-TDS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/773a62b6-ee89-4c02-9e5e-344882630aac) 规定的行为（客户端声明高于服务器时，服务器**必须**使用自己最高的版本）。`tdsVersion` 仅作排障覆盖项保留。
-
-**连老实例时先分清两类 TLS 失败，解法正交、不可互相替代**：
-
-- **证书类**（`self signed certificate` / `unable to verify` / `CERT_`）→ 证书校验阶段失败。① 推荐用 `?caCert=` 安装受信 CA（校验照常生效）；证书签发给域名而你在用 IP 连接时，再加 `?serverName=域名`。② 不得已才用 `?trustServerCertificate=true` 跳过校验，或 `?encrypt=false`（前提是服务器未强制加密）。
-- **协议版本类**（`UNSUPPORTED_PROTOCOL` / `no protocols available` / `alert protocol version`）→ 客户端与服务端没有共同的 TLS 版本，握手在协商阶段就失败，**证书校验根本没执行**，`trustServerCertificate` 对它无效。根治靠服务端启用 TLS 1.2（2008 R2 SP3 装 KB4057113、2008 SP4 装 KB4057114、2012/2014 装对应 CU/GDR 与 KB3052404）；暂时动不了服务端时用 `?tlsMinVersion=TLSv1` 让客户端下探。
-
-各版本对 TLS 1.2 的支持：2016+ 原生支持；2012 SP4 / 2014 SP2 及以后原生支持，更早的 SP 需打补丁；2008 / 2008 R2 需上述补丁；**SQL Server 2005 无任何补丁可支持 TLS 1.2**（官方明确「TLS 1.2 只支持 SQL Server 2008 及以后」），只能下探客户端 TLS 下限。详见 [KB3135244](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server)。
-
-**`encrypt=false` 的真实语义（实测确认，勿误解为「只是不加密」）**：
-
-- 服务器**未**强制加密（PRELOGIN 回 `OFF`/`NOT_SUP`）时，`encrypt=false` 会**完全跳过 TLS 握手，直接明文发送 LOGIN7（含账号密码）**。已用假 TDS 服务器抓包实测：客户端下一个包就是 `0x10`（LOGIN7），没有 TLS 握手。**这是明文传输，切勿在内网之外使用。**
-- 服务器**强制**加密（`Force Encryption=Yes` 或 Azure SQL）时，`encrypt=false` 会被拒绝（提示「服务器要求加密连接」）——此时仍必须开加密。
-- 微软文档中「登录包始终加密」指的是**服务器强制加密或客户端 `encrypt=true` 时**的语义，不能推广成「`encrypt=false` 也总有 TLS 握手」。
-
-**这段也是默认 `encrypt=auto` 的安全含义**：`auto` 的第一步就是「不加密建连」，落到未强制加密的服务器上时，行为与 `encrypt=false` **完全相同**——明文传账号密码。`auto` 只在服务器拒绝明文时才升级到 TLS，它不是「自动帮你加密」，而是「先按不加密试，被拒才加密」。因此：
-
-- 在**可信内网**用默认值没问题；跨公网、跨不可信网段连 SQL Server 时，请显式设 `encrypt=true`（并在需要时用 `caCert` / `serverName` 解决证书问题），不要依赖 `auto`。
-- 需要强制安全档时显式写 `encrypt=true`：显式值不做任何自动重试，行为完全可预期。
-- `encrypt=false` 与 `encrypt=auto` 都应视为**明确的降级选择**，不是「只是没开高级选项」。
-
-**`encrypt=strict`（TDS 8.0）**：仅 SQL Server 2022+ 且开启 Force Strict Encryption 的实例支持。该模式下 TLS 在登录包之前就完成握手，因此 **`trustServerCertificate` 完全不生效**（驱动不传 `rejectUnauthorized`，证书强制校验），只能靠 `caCert` 或 `serverName`。
-
-`tlsMinVersion` 不含 `TLSv1.3`：底层 tedious 会把 TLS 上限封顶在 1.2，设 1.3 会让最小版本大于最大版本，握手必然失败。
-
-**系统信任库**：插件会把操作系统信任库并入证书校验（`tls.getCACertificates('system')`，需 Node ≥ 22.15；DSH 桌面端内置 Node 24.21 满足）。因此按官方推荐把自签证书导入 Windows「受信任的根证书颁发机构」后，**无需填 `caCert` 即可连接**。注入的是「内置 bundle + 系统信任库」合并列表（实测 118 + 72 = 190 张），合并而非替换，避免只给系统库导致连公网证书反而失败。老环境没有该 API 时不注入，保持 Node 原生默认校验（公网证书照常可用）。
-
-**其他边界**：仅 SQL 认证（不支持 Windows 集成认证与 Azure AD 认证）；不支持 SQL Server 2000 及更早；不支持 `tdsVersion=8_0`（TDS 8.0 通过 `encrypt=strict` 启用）。
+**SQL Server 的 ro 强度弱于 MySQL / PostgreSQL**：SQL Server 没有等价的会话级只读语句，ro 授权下由应用层五道拦截兜底——首词白名单、拒绝多语句、拒绝 `SELECT ... INTO`、拒绝 `WITH ... (INSERT|UPDATE|DELETE|MERGE)`、拒绝 `OPENQUERY` / `OPENROWSET` / `OPENDATASOURCE`。这仍是应用层拦截，需要数据库侧强隔离时请为连接配置只读账号。
 
 ---
 
-## 达梦 DM 连接说明
+## 连接说明
 
-常规使用只需填主机、端口、账号、密码（默认端口 5236）。
+### SQL Server
 
-**通信加密策略**：`dmdb` 驱动默认 `loginEncrypt=true`。当 DM 服务器的 `dm.ini` 配置 `COMM_ENCRYPT_NAME=DES_CFB`（或协商到 DES/RC4）时，Node.js 22+ 使用的 OpenSSL 3 已默认禁用 DES/RC4，驱动会在建连握手阶段报 `[6071] 消息加密失败 / Unknown cipher`。插件按以下策略处理：
+支持 SQL Server 2005 及以上与 Azure SQL Database。常规使用只需填主机、端口、账号、密码（外加库名），加密与证书参数有默认值；证书与老版本实例的排障项收在表单的「高级选项」折叠区。
 
-1. 先按驱动默认（加密）连接；
-2. **仅当**错误码为 `[6071]` 且错误消息为 `Unknown cipher` / `digital envelope routines::unsupported` 时，把连接串 query 段的 `loginEncrypt` 置为 `false` 并**重试一次**；同一目标（去掉账号密码后相同的连接串）降级成功后会被记住，后续连接直接按 `loginEncrypt=false` 建立，不再重复一次失败握手；
-3. 账号密码错误、网络异常、权限不足等其他错误不触发重试，避免掩盖真实原因；降级重试后仍失败时，提示会说明「已按 `loginEncrypt=false` 重试」并指向真正的失败点，不再重复建议你去做已经做过的事；
-4. 连接串**显式**写 `loginEncrypt=true` 或 `loginEncrypt=false` 时不做任何自动降级——你指定的策略就是最终策略。参数名**大小写不敏感**：`loginEncrypt`、`LOGINENCRYPT`、`LoginEncrypt` 等价，这与 `dmdb` 驱动自身的语义一致（驱动把属性名统一转小写后匹配）。
+默认 `encrypt=auto`：先不加密建连；仅当服务器**强制加密**时，自动改用 `encrypt=true` + `trustServerCertificate=true` 重试一次。只重试一次、只针对这一种原因；显式写 `encrypt` 时不重试。
 
-降级重试只改写连接串的 query 段（去掉所有大小写的 `loginEncrypt` 变体、追加 `loginEncrypt=false`），主机、端口、账号密码、库名与 `#` 片段按原样保留，不会重组整条串。
+**`auto` 与 `encrypt=false` 在未强制加密的服务器上都是明文传输**（含账号密码）。可信内网可用；跨公网或不可信网段请显式设 `encrypt=true`，必要时用 `caCert` 或 `serverName` 解决证书问题。`encrypt=strict` 仅 SQL Server 2022+ 且开启 Force Strict Encryption 的实例支持，该模式下 `trustServerCertificate` 不生效。
 
-降级结果的记忆只存在于当前进程内：服务端把 `COMM_ENCRYPT_NAME` 改成 `AES_256_CFB` 或留空（恢复可加密）之后，本进程仍会按记忆继续用 `loginEncrypt=false` 连接；要重新按加密探测，重启 DSH 桌面端（或显式在 URL 模式下写 `loginEncrypt=true`，显式值始终优先于记忆）。
+仅 SQL 认证（不支持 Windows 集成认证与 Azure AD 认证）；不支持 SQL Server 2000 及更早。
 
-**`loginEncrypt=false` 的真实语义**：与 SQL Server 的 `encrypt=false` 一样，消息不加密，账号密码与查询结果在网络上明文传输。内网可信环境可使用；跨公网或不可信网段请在 DM 服务端把 `COMM_ENCRYPT_NAME` 设为 `AES_256_CFB`（Node 22+ 支持），或留空（不启用通信加密）后重启，再显式使用 `loginEncrypt=true`。
+### 达梦 DM
 
-**URL 参数**：`loginEncrypt=true|false`（仅达梦），参数名大小写不敏感。
+默认端口 5236，常规使用只需填主机、端口、账号、密码。
 
-**分字段方式无法指定 `loginEncrypt`**：新建连接默认走「分字段方式」，该方式只收集主机、端口、账号、密码，拼出的连接串是 `dm://user:pass@host:port`，不含 query 段，因此界面上没有「关闭加密」的开关，只能接受上述自动策略。需要显式控制加密行为时，请把连接方式切到「**URL 方式**」并直接写完整串，例如 `dm://user:pass@dm-host:5236?loginEncrypt=true`。
+达梦服务器若启用 DES_CFB 通信加密，新版 Node 的 OpenSSL 已移除 DES，建连会在握手阶段报 `[6071] 消息加密失败`。插件对此的处理是：仅当错误码与错误消息同时符合该特征时，把连接串 query 段的 `loginEncrypt` 置为 `false` 重试一次；账号密码错误、网络异常、权限不足等不触发重试。同一目标降级成功后会记住，后续连接直接按该设置建立。连接串显式写 `loginEncrypt` 时不做任何自动降级（参数名大小写不敏感）。
+
+**`loginEncrypt=false` 是明文传输**：账号密码与查询结果在网络上不加密。内网可信环境可用；跨公网请在服务端把 `COMM_ENCRYPT_NAME` 设为 `AES_256_CFB` 或留空后重启，再显式使用 `loginEncrypt=true`。
+
+分字段方式只收集主机、端口、账号、密码，无法指定 `loginEncrypt`；需要显式控制加密行为时请切换到 URL 方式，例如 `dm://user:pass@dm-host:5236?loginEncrypt=true`。
 
 ---
 
 ## 安装
 
+**运行环境**：Node.js ≥ 22（部分数据库驱动要求）；DSH 宿主需提供官方右侧栏。
+
 ```bash
-# npm（推荐）
-dsh plugin --profile web add dsh-db-tool
+# npm（推荐，请钉当前版本号，@latest 会因 release-age 校验回落旧版）
+dsh plugin --profile desktop add dsh-db-tool@<版本号> --registry=https://registry.npmjs.org/
 
 # GitHub 源码
 dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
@@ -249,22 +196,9 @@ dsh plugin --profile web add "dsh-db-tool@github:mengqi1436/dsh-db-tool"
 dsh plugin --profile web add "link:/path/to/dsh-db-tool"
 ```
 
-### 桌面端
+桌面端若 `dsh` 命令不在 PATH：打开菜单栏点 **Manage dsh command** 注册。安装完成后重启 DSH 桌面端加载插件。
 
-DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令；已在 **0.2.2-rc.1** 上逐项核对宿主契约（`tools.register`、`webServer.register({kind:'prefix'})`、`connection.requestRejection`、`sessions.header.cwd`、`webStartup.trustedHosts`、客户端 `slots`/`sidebarRightTabs`/`locale`），无需改动插件代码：
-
-1. 打开桌面端菜单栏，点 **"Manage dsh command"** 把 `dsh` 注册到 PATH
-2. 安装插件（npm 安装须钉精确版本，`@latest` 会因 release-age 校验回落）：
-
-   ```bash
-   dsh plugin --profile desktop add dsh-db-tool@1.9.11 --registry=https://registry.npmjs.org/
-   ```
-
-3. **重启桌面端**生效
-
-**关于 oracledb**：其安装脚本会被 pnpm 默认拦截，首次安装会报告失败。在 DSH 插件安装界面点 **"Allow these scripts and retry"** 即可完成——该脚本仅做 Node 版本检查与横幅打印，批准无风险，且批准会持久化到 profile，后续升级不再提示。
-
-**运行环境要求**：Node.js ≥ 22。部分数据库驱动（tedious 及其 Azure 依赖）要求 Node 22 起，Node 20 会在建连时报 `Promise.withResolvers is not a function`。
+**关于 oracledb**：其安装脚本会被 pnpm 默认拦截，首次安装会报告失败。在 DSH 插件安装界面点 **Allow these scripts and retry** 即可完成——该脚本仅做 Node 版本检查与横幅打印，批准会持久化到 profile。
 
 **前端挂载位置**：数据库面板挂在 DSH 自带的右侧栏上，不需要额外安装任何侧边栏插件；`dsh.client.inject` 已声明 `@deepseek-ai/dsh-client-ui-sidebar-right` 作为加载前置。
 
@@ -275,14 +209,14 @@ DSH 桌面端 0.2.0-rc.2+ 已捆绑 `dsh` 命令；已在 **0.2.2-rc.1** 上逐�
 `<我的文档>/DSH/db-tool/`（目录权限 0700；与传输日志同根，用户可直接打开查看）：
 
 | 文件 | 内容 |
-|---|---|
+| --- | --- |
 | `connections.json` | 连接定义（`urlSafe` 中密码脱敏为 `***`） |
 | `secrets.json` | 0600，密码与完整 URL，永不返回给模型 |
-| `grants.json` | 项目授权（归一化路径 → connId → ro/rw） |
-| `transfer-config.json` | 0600，数据传输页按项目的连接与选项配置（自动保存、重启回填、失效连接清空） |
+| `grants.json` | 项目授权（归一化路径 → connId → ro / rw） |
+| `transfer-config.json` | 0600，数据传输页按项目的连接与选项配置 |
 | `audit.jsonl` | 追加式审计日志，每行一条 JSON |
 
-同级还有 `transfer-log.jsonl`（传输过程日志与历史）。路径解析优先级：显式注入（测试）> `DSH_DB_TOOL_DIR` > `<我的文档>/DSH`。「我的文档」由 Windows Shell API `GetFolderPath('MyDocuments')` 解析，自动跟随重定向（OneDrive 等）；非 Windows 走 `XDG_DOCUMENTS_DIR` 或 `~/Documents`。旧版本存放于 `$DSH_HOME/db-tool/` 的数据在首次启动时**按文件粒度迁移**（目标已存在则跳过，旧文件保留不删）。
+同级还有 `transfer-log.jsonl`（传输过程日志与历史）。路径解析优先级：显式注入（测试）> `DSH_DB_TOOL_DIR` > `<我的文档>/DSH`。「我的文档」在 Windows 下由 Shell API 解析，自动跟随重定向（OneDrive 等）；非 Windows 走 `XDG_DOCUMENTS_DIR` 或 `~/Documents`。旧版本存放于 `$DSH_HOME/db-tool/` 的数据在首次启动时按文件粒度迁移（目标已存在则跳过，旧文件保留不删）。
 
 ---
 
@@ -302,7 +236,7 @@ DBT_TEST_MYSQL_URL / DBT_TEST_PG_URL / DBT_TEST_REDIS_URL / DBT_TEST_DM_CONNECT
 DBT_TEST_MONGO_URL / DBT_TEST_ORACLE_CONNECT / DBT_TEST_SQLSERVER_URL
 ```
 
-同步执行器与测试的 CI 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：Node 22 与 24 两档，跑 `npm ci → build → typecheck → test`。
+CI 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：Node 22 与 24 两档，跑 `npm ci → build → typecheck → test`。
 
 ### 目录结构
 
@@ -329,8 +263,8 @@ vendor/       驱动与编辑器 bundle（构建产物，发布时收录）
 
 感谢所有把修复真正推进到 `master` 的外部贡献者，逐条记录见 [CONTRIBUTORS.md](CONTRIBUTORS.md)：
 
-- [a19920714liou](https://github.com/a19920714liou) — [PR #1](https://github.com/mengqi1436/dsh-db-tool/pull/1)：ro 连接钩子卡死 + Windows 路径大小写授权错位（「设置数据源后表显示不出来」双根因）
-- [weicy98](https://github.com/weicy98) — [PR #12](https://github.com/mengqi1436/dsh-db-tool/pull/12)：达梦 DM 通信加密为 DES-CFB 时的连接失败
+- [a19920714liou](https://github.com/a19920714liou) — [PR #1](https://github.com/mengqi1436/dsh-db-tool/pull/1)：ro 连接钩子卡死 + Windows 路径大小写授权错位
+- [weicy98](https://github.com/weicy98) — [PR #12](https://github.com/mengqi1436/dsh-db-tool/pull/12)：达梦 DM 通信加密为 DES_CFB 时的连接失败
 
 欢迎提交缺陷修复与适配器支持，提交约定见 [CONTRIBUTORS.md](CONTRIBUTORS.md#贡献方式)。
 
