@@ -220,13 +220,19 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 **通信加密策略**：`dmdb` 驱动默认 `loginEncrypt=true`。当 DM 服务器的 `dm.ini` 配置 `COMM_ENCRYPT_NAME=DES_CFB`（或协商到 DES/RC4）时，Node.js 22+ 使用的 OpenSSL 3 已默认禁用 DES/RC4，驱动会在建连握手阶段报 `[6071] 消息加密失败 / Unknown cipher`。插件按以下策略处理：
 
 1. 先按驱动默认（加密）连接；
-2. **仅当**错误码为 `[6071]` 且错误消息为 `Unknown cipher` / `digital envelope routines::unsupported` 时，自动在连接串追加 `loginEncrypt=false` **重试一次**；
-3. 账号密码错误、网络异常、权限不足等其他错误不触发重试，避免掩盖真实原因；
-4. 连接串**显式**写 `loginEncrypt=true` 或 `loginEncrypt=false` 时不做任何自动降级——你指定的策略就是最终策略。
+2. **仅当**错误码为 `[6071]` 且错误消息为 `Unknown cipher` / `digital envelope routines::unsupported` 时，把连接串 query 段的 `loginEncrypt` 置为 `false` 并**重试一次**；同一目标（去掉账号密码后相同的连接串）降级成功后会被记住，后续连接直接按 `loginEncrypt=false` 建立，不再重复一次失败握手；
+3. 账号密码错误、网络异常、权限不足等其他错误不触发重试，避免掩盖真实原因；降级重试后仍失败时，提示会说明「已按 `loginEncrypt=false` 重试」并指向真正的失败点，不再重复建议你去做已经做过的事；
+4. 连接串**显式**写 `loginEncrypt=true` 或 `loginEncrypt=false` 时不做任何自动降级——你指定的策略就是最终策略。参数名**大小写不敏感**：`loginEncrypt`、`LOGINENCRYPT`、`LoginEncrypt` 等价，这与 `dmdb` 驱动自身的语义一致（驱动把属性名统一转小写后匹配）。
+
+降级重试只改写连接串的 query 段（去掉所有大小写的 `loginEncrypt` 变体、追加 `loginEncrypt=false`），主机、端口、账号密码、库名与 `#` 片段按原样保留，不会重组整条串。
+
+降级结果的记忆只存在于当前进程内：服务端把 `COMM_ENCRYPT_NAME` 改成 `AES_256_CFB` 或留空（恢复可加密）之后，本进程仍会按记忆继续用 `loginEncrypt=false` 连接；要重新按加密探测，重启 DSH 桌面端（或显式在 URL 模式下写 `loginEncrypt=true`，显式值始终优先于记忆）。
 
 **`loginEncrypt=false` 的真实语义**：与 SQL Server 的 `encrypt=false` 一样，消息不加密，账号密码与查询结果在网络上明文传输。内网可信环境可使用；跨公网或不可信网段请在 DM 服务端把 `COMM_ENCRYPT_NAME` 设为 `AES_256_CFB`（Node 22+ 支持），或留空（不启用通信加密）后重启，再显式使用 `loginEncrypt=true`。
 
-**URL 参数**：`loginEncrypt=true|false`（仅达梦）。分字段表单无需填写，默认走上述自动策略。
+**URL 参数**：`loginEncrypt=true|false`（仅达梦），参数名大小写不敏感。
+
+**分字段方式无法指定 `loginEncrypt`**：新建连接默认走「分字段方式」，该方式只收集主机、端口、账号、密码，拼出的连接串是 `dm://user:pass@host:port`，不含 query 段，因此界面上没有「关闭加密」的开关，只能接受上述自动策略。需要显式控制加密行为时，请把连接方式切到「**URL 方式**」并直接写完整串，例如 `dm://user:pass@dm-host:5236?loginEncrypt=true`。
 
 ---
 
