@@ -215,6 +215,29 @@ Setting `encrypt=true` explicitly is therefore the secure setting; treat `encryp
 
 ---
 
+## Dameng DM connection notes
+
+Normal use only needs host, port, user and password (default port 5236).
+
+**Communication encryption policy**: `dmdb` defaults to `loginEncrypt=true`. When the DM server sets `COMM_ENCRYPT_NAME=DES_CFB` (or negotiates DES/RC4), Node.js 22+ / OpenSSL 3 has DES and RC4 disabled by default, so the driver fails during the connection handshake with `[6071] 消息加密失败 / Unknown cipher`. The adapter handles it as follows:
+
+1. First connect with the driver default (encrypted).
+2. **Only when** the error is `[6071]` with `Unknown cipher` / `digital envelope routines::unsupported`, set `loginEncrypt` to `false` in the connection string's query part and retry once. Once a target (the same connection string with credentials stripped) has been confirmed, the result is remembered: later connections go straight to `loginEncrypt=false` instead of paying for another failed handshake.
+3. Other errors (bad credentials, network, permissions) are never retried, so the real cause is not hidden. If the fallback retry also fails, the message states that `loginEncrypt=false` has already been tried and points at the actual failure instead of repeating advice you already followed.
+4. An explicit `loginEncrypt=true` or `loginEncrypt=false` in the connection string disables automatic fallback — the specified policy is final. Parameter names are **case-insensitive**: `loginEncrypt`, `LOGINENCRYPT` and `LoginEncrypt` are equivalent, matching the `dmdb` driver's own behavior (the driver lowercases property names before matching).
+
+The fallback retry only rewrites the query part of the connection string (it removes every case variant of `loginEncrypt` and appends `loginEncrypt=false`); host, port, credentials, database name and any `#` fragment are preserved verbatim — the whole string is never rebuilt.
+
+The remembered fallback lives only in the current process: after the server switches `COMM_ENCRYPT_NAME` back to `AES_256_CFB` (or empty) so that encryption works again, this process keeps connecting with `loginEncrypt=false`. Restart the DSH desktop app to probe encryption afresh, or write `loginEncrypt=true` explicitly in URL mode — an explicit value always wins over the memo.
+
+**What `loginEncrypt=false` really means**: like SQL Server `encrypt=false`, messages are not encrypted; credentials and query results travel in plaintext. It is acceptable on a trusted internal network. For public or untrusted networks, set the DM server's `COMM_ENCRYPT_NAME` to `AES_256_CFB` (supported by Node 22+) or leave it empty (communication encryption disabled), restart the server, then connect with `loginEncrypt=true`.
+
+**URL parameter**: `loginEncrypt=true|false` (DM only), case-insensitive.
+
+**The Fields mode cannot set `loginEncrypt`**: new connections default to the **Fields** mode, which only collects host, port, user and password and builds `dm://user:pass@host:port` with no query part — the form has no switch to turn encryption off, so only the automatic policy above applies. To control encryption explicitly, switch to the **URL** mode and write the full string, e.g. `dm://user:pass@dm-host:5236?loginEncrypt=true`.
+
+---
+
 ## Installation
 
 ```bash

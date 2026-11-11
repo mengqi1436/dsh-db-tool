@@ -1,5 +1,25 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+达梦 DM 通信加密兼容修复：服务器启用 DES-CFB（`COMM_ENCRYPT_NAME=DES_CFB`）时，Node.js 22+ 的 OpenSSL 3 无 DES 实现，连接在握手阶段报 `[6071] 消息加密失败 / Unknown cipher`。`dmdb` 默认 `loginEncrypt=true`，而表单默认的 `fields` 模式拼不出 query 段、无法指定 `loginEncrypt`，也没有任何自动绕过路径（`url` 模式在 master 上本就可手写 `?loginEncrypt=false`，不受影响）。
+
+### 修复
+
+- **达梦连接按特征错误自动降级**：`createDmPool` 先按驱动默认（加密）建连；仅当错误码为 `[6071]` 且消息为 `Unknown cipher` / `digital envelope routines::unsupported`，且连接串未显式指定 `loginEncrypt` 时，才以 `loginEncrypt=false` 重试一次。其他错误（凭据、网络、权限）不重试；显式 `loginEncrypt=true/false` 不做自动降级。主连接、测试连接与数据传输独立池（`openDmPool`）共用同一路径。
+- **显式参数判定与驱动语义对齐**：连接串里的 `loginEncrypt` 参数名按大小写不敏感识别（`LOGINENCRYPT` / `LoginEncrypt` 与 `loginEncrypt` 等价），与 `dmdb` 驱动把属性名统一转小写的行为一致。此前按大小写敏感匹配，`?LOGINENCRYPT=true` 会被当成「没指定」而被降级成 `loginEncrypt=false`，静默推翻用户的显式要求。
+- **降级只改写 query 段**：重试时只删除连接串中所有大小写的 `loginEncrypt` 变体并追加 `loginEncrypt=false`，主机、端口、账号密码、库名与 `#` 片段逐字节保留。此前用 WHATWG `URL` 重组整条串，而驱动走 legacy `url.parse()`，两者对 authority 的解读不同：非 ASCII 主机名经重组后驱动解析出的 host 变成空串（重试必然 DNS 失败），主机名含空格时 `new URL()` 直接抛 `Invalid URL` 且该异常在重试分支内求值，把原始的 `[6071]` 吞掉、提示反指向「检查连接串」。
+- **降级后仍失败时给专用提示**：已按 `loginEncrypt=false` 重试却依然失败时，错误提示不再重复建议「可在连接串设置 `loginEncrypt=false`」（此时已经设了），改为说明降级重试已完成、失败点在加密层之外，并指向服务端 `COMM_ENCRYPT_NAME` 或凭据/权限/网络的排查方向。
+- **同目标降级结果记忆**：记忆键取连接串去掉 userinfo 后的目标部分（加密能力是服务器属性，与用哪份连接配置连它无关，`testDraft` 恒为 `'(draft)'` 的临时连接也共享同一次探测）。降级确认过的目标后续建池直接带 `loginEncrypt=false`，不再先吃一次 `[6071]`——数据传输按表建池的场景因此不再每张表重复失败握手（默认并发 4 时原为每池一次多余握手）。改密码不会让记忆失效，换 host/port/路径视为不同目标重新探测。命中记忆后不再回头重探加密（否则省下的握手又花回去、调用数还会随失败次数漂移），失败时直接给降级失败提示指明查服务端 `COMM_ENCRYPT_NAME`；降级记忆命中时连接信息仍显示「已使用 `loginEncrypt=false`」，提示不会在第二次建池后凭空消失。记忆只活在进程内：服务端恢复为可加密（`COMM_ENCRYPT_NAME` 改成 `AES_256_CFB` 或留空）后，本进程仍会继续按 `loginEncrypt=false` 连接，重启宿主或显式写 `loginEncrypt=true` 才会重新按加密探测。
+- **错误提示可操作**：`humanizeDmError` 对上述加密能力错误补充 `COMM_ENCRYPT_NAME=AES_256_CFB` / 留空建议，不再只提示检查凭据；降级成功时 `testConnect` 的 `serverInfo` 明示当前使用 `loginEncrypt=false`。
+- **文档**：README/README_EN 新增「达梦 DM 连接说明」，写明自动降级边界、`loginEncrypt` 大小写不敏感、分字段方式无法指定该参数（需改用 URL 方式）、明文连接安全影响与服务器侧配置建议。
+
+### 测试
+
+- 新增 `tests/adapters-nosql-ent/dmdb-login-encrypt.spec.ts`：特征错误自动重试一次、重试保留原 query 参数、非加密错误不重试、显式 `loginEncrypt=true` 不降级、重试失败抛重试错误、降级成功提示、`openDmPool` 同样生效；并补大小写变体（`LOGINENCRYPT` / `LoginEncrypt` / 全大写值）不降级、降级后 authority 逐字节保真、降级后仍失败不再给出已失效建议、同目标二次建池不再重复失败握手等回归用例。
+- `tests/adapters-nosql-ent/oracle-dmdb.spec.ts` 补 `humanizeDmError` 的 6071 提示断言。
+- 真机：`DBT_TEST_DM_CONNECT` 指向 `COMM_ENCRYPT_NAME=DES_CFB` 的 DM8 实例，修复后同一连接推进到 `[-2501] 用户名或密码错误`，据此可确认加密握手已被绕过（不再停在 `[6071]`）。完整 `testConnect` / 查询因测试账号口令不可用**未验证**。
+
 ## 1.9.10
 
 仓库维护性修复：CI 聚合判定不再把并发取消判成失败，Dependabot 压掉三个包的重复红，补回缺失的 1.9.2 章节。无运行时代码改动。
