@@ -150,34 +150,17 @@ Both are contracts of the official right sidebar and are easily mistaken for plu
 | Authorization | Project-scoped ro / rw allowlist; no grant means rejection |
 | Statement level | Risk classification (danger / warning / none) plus one-time confirmation |
 | Read-only enforcement | MySQL / PostgreSQL use session-level `SET TRANSACTION READ ONLY`; SQL Server degrades to five application-level gates |
+| Transport encryption | Plaintext first, upgrading only when the server insists; see "Transport encryption" |
 | Error redaction | When connection-string parsing fails, userinfo in the error text is redacted; plaintext passwords are never echoed |
 | Script isolation | Separate child process + vm sandbox + 60-second hard kill + only the db handle injected |
 
 **SQL Server's ro enforcement is weaker than MySQL / PostgreSQL**: SQL Server has no equivalent session-level read-only statement, so under an ro grant five application-level gates apply — first-word allowlist, multi-statement rejection, `SELECT ... INTO` rejection, `WITH ... (INSERT|UPDATE|DELETE|MERGE)` rejection, and `OPENQUERY` / `OPENROWSET` / `OPENDATASOURCE` rejection. This remains application-level interception; for hard isolation, configure a database-side read-only account for the connection.
 
----
+### Transport encryption
 
-## Connection notes
+**Connecting first, encrypting only when required.** SQL Server defaults to `encrypt=auto`: connect without encryption first; only when the server **forces encryption** does it upgrade and retry once, trusting the server certificate — one retry, for that reason only, and never when `encrypt` is written explicitly. Dameng behaves the same way: only when the server negotiates an algorithm that the local OpenSSL has dropped (`[6071]`) does it disable transport encryption and retry once.
 
-### SQL Server
-
-Supports SQL Server 2005 and later plus Azure SQL Database. Normal use needs only host, port, user and password (plus database name); encryption and certificate settings have defaults, and troubleshooting options for certificates and old instances sit in the form's collapsed **Advanced options** section.
-
-The default is `encrypt=auto`: connect without encryption first; only when the server **forces encryption** does it retry once with `encrypt=true` + `trustServerCertificate=true`. It retries once, for that reason only; an explicit `encrypt` is never retried.
-
-**On servers that do not force encryption, both `auto` and `encrypt=false` transmit in plaintext** (including credentials). Acceptable on a trusted internal network; for public or untrusted networks set `encrypt=true` explicitly and use `caCert` or `serverName` when needed. `encrypt=strict` is supported only by SQL Server 2022+ with Force Strict Encryption enabled, and in that mode `trustServerCertificate` has no effect.
-
-SQL authentication only (no Windows integrated authentication, no Azure AD); SQL Server 2000 and earlier are not supported.
-
-### Dameng DM
-
-Default port 5236; normal use needs only host, port, user and password.
-
-If the Dameng server enables DES_CFB communication encryption, newer Node's OpenSSL has dropped DES, and the connection fails during the handshake with `[6071] message encryption failed`. The plugin handles it like this: only when both the error code and the error message match that signature does it set `loginEncrypt` to `false` in the connection string's query part and retry once; bad credentials, network errors and permission failures do not trigger a retry. A successful fallback for a given target is remembered, so later connections use that setting directly. An explicit `loginEncrypt` in the connection string disables automatic fallback entirely (parameter names are case-insensitive).
-
-**`loginEncrypt=false` means plaintext**: credentials and query results are not encrypted on the wire. Acceptable on a trusted internal network; for public networks set the server's `COMM_ENCRYPT_NAME` to `AES_256_CFB` or leave it empty, restart, then use `loginEncrypt=true` explicitly.
-
-The fields mode collects only host, port, user and password and cannot set `loginEncrypt`; to control encryption explicitly, switch to URL mode, for example `dm://user:pass@dm-host:5236?loginEncrypt=true`.
+**Plaintext is the cost of that policy**: SQL Server's `auto` / `encrypt=false` and Dameng's `loginEncrypt=false` all send credentials and results in the clear. Fine on a trusted internal network; for public or untrusted networks, demand encryption explicitly and deal with the certificate or algorithm issues it brings.
 
 ---
 

@@ -150,34 +150,17 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 | 授权 | 项目级 ro / rw 白名单，未授权即拒绝 |
 | 语句级 | 风险分级（danger / warning / none）+ 一次性确认 |
 | 只读强制 | MySQL / PostgreSQL 走会话级 `SET TRANSACTION READ ONLY`；SQL Server 退化为应用层五道闸门 |
+| 传输加密 | 默认优先明文建连，仅当服务器强制加密时升级；详见「传输加密」 |
 | 错误脱敏 | 连接串解析失败时，错误文案中的 userinfo 已脱敏，不回显明文密码 |
 | 脚本隔离 | 独立子进程 + vm 沙箱 + 60 秒强杀 + 仅注入 db 句柄 |
 
 **SQL Server 的 ro 强度弱于 MySQL / PostgreSQL**：SQL Server 没有等价的会话级只读语句，ro 授权下由应用层五道拦截兜底——首词白名单、拒绝多语句、拒绝 `SELECT ... INTO`、拒绝 `WITH ... (INSERT|UPDATE|DELETE|MERGE)`、拒绝 `OPENQUERY` / `OPENROWSET` / `OPENDATASOURCE`。这仍是应用层拦截，需要数据库侧强隔离时请为连接配置只读账号。
 
----
+### 传输加密
 
-## 连接说明
+**默认可连即可，不强制加密。** SQL Server 默认 `encrypt=auto`：先不带加密建连；仅当服务器**强制加密**时报错，才升级到加密并信任其证书重试一次——只重试一次，只针对这一种原因，显式写 `encrypt` 时不重试。达梦同理：仅当服务器协商了本机 OpenSSL 已移除的加密算法（`[6071]`）时，才关闭通信加密重试一次。
 
-### SQL Server
-
-支持 SQL Server 2005 及以上与 Azure SQL Database。常规使用只需填主机、端口、账号、密码（外加库名），加密与证书参数有默认值；证书与老版本实例的排障项收在表单的「高级选项」折叠区。
-
-默认 `encrypt=auto`：先不加密建连；仅当服务器**强制加密**时，自动改用 `encrypt=true` + `trustServerCertificate=true` 重试一次。只重试一次、只针对这一种原因；显式写 `encrypt` 时不重试。
-
-**`auto` 与 `encrypt=false` 在未强制加密的服务器上都是明文传输**（含账号密码）。可信内网可用；跨公网或不可信网段请显式设 `encrypt=true`，必要时用 `caCert` 或 `serverName` 解决证书问题。`encrypt=strict` 仅 SQL Server 2022+ 且开启 Force Strict Encryption 的实例支持，该模式下 `trustServerCertificate` 不生效。
-
-仅 SQL 认证（不支持 Windows 集成认证与 Azure AD 认证）；不支持 SQL Server 2000 及更早。
-
-### 达梦 DM
-
-默认端口 5236，常规使用只需填主机、端口、账号、密码。
-
-达梦服务器若启用 DES_CFB 通信加密，新版 Node 的 OpenSSL 已移除 DES，建连会在握手阶段报 `[6071] 消息加密失败`。插件对此的处理是：仅当错误码与错误消息同时符合该特征时，把连接串 query 段的 `loginEncrypt` 置为 `false` 重试一次；账号密码错误、网络异常、权限不足等不触发重试。同一目标降级成功后会记住，后续连接直接按该设置建立。连接串显式写 `loginEncrypt` 时不做任何自动降级（参数名大小写不敏感）。
-
-**`loginEncrypt=false` 是明文传输**：账号密码与查询结果在网络上不加密。内网可信环境可用；跨公网请在服务端把 `COMM_ENCRYPT_NAME` 设为 `AES_256_CFB` 或留空后重启，再显式使用 `loginEncrypt=true`。
-
-分字段方式只收集主机、端口、账号、密码，无法指定 `loginEncrypt`；需要显式控制加密行为时请切换到 URL 方式，例如 `dm://user:pass@dm-host:5236?loginEncrypt=true`。
+**明文是这条策略的代价**：SQL Server 的 `auto` / `encrypt=false` 与达梦的 `loginEncrypt=false` 都会以明文传输账号密码与查询结果。可信内网无妨；跨公网或不可信网段请显式要求加密，并解决随之而来的证书或算法问题。
 
 ---
 
