@@ -17,6 +17,8 @@
  *    驱动选择 DES-CFB，而 Node 22+/OpenSSL 3 已移除 DES → 建连报 [6071] 消息加密失败
  *    （Unknown cipher / digital envelope routines::unsupported）。createDmPool 仅对该特征错误、
  *    且连接串未显式指定 loginEncrypt 时以 loginEncrypt=false 重试一次；显式参数不做自动降级。
+ *    降级成功的结果按连接目标（connectString 去掉 userinfo）记忆，同目标后续建池直接带
+ *    loginEncrypt=false，避免数据传输为每张表新建池时各撞一次失败握手。
  *  - execute 必须显式 maxRows（默认 0=无限制）；autoCommit 显式传 true 使语义
  *    不依赖驱动默认（驱动连接属性默认已是自动提交：dmdb connection.js
  *    conn_prop_autoCommit = !0；d.ts 三级优先链 执行选项 > dmdb.autoCommit > 连接属性）。
@@ -129,21 +131,103 @@ export function resolveDmConn(conn: ResolvedConnection): { connectString: string
   return { connectString: `dm://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}`, user, password };
 }
 
-/** 连接串是否显式指定 loginEncrypt：显式值代表用户策略，不参与自动降级 */
-function hasExplicitDmLoginEncrypt(connectString: string): boolean {
+/** loginEncrypt 在驱动侧的规范键名：Properties.set 统一 toLowerCase（dmdb/src/desc/properties.js） */
+const DM_LOGIN_ENCRYPT_KEY = 'loginencrypt';
+
+/**
+ * 把连接串切成「主体 / query / #fragment」，只用于改写 query 段。
+ *
+ * 不用 WHATWG URL 解析：驱动走的是 legacy url.parse()（dmdb/src/dm.js parseUrl），
+ * 两者对 authority 的解读不同——`new URL()` 会把非 ASCII 主机名百分号编码、对含空格
+ * 主机名直接抛 TypeError，重组后驱动要么解析出空 host、要么异常被重试分支吞掉。
+ */
+function splitDmConnectString(connectString: string): { base: string; query: string | null; fragment: string } {
+  const hashAt = connectString.indexOf('#');
+  const head = hashAt >= 0 ? connectString.slice(0, hashAt) : connectString;
+  const fragment = hashAt >= 0 ? connectString.slice(hashAt) : '';
+  const queryAt = head.indexOf('?');
+  if (queryAt < 0) return { base: head, query: null, fragment };
+  return { base: head.slice(0, queryAt), query: head.slice(queryAt + 1), fragment };
+}
+
+/** query 参数名按驱动语义还原：legacy url.parse 的 querystring 会百分号解码并把 + 视作空格 */
+function decodeDmQueryKey(rawKey: string): string {
   try {
-    return new URL(connectString).searchParams.has('loginEncrypt');
+    return decodeURIComponent(rawKey.replaceAll('+', ' '));
   } catch {
-    return false;
+    return rawKey;
   }
 }
 
-/** 在保留原有 query 的前提下把 loginEncrypt 设为 false（仅降级重试用） */
-function withDmLoginEncryptDisabled(connectString: string): string {
-  const url = new URL(connectString);
-  url.searchParams.set('loginEncrypt', 'false');
-  return url.toString();
+/** 取 query 段某个 key=value 对的键（无 = 时整段即键） */
+function dmQueryPairKey(pair: string): string {
+  const eqAt = pair.indexOf('=');
+  return eqAt >= 0 ? pair.slice(0, eqAt) : pair;
 }
+
+/**
+ * 连接串是否显式指定 loginEncrypt：显式值代表用户策略，不参与自动降级。
+ *
+ * 必须按驱动的键名归一化（小写 + 百分号解码）比较，而非 URLSearchParams.has 的
+ * 大小写敏感匹配：驱动把 `?LOGINENCRYPT=true` 与 `?loginEncrypt=true` 视为同一属性，
+ * 按字面比对会把用户显式策略误判成「没指定」并偷偷降级。
+ */
+function hasExplicitDmLoginEncrypt(connectString: string): boolean {
+  const { query } = splitDmConnectString(connectString);
+  if (query === null) return false;
+  return query
+    .split('&')
+    .some((pair) => pair !== '' && decodeDmQueryKey(dmQueryPairKey(pair)).toLowerCase() === DM_LOGIN_ENCRYPT_KEY);
+}
+
+/**
+ * 在保留原有 query 的前提下把 loginEncrypt 置为 false（仅降级重试用）。
+ *
+ * 与 resolveDmConn 里「connectString 原样透传、不重组」的纪律相比，这里是唯一例外：
+ * 降级必须改写 query，而改写只能用字符串级操作——主体（含 authority 的 userinfo/host）
+ * 与 #fragment 逐字节原样保留，才有上面 splitDmConnectString 那段注释的结论。
+ */
+function withDmLoginEncryptDisabled(connectString: string): string {
+  const { base, query, fragment } = splitDmConnectString(connectString);
+  const kept = query === null
+    ? []
+    : query.split('&').filter((pair) => pair === '' || decodeDmQueryKey(dmQueryPairKey(pair)).toLowerCase() !== DM_LOGIN_ENCRYPT_KEY);
+  kept.push('loginEncrypt=false');
+  return `${base}?${kept.join('&')}${fragment}`;
+}
+
+/**
+ * 已确认「本机必须关闭达梦通信加密」的连接目标（key = connectString 去掉 userinfo）。
+ *
+ * 达梦服务器配 DES_CFB 时，同一个目标每建一个新池都要先撞一次 [6071] 才降级；数据传输
+ * 为每张表各建一次池（默认并发 4），白付多轮失败握手。
+ *
+ * key 只取目标部分，不带 conn.meta.id：
+ *  - 加密能力是服务器属性，与用哪个连接配置连它无关——同一目标不同连接（含 testDraft
+ *    恒为 '(draft)' 的临时连接、传输端的独立池）共享同一次探测才是正确语义；
+ *  - 反过来，用 id 参与 key 会让「换个连接名就连不上」这种偶发现象出现。
+ * 改密码不会让记忆失效（加密能力与凭据无关），换 host/port/路径则视为不同目标重新探测。
+ * 条目数与用户连接数同阶，无需淘汰。
+ */
+const dmLoginEncryptDisabledTargets = new Set<string>();
+
+/** 记忆 key：连接串去掉 userinfo（密码变更不影响、host/port/路径变更重新探测） */
+function dmFallbackKey(connectString: string): string {
+  const { base } = splitDmConnectString(connectString);
+  const schemeAt = base.indexOf('://');
+  const authorityStart = schemeAt >= 0 ? schemeAt + 3 : 0;
+  // userinfo 与 host 以 '@' 分隔，密码本身可能含 '@'（取 authority 内最后一个）；
+  // 路径里的 '@' 不属于分隔符，故先把 authority 范围切出来
+  const pathAt = base.indexOf('/', authorityStart);
+  const authorityEnd = pathAt >= 0 ? pathAt : base.length;
+  const atInAuthority = base.lastIndexOf('@', authorityEnd - 1);
+  return atInAuthority >= authorityStart
+    ? `${base.slice(0, authorityStart)}${base.slice(atInAuthority + 1)}`
+    : base;
+}
+
+/** 传输端降级留痕去重：每表建池都会降级，逐池打日志会刷屏 */
+const dmFallbackWarned = new Set<string>();
 
 export interface DmAdapterOptions {
   mode?: AccessMode;
@@ -181,29 +265,60 @@ async function createDmPoolOnce(conn: ResolvedConnection, connectString: string)
 }
 
 /**
+ * 降级重试后仍失败的专用提示。
+ *
+ * 不能复用 humanizeDmError 的提示：那条会让用户「在连接串设置 loginEncrypt=false」，
+ * 而此刻已经设了并且重试过——按那条去排查只会原地打转。这里要说清已经做到哪一步，
+ * 并把方向指向唯一还没排除的地方（服务端协商结果 / 凭据）。
+ */
+function dmFallbackFailedHint(retryError: unknown): string {
+  if (isDmCipherUnavailableError(retryError)) {
+    return '（提示：已按 loginEncrypt=false 重试仍报消息加密失败，说明握手阶段仍在协商加密；请检查服务器 dm.ini 的 COMM_ENCRYPT_NAME（建议设为 AES_256_CFB 或留空）后重启实例）';
+  }
+  return '（提示：已按 loginEncrypt=false 重试，加密握手已绕过，仍失败请按上一条错误排查凭据/权限/网络；错误码含义见达梦官方《DM8 错误码手册》）';
+}
+
+/**
  * 建池（连接串解析、池参数与别名单点维护，供适配器与数据传输入口共用）。
  *
  * 达梦服务器若启用 DES_CFB 通信加密，Node 22+/OpenSSL 3 没有 des-cfb 实现，首次建池会报
  * [6071] 消息加密失败 / Unknown cipher。这里做一次与 SQL Server encrypt=auto 同哲学的
  * 定向降级：只有特征错误且连接串未显式指定 loginEncrypt 时，才以 loginEncrypt=false 重试；
  * 其他错误原样包装，避免把凭据/网络/权限问题误报成加密问题，也避免无限重试。
+ *
+ * 降级确认过一次的目标会被记住（见 dmLoginEncryptDisabledTargets），后续建池直接关加密：
+ * 传输端每张表都新建池，不记忆就要为每张表各付一次失败握手。
  */
 async function createDmPool(conn: ResolvedConnection, onLoginEncryptFallback?: () => void): Promise<DmPoolLike> {
   const { connectString } = resolveDmConn(conn);
+  const fallbackKey = dmFallbackKey(connectString);
+  const explicit = hasExplicitDmLoginEncrypt(connectString);
+  // 已确认需要关加密的目标：直接带 loginEncrypt=false，连失败的那次握手都省掉。
+  // 仍按「降级过」上报，否则连接信息里的提示会在第二次建池后凭空消失。
+  // 不走「命中却失败就清记忆重探」：那等于把省下的握手又花回去，且让 createPool 调用数
+  // 随失败次数漂移。服务端改了 COMM_ENCRYPT_NAME 的恢复路径是用户在设置里重测/重连
+  // （testConnect 走同一路径，报错会指明检查 COMM_ENCRYPT_NAME）。
+  const useMemo = !explicit && dmLoginEncryptDisabledTargets.has(fallbackKey);
   try {
-    return await createDmPoolOnce(conn, connectString);
+    const pool = await createDmPoolOnce(conn, useMemo ? withDmLoginEncryptDisabled(connectString) : connectString);
+    if (useMemo) onLoginEncryptFallback?.();
+    return pool;
   } catch (e) {
-    if (!isDmCipherUnavailableError(e) || hasExplicitDmLoginEncrypt(connectString)) {
+    // 命中记忆时已经用过 loginEncrypt=false，humanizeDmError 的「请设置 loginEncrypt=false」
+    // 提示同样自相矛盾，统一走降级失败文案
+    if (useMemo) throw new Error(`达梦 DM 错误：${e instanceof Error ? e.message : String(e)}${dmFallbackFailedHint(e)}`);
+    if (!isDmCipherUnavailableError(e) || explicit) {
       throw humanizeDmError(e);
     }
     try {
       const pool = await createDmPoolOnce(conn, withDmLoginEncryptDisabled(connectString));
+      dmLoginEncryptDisabledTargets.add(fallbackKey);
       onLoginEncryptFallback?.();
       return pool;
     } catch (retryError) {
       // 降级后仍失败：抛重试错误（例如 -2501 说明已绕过加密握手、是凭据问题），
-      // 不把原始 6071 混进来误导排查方向。
-      throw humanizeDmError(retryError);
+      // 不把原始 6071 混进来误导排查方向。提示换成本场景专用文案，原因见 dmFallbackFailedHint。
+      throw new Error(`达梦 DM 错误：${retryError instanceof Error ? retryError.message : String(retryError)}${dmFallbackFailedHint(retryError)}`);
     }
   }
 }
@@ -510,7 +625,19 @@ export async function createDmAdapter(
 
 export const factory: AdapterFactory = async (conn) => createDmAdapter(conn);
 
-/** 数据传输读写端用的独立连接池（别名逐池唯一，可与主连接池并存） */
+/**
+ * 数据传输读写端用的独立连接池（别名逐池唯一，可与主连接池并存）。
+ *
+ * 与主连接池不同，这里没有适配器实例承载「本次是否降级」的状态，也不该抛错给传输层，
+ * 所以降级只用一行日志留痕：按目标去重，避免每张表各刷一条。
+ */
 export async function openDmPool(conn: ResolvedConnection): Promise<DmPoolLike> {
-  return await createDmPool(conn);
+  const key = dmFallbackKey(resolveDmConn(conn).connectString);
+  return await createDmPool(conn, () => {
+    if (dmFallbackWarned.has(key)) return;
+    dmFallbackWarned.add(key);
+    console.warn(
+      `[dmdb] 连接「${conn.meta.id}」的达梦服务器协商了本机 Node/OpenSSL 不支持的通信加密算法，已自动以 loginEncrypt=false 建池（数据传输每表新建池，本目标不再重复尝试加密）`,
+    );
+  });
 }
