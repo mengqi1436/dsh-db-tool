@@ -13,6 +13,10 @@
  *    poolMin: 1, poolMax: 10, poolTimeout: 60, queueTimeout: 60000 })；不启用压缩
  *    （默认 compress=0，规避 @napi-rs/snappy 跨平台坑）。
  *  - poolAlias 必须逐池唯一（不传即撞驱动缺省 'default' 并抛 [20006]；见 nextPoolAlias 注释）。
+ *  - 通信加密：dmdb 默认 loginEncrypt=true；若 DM 服务器 COMM_ENCRYPT_NAME 配置为 DES_CFB，
+ *    驱动选择 DES-CFB，而 Node 22+/OpenSSL 3 已移除 DES → 建连报 [6071] 消息加密失败
+ *    （Unknown cipher / digital envelope routines::unsupported）。createDmPool 仅对该特征错误、
+ *    且连接串未显式指定 loginEncrypt 时以 loginEncrypt=false 重试一次；显式参数不做自动降级。
  *  - execute 必须显式 maxRows（默认 0=无限制）；autoCommit 显式传 true 使语义
  *    不依赖驱动默认（驱动连接属性默认已是自动提交：dmdb connection.js
  *    conn_prop_autoCommit = !0；d.ts 三级优先链 执行选项 > dmdb.autoCommit > 连接属性）。
@@ -73,9 +77,27 @@ async function normalizeCell(v: unknown): Promise<NormalizedCell> {
   return trunc(JSON.stringify(v));
 }
 
+/**
+ * 是否为「本机 Node/OpenSSL 不支持 DM 通信加密算法」的特征错误。
+ *
+ * dmdb 把 crypto.createCipheriv 的异常包成 [6071] 消息加密失败，底层原文在
+ * Node 22+/OpenSSL 3 上是 `digital envelope routines::unsupported`，部分 Node/Electron
+ * 构建则是 `Unknown cipher`。只匹配这两个特征，避免把密码错误、真的加密失败等
+ * [6071] 也误判成可降级重试。
+ */
+function isDmCipherUnavailableError(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  const code = typeof e === 'object' && e !== null ? (e as { errCode?: unknown }).errCode : undefined;
+  return (code === 6071 || message.includes('[6071]')) &&
+    /Unknown cipher|digital envelope routines::unsupported/i.test(message);
+}
+
 export function humanizeDmError(e: unknown): Error {
   const msg = e instanceof Error ? e.message : String(e);
-  return new Error(`达梦 DM 错误：${msg}（提示：请检查连接串/凭据；错误码含义见达梦官方《DM8 错误码手册》）`);
+  const hint = isDmCipherUnavailableError(e)
+    ? '（提示：当前 Node.js/OpenSSL 不支持达梦服务器的通信加密算法（DES-CFB/RC4）；可在连接串设置 loginEncrypt=false，或把服务器 dm.ini 的 COMM_ENCRYPT_NAME 设为 AES_256_CFB/留空后重启）'
+    : '（提示：请检查连接串/凭据；错误码含义见达梦官方《DM8 错误码手册》）';
+  return new Error(`达梦 DM 错误：${msg}${hint}`);
 }
 
 /** 连接参数解析：url（dm://user:pass@host:5236 直接可用）或 fields 拼 connectString */
@@ -107,6 +129,22 @@ export function resolveDmConn(conn: ResolvedConnection): { connectString: string
   return { connectString: `dm://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}`, user, password };
 }
 
+/** 连接串是否显式指定 loginEncrypt：显式值代表用户策略，不参与自动降级 */
+function hasExplicitDmLoginEncrypt(connectString: string): boolean {
+  try {
+    return new URL(connectString).searchParams.has('loginEncrypt');
+  } catch {
+    return false;
+  }
+}
+
+/** 在保留原有 query 的前提下把 loginEncrypt 设为 false（仅降级重试用） */
+function withDmLoginEncryptDisabled(connectString: string): string {
+  const url = new URL(connectString);
+  url.searchParams.set('loginEncrypt', 'false');
+  return url.toString();
+}
+
 export interface DmAdapterOptions {
   mode?: AccessMode;
   /** 测试注入：跳过真实连接池创建 */
@@ -127,23 +165,46 @@ function nextPoolAlias(conn: ResolvedConnection): string {
   return `dsh-dm-${conn.meta.id}-${++poolSeq}`;
 }
 
-/** 建池（连接串解析、池参数与别名单点维护，供适配器与数据传输入口共用） */
-async function createDmPool(conn: ResolvedConnection): Promise<DmPoolLike> {
+/** 单次建池：池参数与别名的唯一维护点。 */
+async function createDmPoolOnce(conn: ResolvedConnection, connectString: string): Promise<DmPoolLike> {
+  // 注意：实参对象不要直接包进 `as unknown as` 断言——变异工具不为该形态生成
+  // ObjectLiteral 变异体，「删掉 poolAlias」这类关键退化会在变异报告中不可见（已验证）。
+  const pool = await db.createPool({
+    connectString,
+    poolAlias: nextPoolAlias(conn),
+    poolMin: 1,
+    poolMax: 10,
+    poolTimeout: 60,
+    queueTimeout: 60000,
+  });
+  return pool as unknown as DmPoolLike;
+}
+
+/**
+ * 建池（连接串解析、池参数与别名单点维护，供适配器与数据传输入口共用）。
+ *
+ * 达梦服务器若启用 DES_CFB 通信加密，Node 22+/OpenSSL 3 没有 des-cfb 实现，首次建池会报
+ * [6071] 消息加密失败 / Unknown cipher。这里做一次与 SQL Server encrypt=auto 同哲学的
+ * 定向降级：只有特征错误且连接串未显式指定 loginEncrypt 时，才以 loginEncrypt=false 重试；
+ * 其他错误原样包装，避免把凭据/网络/权限问题误报成加密问题，也避免无限重试。
+ */
+async function createDmPool(conn: ResolvedConnection, onLoginEncryptFallback?: () => void): Promise<DmPoolLike> {
   const { connectString } = resolveDmConn(conn);
   try {
-    // 注意：实参对象不要直接包进 `as unknown as` 断言——变异工具不为该形态生成
-    // ObjectLiteral 变异体，「删掉 poolAlias」这类关键退化会在变异报告中不可见（已验证）。
-    const pool = await db.createPool({
-      connectString,
-      poolAlias: nextPoolAlias(conn),
-      poolMin: 1,
-      poolMax: 10,
-      poolTimeout: 60,
-      queueTimeout: 60000,
-    });
-    return pool as unknown as DmPoolLike;
+    return await createDmPoolOnce(conn, connectString);
   } catch (e) {
-    throw humanizeDmError(e);
+    if (!isDmCipherUnavailableError(e) || hasExplicitDmLoginEncrypt(connectString)) {
+      throw humanizeDmError(e);
+    }
+    try {
+      const pool = await createDmPoolOnce(conn, withDmLoginEncryptDisabled(connectString));
+      onLoginEncryptFallback?.();
+      return pool;
+    } catch (retryError) {
+      // 降级后仍失败：抛重试错误（例如 -2501 说明已绕过加密握手、是凭据问题），
+      // 不把原始 6071 混进来误导排查方向。
+      throw humanizeDmError(retryError);
+    }
   }
 }
 
@@ -170,11 +231,16 @@ export async function createDmAdapter(
 ): Promise<DatabaseAdapter> {
   const mode: AccessMode = opts?.mode ?? 'rw';
   let pool: DmPoolLike;
+  let loginEncryptFallback = false;
   if (opts?.pool) {
     pool = opts.pool as DmPoolLike;
   } else {
-    pool = await createDmPool(conn);
+    pool = await createDmPool(conn, () => { loginEncryptFallback = true; });
   }
+  /** 降级提示：只在本次建池确实发生 loginEncrypt=false 重试时展示 */
+  const fallbackNote = (): string => (loginEncryptFallback
+    ? '（注意：当前 Node.js 不支持 DM 的 DES-CFB 通信加密，已自动使用 loginEncrypt=false 连接）'
+    : '');
 
   /** 默认 execute 选项：显式 maxRows（dmdb 默认 0=无限制，必须覆盖）+ 显式 autoCommit:true
    *  （驱动连接属性默认已是 true，显式传递仅让语义不依赖驱动默认；SELECT 立即结束隐式事务，避免 ro 事务悬挂） */
@@ -255,13 +321,13 @@ export async function createDmAdapter(
         const r = await withConn((c) => c.execute('SELECT BANNER FROM V$VERSION WHERE ROWNUM = 1', [], execOpts));
         const row = r.rows?.[0];
         const banner = row ? String(Object.values(row)[0] ?? '') : '';
-        return { ok: true, serverInfo: banner };
+        return { ok: true, serverInfo: `${banner}${fallbackNote()}` };
       } catch {
         // V$VERSION 为推断兼容项（部分 DM 版本/驱动可能不可读）：
         // 版本信息尽力而为，连通性本身用 dual 兜底判定，避免误报连接失败
         try {
           await withConn((c) => c.execute('SELECT 1 FROM DUAL', [], execOpts));
-          return { ok: true, serverInfo: 'DM 数据库（版本信息不可读：V$VERSION 不可用）' };
+          return { ok: true, serverInfo: `DM 数据库（版本信息不可读：V$VERSION 不可用）${fallbackNote()}` };
         } catch (e) {
           return { ok: false, error: humanizeDmError(e).message };
         }

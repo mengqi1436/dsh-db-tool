@@ -357,6 +357,12 @@ describe('达梦 DM（mock pool）', () => {
   it('humanizeDmError 通用包装', () => {
     expect(humanizeDmError(new Error('网络异常')).message).toContain('达梦 DM 错误');
   });
+  it('humanizeDmError 对 6071 通信加密能力错误给出 COMM_ENCRYPT_NAME 提示', () => {
+    expect(humanizeDmError(new Error('[6071] 消息加密失败\nError: Unknown cipher')).message)
+      .toContain('COMM_ENCRYPT_NAME');
+    expect(humanizeDmError(new Error('[6071] 消息加密失败\nError: error:0308010C:digital envelope routines::unsupported')).message)
+      .toContain('loginEncrypt=false');
+  });
   it('sanitizeDmIdent 校验（引用名任意字符合法，NUL/换行/超长拒绝）', () => {
     expect(sanitizeDmIdent('t1', '表名')).toBe('t1');
     // DM 官方允许 $/# 开头（如 ##HISTOGRAMS_TABLE 内部直方图表）；引用名可含任意字符

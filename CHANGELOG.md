@@ -1,5 +1,21 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+达梦 DM 通信加密兼容修复：服务器启用 DES-CFB（`COMM_ENCRYPT_NAME=DES_CFB`）时，Node.js 22+ 的 OpenSSL 3 无 DES 实现，连接在握手阶段报 `[6071] 消息加密失败 / Unknown cipher`。`dmdb` 默认 `loginEncrypt=true`，此前插件没有绕过路径。
+
+### 修复
+
+- **达梦连接按特征错误自动降级**：`createDmPool` 先按驱动默认（加密）建连；仅当错误码为 `[6071]` 且消息为 `Unknown cipher` / `digital envelope routines::unsupported`，且连接串未显式指定 `loginEncrypt` 时，才以 `loginEncrypt=false` 重试一次。其他错误（凭据、网络、权限）不重试；显式 `loginEncrypt=true/false` 不做自动降级。主连接、测试连接与数据传输独立池（`openDmPool`）共用同一路径。
+- **错误提示可操作**：`humanizeDmError` 对上述加密能力错误补充 `COMM_ENCRYPT_NAME=AES_256_CFB` / 留空建议，不再只提示检查凭据；降级成功时 `testConnect` 的 `serverInfo` 明示当前使用 `loginEncrypt=false`。
+- **文档**：README/README_EN 新增「达梦 DM 连接说明」，写明自动降级边界、明文连接安全影响与服务器侧配置建议。
+
+### 测试
+
+- 新增 `tests/adapters-nosql-ent/dmdb-login-encrypt.spec.ts`：特征错误自动重试一次、重试保留原 query 参数、非加密错误不重试、显式 `loginEncrypt=true` 不降级、重试失败抛重试错误、降级成功提示、`openDmPool` 同样生效。
+- `tests/adapters-nosql-ent/oracle-dmdb.spec.ts` 补 `humanizeDmError` 的 6071 提示断言。
+- 真机：`DBT_TEST_DM_CONNECT` 指向 `COMM_ENCRYPT_NAME=DES_CFB` 的 DM8 实例验证 `testConnect`/查询通过（需要可用测试账号）。
+
 ## 1.9.10
 
 仓库维护性修复：CI 聚合判定不再把并发取消判成失败，Dependabot 压掉三个包的重复红，补回缺失的 1.9.2 章节。无运行时代码改动。

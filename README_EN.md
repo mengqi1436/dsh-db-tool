@@ -215,6 +215,23 @@ Setting `encrypt=true` explicitly is therefore the secure setting; treat `encryp
 
 ---
 
+## Dameng DM connection notes
+
+Normal use only needs host, port, user and password (default port 5236).
+
+**Communication encryption policy**: `dmdb` defaults to `loginEncrypt=true`. When the DM server sets `COMM_ENCRYPT_NAME=DES_CFB` (or negotiates DES/RC4), Node.js 22+ / OpenSSL 3 has DES and RC4 disabled by default, so the driver fails during the connection handshake with `[6071] 消息加密失败 / Unknown cipher`. The adapter handles it as follows:
+
+1. First connect with the driver default (encrypted).
+2. **Only when** the error is `[6071]` with `Unknown cipher` / `digital envelope routines::unsupported`, retry once with `loginEncrypt=false` appended to the connection string.
+3. Other errors (bad credentials, network, permissions) are never retried, so the real cause is not hidden.
+4. An explicit `loginEncrypt=true` or `loginEncrypt=false` in the connection string disables automatic fallback — the specified policy is final.
+
+**What `loginEncrypt=false` really means**: like SQL Server `encrypt=false`, messages are not encrypted; credentials and query results travel in plaintext. It is acceptable on a trusted internal network. For public or untrusted networks, set the DM server's `COMM_ENCRYPT_NAME` to `AES_256_CFB` (supported by Node 22+) or leave it empty (communication encryption disabled), restart the server, then connect with `loginEncrypt=true`.
+
+**URL parameter**: `loginEncrypt=true|false` (DM only). Field-based forms need no extra input and use the automatic policy above.
+
+---
+
 ## Installation
 
 ```bash

@@ -213,6 +213,23 @@ Navicat 风格的右侧栏多标签编辑器（CodeMirror 6）：
 
 ---
 
+## 达梦 DM 连接说明
+
+常规使用只需填主机、端口、账号、密码（默认端口 5236）。
+
+**通信加密策略**：`dmdb` 驱动默认 `loginEncrypt=true`。当 DM 服务器的 `dm.ini` 配置 `COMM_ENCRYPT_NAME=DES_CFB`（或协商到 DES/RC4）时，Node.js 22+ 使用的 OpenSSL 3 已默认禁用 DES/RC4，驱动会在建连握手阶段报 `[6071] 消息加密失败 / Unknown cipher`。插件按以下策略处理：
+
+1. 先按驱动默认（加密）连接；
+2. **仅当**错误码为 `[6071]` 且错误消息为 `Unknown cipher` / `digital envelope routines::unsupported` 时，自动在连接串追加 `loginEncrypt=false` **重试一次**；
+3. 账号密码错误、网络异常、权限不足等其他错误不触发重试，避免掩盖真实原因；
+4. 连接串**显式**写 `loginEncrypt=true` 或 `loginEncrypt=false` 时不做任何自动降级——你指定的策略就是最终策略。
+
+**`loginEncrypt=false` 的真实语义**：与 SQL Server 的 `encrypt=false` 一样，消息不加密，账号密码与查询结果在网络上明文传输。内网可信环境可使用；跨公网或不可信网段请在 DM 服务端把 `COMM_ENCRYPT_NAME` 设为 `AES_256_CFB`（Node 22+ 支持），或留空（不启用通信加密）后重启，再显式使用 `loginEncrypt=true`。
+
+**URL 参数**：`loginEncrypt=true|false`（仅达梦）。分字段表单无需填写，默认走上述自动策略。
+
+---
+
 ## 安装
 
 ```bash
