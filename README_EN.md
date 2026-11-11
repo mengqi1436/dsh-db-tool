@@ -327,6 +327,17 @@ vendor/       driver and editor bundles (build artifacts, included on publish)
 
 ---
 
+## Contributors
+
+Thanks to every external contributor whose work actually landed on `master`; per-item details in [CONTRIBUTORS.md](CONTRIBUTORS.md):
+
+- [a19920714liou](https://github.com/a19920714liou) — [PR #1](https://github.com/mengqi1436/dsh-db-tool/pull/1): ro connection hook hang + Windows path case mismatch in grants (the two root causes behind "tables don't show up after configuring a data source")
+- [weicy98](https://github.com/weicy98) — [PR #12](https://github.com/mengqi1436/dsh-db-tool/pull/12): Dameng DM connection failure when communication encryption is DES-CFB
+
+Bug fixes and adapter support are welcome; contribution conventions are in [CONTRIBUTORS.md](CONTRIBUTORS.md#贡献方式).
+
+---
+
 ## License
 
 [Apache License 2.0](LICENSE) © 2026 mengqi1436

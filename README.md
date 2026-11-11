@@ -325,6 +325,17 @@ vendor/       驱动与编辑器 bundle（构建产物，发布时收录）
 
 ---
 
+## 贡献者
+
+感谢所有把修复真正推进到 `master` 的外部贡献者，逐条记录见 [CONTRIBUTORS.md](CONTRIBUTORS.md)：
+
+- [a19920714liou](https://github.com/a19920714liou) — [PR #1](https://github.com/mengqi1436/dsh-db-tool/pull/1)：ro 连接钩子卡死 + Windows 路径大小写授权错位（「设置数据源后表显示不出来」双根因）
+- [weicy98](https://github.com/weicy98) — [PR #12](https://github.com/mengqi1436/dsh-db-tool/pull/12)：达梦 DM 通信加密为 DES-CFB 时的连接失败
+
+欢迎提交缺陷修复与适配器支持，提交约定见 [CONTRIBUTORS.md](CONTRIBUTORS.md#贡献方式)。
+
+---
+
 ## 许可证
 
 [Apache License 2.0](LICENSE) © 2026 mengqi1436
