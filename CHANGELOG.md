@@ -1,6 +1,8 @@
 # Changelog — dsh-db-tool
 
-## 未发布
+## 1.9.11
+
+本版是「达梦兼容修复 + 依赖升级」：修掉 DM 在 DES-CFB 加密下的连接失败，同时跟进 oracledb 26、redis 6.3、CodeMirror 补丁与 stryker 家族升级，无其他运行时行为改动。
 
 达梦 DM 通信加密兼容修复：服务器启用 DES-CFB（`COMM_ENCRYPT_NAME=DES_CFB`）时，Node.js 22+ 的 OpenSSL 3 无 DES 实现，连接在握手阶段报 `[6071] 消息加密失败 / Unknown cipher`。`dmdb` 默认 `loginEncrypt=true`，而表单默认的 `fields` 模式拼不出 query 段、无法指定 `loginEncrypt`，也没有任何自动绕过路径（`url` 模式在 master 上本就可手写 `?loginEncrypt=false`，不受影响）。
 
@@ -14,11 +16,23 @@
 - **错误提示可操作**：`humanizeDmError` 对上述加密能力错误补充 `COMM_ENCRYPT_NAME=AES_256_CFB` / 留空建议，不再只提示检查凭据；降级成功时 `testConnect` 的 `serverInfo` 明示当前使用 `loginEncrypt=false`。
 - **文档**：README/README_EN 新增「达梦 DM 连接说明」，写明自动降级边界、`loginEncrypt` 大小写不敏感、分字段方式无法指定该参数（需改用 URL 方式）、明文连接安全影响与服务器侧配置建议。
 
+### 依赖
+
+- **oracledb 7.0.1 → 26.0.0**：Oracle 把主版本号改成**年份制**（26 表示 2026 年），不是跨 19 代破坏性重构；上游 [升级指南](https://node-oracledb.readthedocs.io/en/latest/user_guide/migrate.html) 给出的路径是「Upgrading from node-oracledb 7.0 to 26.0.0」，按常规 release notes 走即可。适配器依赖的 API 在本版全部在位（`createPool` / `getConnection` / `Lob` / `CLOB` / `BLOB` / `fetchAsString` / `fetchAsBuffer` / `OUT_FORMAT_OBJECT`），已实测建池→取连接→连接被拒（NJS-503）→`pool.close()` 全链路正常；26 里没有 `DB_TYPE_*` 与 `isPool`，但本仓库代码从未使用这两个符号。thin 模式（本项目所用）不受影响。
+- **redis 6.2.1 → 6.3.1**：补丁级升级，Redis 客户端及 `@redis/*` 子包同批跟进。
+- **@codemirror/view 6.43.13 → 6.43.15、@codemirror/autocomplete 6.20.3 → 6.20.4**：补丁级升级，影响 `vendor/codemirror-sql.cjs` 构建产物。
+
+### 杂项
+
+- **stryker 家族成对升至 10.1.1**：`@stryker-mutator/core` 与 `@stryker-mutator/vitest-runner` 从 10.0.0 一起升到 10.1.1。vitest-runner 对 core 声明的是 peerDependencies 精确锁定，只升一个会留下无解约束让 `npm ci` 报 EUSAGE。
+- **dependabot 增加 stryker 分组**：`.github/dependabot.yml` 新增 `groups.stryker` 匹配 `@stryker-mutator/*`，避免家族依赖被拆成多个 PR 而触发上面的 lock peer 冲突。文件内已有逐项注释说明 ignore 依据与解除路径，本条只是记录配置变更。
+
 ### 测试
 
 - 新增 `tests/adapters-nosql-ent/dmdb-login-encrypt.spec.ts`：特征错误自动重试一次、重试保留原 query 参数、非加密错误不重试、显式 `loginEncrypt=true` 不降级、重试失败抛重试错误、降级成功提示、`openDmPool` 同样生效；并补大小写变体（`LOGINENCRYPT` / `LoginEncrypt` / 全大写值）不降级、降级后 authority 逐字节保真、降级后仍失败不再给出已失效建议、同目标二次建池不再重复失败握手等回归用例。
 - `tests/adapters-nosql-ent/oracle-dmdb.spec.ts` 补 `humanizeDmError` 的 6071 提示断言。
 - 真机：`DBT_TEST_DM_CONNECT` 指向 `COMM_ENCRYPT_NAME=DES_CFB` 的 DM8 实例，修复后同一连接推进到 `[-2501] 用户名或密码错误`，据此可确认加密握手已被绕过（不再停在 `[6071]`）。完整 `testConnect` / 查询因测试账号口令不可用**未验证**。
+- 基线：`typecheck` 0 错误、`npm test` 1307 passed / 1 failed / 36 skipped（1344，含新增的达梦降级 15 条用例）、`npm audit` 0 vulnerabilities。那 1 条失败是 `sqlserver-driver-real` 的 `host.invalid` 用例——本机 DNS 把它劫持到 `198.18.0.43`（`node -e "require('node:dns').lookup('host.invalid',...)"` 返回 IP，正常环境应返回 `ENOTFOUND`），master 基线同样失败，与本次改动无关；CI 环境为 0 failed
 
 ## 1.9.10
 
