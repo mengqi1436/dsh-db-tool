@@ -86,7 +86,7 @@
     "tedious": "^20.3.8",
     "sql-formatter": "^15.9.0",
     "stryker-cli": "^1.1.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
   "peerDependencies": {
