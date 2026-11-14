@@ -1963,8 +1963,9 @@ window.__ModuleLoader__.load({
 			const [searchRes, setSearchRes] = React.useState({}); // connId -> TableSearchHit[] | null（非空 = 结果视图替代目录树）
 			const [searchBusy, setSearchBusy] = React.useState({});
 			const [searchErr, setSearchErr] = React.useState({});
-			// 树体折叠（默认展开）：树是导航入口，但长树会挤占下方内容区，故给显式折叠开关
-			const [treeCollapsed, setTreeCollapsed] = React.useState(false);
+			// 树体折叠（默认收起，对齐 Navicat 左侧目录树习惯）：进数据浏览先看内容区，
+			// 长树不挤压下方表格；树壳标题行常驻，点击一键展开/收起
+			const [treeCollapsed, setTreeCollapsed] = React.useState(true);
 
 			// 会话项目切换时清空树缓存，避免陈旧授权下的旧数据
 			React.useEffect(() => {
@@ -2220,7 +2221,7 @@ window.__ModuleLoader__.load({
 							for (const tb of tlist) {
 								const active = !!sel && sel.connId === c.id && sel.db === d && sel.schemaName === s && sel.table.name === tb.name;
 								treeRows.push(treerow("t:" + sk + "/" + tb.name, 3, false, true,
-									tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
+									tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : "") + (tb.comment ? " · " + tb.comment : ""),
 									(e) => onSelect({ connId: c.id, db: d, schemaName: s, table: tb }, e.currentTarget), active));
 							}
 						}
@@ -2232,7 +2233,7 @@ window.__ModuleLoader__.load({
 					for (const tb of tlist) {
 						const active = !!sel && sel.connId === c.id && sel.db === d && sel.table.name === tb.name;
 						treeRows.push(treerow("t:" + c.id + "/" + d + "/" + tb.name, 2, false, true,
-							tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
+							tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : "") + (tb.comment ? " · " + tb.comment : ""),
 							(e) => onSelect({ connId: c.id, db: d, table: tb }, e.currentTarget), active));
 					}
 				}

@@ -70,6 +70,15 @@ const reactStub = (() => {
 			hookIdx = 0;
 			return comp(props);
 		},
+		/**
+		 * 保留 hook 槽位的再次渲染：useState 保留既有值。
+		 * 用于「点击展开/收起 → 断言再渲染结果」的状态流转（真实 React 的 setState 重渲染等价物）。
+		 */
+		rerender(comp: (props: any) => any, props: any): El {
+			effects = [];
+			hookIdx = 0;
+			return comp(props);
+		},
 	};
 })();
 
@@ -148,6 +157,10 @@ describe('1 浏览页分区结构（源码断言）', () => {
 	it('树体限高 + 标题行可折叠（aria-expanded 绑定 treeCollapsed）', () => {
 		expect(src).toMatch(/\.dbt-browse-tree\{max-height:\d+px;overflow-y:auto;\}/);
 		expect(src).toContain('"aria-expanded": !treeCollapsed');
+	});
+
+	it('树体默认收起（对齐 Navicat：进数据浏览先看内容区，树按需展开）', () => {
+		expect(src).toMatch(/const \[treeCollapsed, setTreeCollapsed\] = React\.useState\(true\)/);
 	});
 });
 
@@ -282,25 +295,36 @@ describe('3 分区顺序与面包屑', () => {
 	});
 
 	it('树内工具条位于树体之前（筛选/搜索是导航入口，不藏在展开行里）', () => {
-		const tree = reactStub.render(T.BrowseTree, {
+		const props = {
 			conns: [connGranted], projectPath: 'E:/proj', sel: null,
 			onSelect: () => {}, autoExpand: false, refreshTick: 0,
-		});
+		};
+		// 默认收起：树体不渲染；点标题行展开后工具条仍在树体之前
+		let tree = reactStub.render(T.BrowseTree, props);
+		expect(byClass(tree, 'dbt-browse-tree').length).toBe(0);
+		byClass(tree, 'dbt-browse-treehead')[0]!.props.onClick();
+		tree = reactStub.rerender(T.BrowseTree, props);
 		const nodes = collect(tree).filter((e) => typeof e.props.className === 'string');
-		const tb = nodes.findIndex((e) => e.props.className.includes('dbt-browse-toolbar'));
-		const body = nodes.findIndex((e) => e.props.className.includes('dbt-browse-tree'));
+		const tb = nodes.findIndex((e) => e.props.className.split(/\s+/).includes('dbt-browse-toolbar'));
+		const body = nodes.findIndex((e) => e.props.className.split(/\s+/).includes('dbt-browse-tree'));
 		expect(tb).toBeGreaterThanOrEqual(0);
 		expect(body).toBeGreaterThan(tb);
 	});
 
-	it('树壳标题行渲染对象树入口并带折叠状态', () => {
-		const tree = reactStub.render(T.BrowseTree, {
+	it('树壳标题行默认收起（aria-expanded=false 且树体不渲染），点击后展开', () => {
+		const props = {
 			conns: [connGranted], projectPath: 'E:/proj', sel: null,
 			onSelect: () => {}, autoExpand: false, refreshTick: 0,
-		});
+		};
+		let tree = reactStub.render(T.BrowseTree, props);
 		const head = byClass(tree, 'dbt-browse-treehead')[0];
 		expect(head, '缺少树壳标题行').toBeTruthy();
-		expect(head!.props['aria-expanded']).toBe(true);
 		expect(flatText(head)).toContain('对象树');
+		expect(head!.props['aria-expanded']).toBe(false);
+		expect(byClass(tree, 'dbt-browse-tree').length).toBe(0);
+		head!.props.onClick();
+		tree = reactStub.rerender(T.BrowseTree, props);
+		expect(byClass(tree, 'dbt-browse-treehead')[0]!.props['aria-expanded']).toBe(true);
+		expect(byClass(tree, 'dbt-browse-tree').length).toBe(1);
 	});
 });
