@@ -149,6 +149,11 @@ async function expandTo(conn: any, tables: any[], ...want: string[]) {
 	});
 	let tree = reactStub.render(T.BrowseTree, props());
 	await flush();
+	// 树壳默认收起（PR #17 起对齐 Navicat 左侧目录树习惯）：先点标题行展开树体，再逐层导航
+	const head = collect(tree).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-browse-treehead'));
+	expect(head, '未找到对象树壳标题行').toBeTruthy();
+	head!.props.onClick();
+	await flush();
 	for (const w of want) {
 		tree = reactStub.render(T.BrowseTree, props());
 		const row = collect(tree).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-treerow') && flatText(e).includes(w) && e.props.onClick);
