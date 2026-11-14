@@ -191,13 +191,17 @@ describe('Oracle 元数据（mock pool）', () => {
     const b = await createOracleAdapter(oraConn, { pool: broken });
     expect(await b.listDatabases()).toEqual(['SCOTT']);
   });
-  it('listTables 查 all_tables，owner 默认大写用户', async () => {
-    const pool = makeOraPool([{ TABLE_NAME: 'EMP' }], [{ name: 'TABLE_NAME' }]);
+  it('listTables 查 all_tables 联 all_tab_comments 取表注释，owner 默认大写用户', async () => {
+    const pool = makeOraPool([{ TABLE_NAME: 'EMP', COMMENTS: '员工表' }, { TABLE_NAME: 'BONUS', COMMENTS: null }], [{ name: 'TABLE_NAME' }, { name: 'COMMENTS' }]);
     const a = await createOracleAdapter(oraConn, { pool });
     const ts = await a.listTables();
     expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tables');
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tab_comments');
     expect(pool.connObj.execute.mock.calls[0]![1]).toEqual(['SCOTT']);
-    expect(ts).toEqual([{ name: 'EMP', type: 'TABLE' }]);
+    expect(ts).toEqual([
+      { name: 'EMP', type: 'TABLE', comment: '员工表' },
+      { name: 'BONUS', type: 'TABLE', comment: undefined },
+    ]);
   });
   it('describeTable 组合类型串与主键 PRI', async () => {
     const pool = makeOraPool();
@@ -329,12 +333,13 @@ describe('达梦 DM（mock pool）', () => {
     await a.previewRows('t', 5, undefined, 15);
     expect(pool.connObj.execute.mock.calls[1]![0] as string).toContain('OFFSET 15 ROWS FETCH FIRST 5 ROWS ONLY');
   });
-  it('listTables 复用 ALL_TABLES 数据字典', async () => {
-    const pool = makeDmPool([{ TABLE_NAME: 'T1' }], [{ name: 'TABLE_NAME' }]);
+  it('listTables 复用 ALL_TABLES 数据字典并联 ALL_TAB_COMMENTS 取表注释', async () => {
+    const pool = makeDmPool([{ TABLE_NAME: 'T1', COMMENTS: '测试表' }], [{ name: 'TABLE_NAME' }, { name: 'COMMENTS' }]);
     const a = await createDmAdapter(dmConn, { pool });
     const ts = await a.listTables();
     expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
-    expect(ts).toEqual([{ name: 'T1', type: 'TABLE' }]);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TAB_COMMENTS');
+    expect(ts).toEqual([{ name: 'T1', type: 'TABLE', comment: '测试表' }]);
   });
   it('listDatabases 列 ALL_TABLES 有表 schema（非 host 占位），过滤系统安全 schema，空/失败回退当前用户', async () => {
     const pool = makeDmPool([{ OWNER: 'SYSDBA' }, { OWNER: 'SYSSSO' }, { OWNER: 'SYSAUDITOR' }, { OWNER: 'APP' }], [{ name: 'OWNER' }]);
