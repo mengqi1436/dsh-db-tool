@@ -2221,7 +2221,7 @@ window.__ModuleLoader__.load({
 							for (const tb of tlist) {
 								const active = !!sel && sel.connId === c.id && sel.db === d && sel.schemaName === s && sel.table.name === tb.name;
 								treeRows.push(treerow("t:" + sk + "/" + tb.name, 3, false, true,
-									tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
+									tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : "") + (tb.comment ? " · " + tb.comment : ""),
 									(e) => onSelect({ connId: c.id, db: d, schemaName: s, table: tb }, e.currentTarget), active));
 							}
 						}
@@ -2233,7 +2233,7 @@ window.__ModuleLoader__.load({
 					for (const tb of tlist) {
 						const active = !!sel && sel.connId === c.id && sel.db === d && sel.table.name === tb.name;
 						treeRows.push(treerow("t:" + c.id + "/" + d + "/" + tb.name, 2, false, true,
-							tb.name + (tb.type && tb.type !== "table" ? " · " + tb.type : ""),
+							tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : "") + (tb.comment ? " · " + tb.comment : ""),
 							(e) => onSelect({ connId: c.id, db: d, table: tb }, e.currentTarget), active));
 					}
 				}

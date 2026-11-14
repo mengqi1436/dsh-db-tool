@@ -1345,20 +1345,23 @@ describe('sqlserver 元数据方法（手法 B）', () => {
     await a.close();
   });
 
-  it('listTables：sys.objects 限定 schema，类型归一 TABLE/VIEW', async () => {
+  it('listTables：sys.objects 限定 schema，类型归一 TABLE/VIEW，附表注释', async () => {
     const { a, pool } = await make();
     pool.queue = [
-      rec([{ table_name: 't1', obj_type: 'U' }, { table_name: 'v1', obj_type: 'V' }], cols('table_name', 'obj_type')),
+      rec([{ table_name: 't1', obj_type: 'U', table_comment: '用户表' }, { table_name: 'v1', obj_type: 'V', table_comment: null }], cols('table_name', 'obj_type', 'table_comment')),
     ];
     const tables = await a.listTables('dbo');
     expect(tables).toEqual([
-      { name: 't1', type: 'TABLE', database: 'dbo' },
-      { name: 'v1', type: 'VIEW', database: 'dbo' },
+      { name: 't1', type: 'TABLE', database: 'dbo', comment: '用户表' },
+      { name: 'v1', type: 'VIEW', database: 'dbo', comment: undefined },
     ]);
     const sql = pool.last.executed[0]!.sql;
     expect(sql).toContain('sys.objects');
     expect(sql).toContain("'U'");
     expect(sql).toContain("'V'");
+    // 表注释 = 对象级扩展属性 MS_Description（class=1 对象级、minor_id=0 表本体）
+    expect(sql).toContain('MS_Description');
+    expect(sql).toContain('minor_id = 0');
     expect(pool.last.executed[0]!.binds).toEqual([['p1', 'dbo']]);
     await a.close();
   });

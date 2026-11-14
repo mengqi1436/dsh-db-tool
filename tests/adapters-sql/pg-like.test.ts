@@ -177,21 +177,29 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(await a.listSchemas!()).toEqual(['public']);
   });
 
-  it('listTables：BASE TABLE→TABLE，默认 schema public', async () => {
+  it('listTables：BASE TABLE→TABLE，默认 schema public，带表注释', async () => {
     const { a, pool } = await make('postgresql');
-    pool.queue = [okRes([{ table_name: 'users', table_type: 'BASE TABLE' }, { table_name: 'v1', table_type: 'VIEW' }])];
+    pool.queue = [okRes([
+      { table_name: 'users', table_type: 'BASE TABLE', table_comment: '用户表' },
+      { table_name: 'v1', table_type: 'VIEW', table_comment: null },
+    ])];
     const tables = await a.listTables();
-    expect(tables[0]).toMatchObject({ name: 'users', type: 'TABLE', database: 'public' });
+    expect(tables[0]).toMatchObject({ name: 'users', type: 'TABLE', database: 'public', comment: '用户表' });
+    expect(tables[1]!.comment).toBeUndefined();
     expect(pool.executed[0]?.params).toEqual(['public']);
+    // 注释取自 COMMENT ON TABLE 的存储位置（pg_description/pg_class）
+    expect(pool.executed[0]?.sql).toContain('obj_description');
+    expect(pool.executed[0]?.sql).toContain('pg_class');
   });
 
   it('searchTables：库名限定 / db.schema 精确 / 跨库逐池 / ILIKE ~ 转义', async () => {
     const { a, pool } = await make('postgresql');
     // 库名（UI 库下拉传值）→ 该库全部用户 schema，单参数
-    pool.queue = [okRes([{ table_schema: 'public', table_name: 'users', table_type: 'BASE TABLE' }])];
+    pool.queue = [okRes([{ table_schema: 'public', table_name: 'users', table_type: 'BASE TABLE', table_comment: '用户表' }])];
     expect(await a.searchTables!('use', 'mydb')).toEqual([
-      { database: 'mydb', schema: 'public', name: 'users', type: 'TABLE' },
+      { database: 'mydb', schema: 'public', name: 'users', type: 'TABLE', comment: '用户表' },
     ]);
+    expect(pool.executed.at(-1)?.sql).toContain('obj_description');
     expect(pool.executed.at(-1)?.params).toEqual(['%use%']);
     expect(pool.executed.at(-1)?.sql).toContain("ILIKE $1 ESCAPE '~'");
     expect(pool.executed.at(-1)?.sql).toContain("NOT LIKE 'pg\\_%'");

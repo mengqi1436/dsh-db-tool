@@ -52,6 +52,9 @@ suite('postgresql 适配器（真机，DBT_TEST_PG_URL 门控）', () => {
     expect(dbs.length).toBeGreaterThan(0);
     const tables = await adapter.listTables('public');
     expect(tables.some((t) => t.name === 'dbt_test_users' && t.type === 'TABLE')).toBe(true);
+    await adapter.execute("COMMENT ON TABLE dbt_test_users IS '用户表'");
+    // 浏览树表注释：listTables 须带回 COMMENT ON TABLE
+    expect((await adapter.listTables('public')).find((t) => t.name === 'dbt_test_users')?.comment).toBe('用户表');
     await adapter.execute("COMMENT ON COLUMN dbt_test_users.name IS '名字'");
     const cols = await adapter.describeTable('dbt_test_users', 'public');
     expect(cols.find((c) => c.name === 'id')?.key).toBe('PRI');
