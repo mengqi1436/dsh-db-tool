@@ -381,13 +381,24 @@ export async function createOracleAdapter(
     async listTables(database?: string): Promise<TableInfo[]> {
       const owner = ownerOf(database);
       try {
+        // 表注释取 ALL_TAB_COMMENTS（COMMENT ON TABLE 的 Oracle 字典视图），LEFT JOIN 不放大行数
         const r = await withConn((c) => c.execute(
-          'SELECT table_name FROM all_tables WHERE owner = :owner ORDER BY table_name FETCH FIRST 500 ROWS ONLY',
+          `SELECT t.table_name, c.comments
+           FROM all_tables t
+           LEFT JOIN all_tab_comments c ON c.owner = t.owner AND c.table_name = t.table_name
+           WHERE t.owner = :owner ORDER BY t.table_name FETCH FIRST 500 ROWS ONLY`,
           [owner],
           execOpts,
         ));
         const rows = (r.rows as Record<string, unknown>[] | undefined) ?? [];
-        return rows.map((row) => ({ name: String(row.TABLE_NAME ?? ''), type: 'TABLE' }));
+        return rows.map((row) => {
+          const comment = row.COMMENTS;
+          return {
+            name: String(row.TABLE_NAME ?? ''),
+            type: 'TABLE',
+            comment: comment != null && comment !== '' ? String(comment) : undefined,
+          };
+        });
       } catch (e) {
         throw humanizeOraError(e);
       }

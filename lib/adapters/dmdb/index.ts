@@ -529,14 +529,25 @@ export async function createDmAdapter(
     async listTables(database?: string): Promise<TableInfo[]> {
       const owner = ownerOf(database);
       try {
-        // ⚠️ 推断：DM 兼容 Oracle 数据字典 ALL_TABLES（未真机验证）
+        // ⚠️ 推断：DM 兼容 Oracle 数据字典 ALL_TABLES / ALL_TAB_COMMENTS（未真机验证）；
+        // 表注释取 ALL_TAB_COMMENTS（对应 Oracle COMMENT ON TABLE），LEFT JOIN 不放大行数
         const r = await withConn((c) => c.execute(
-          'SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = :owner ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 500 ROWS ONLY',
+          `SELECT T.TABLE_NAME, C.COMMENTS
+           FROM ALL_TABLES T
+           LEFT JOIN ALL_TAB_COMMENTS C ON C.OWNER = T.OWNER AND C.TABLE_NAME = T.TABLE_NAME
+           WHERE T.OWNER = :owner ORDER BY T.TABLE_NAME OFFSET 0 ROWS FETCH FIRST 500 ROWS ONLY`,
           [owner],
           execOpts,
         ));
         const rows = r.rows ?? [];
-        return rows.map((row) => ({ name: String(row.TABLE_NAME ?? ''), type: 'TABLE' }));
+        return rows.map((row) => {
+          const comment = row.COMMENTS;
+          return {
+            name: String(row.TABLE_NAME ?? ''),
+            type: 'TABLE',
+            comment: comment != null && comment !== '' ? String(comment) : undefined,
+          };
+        });
       } catch (e) {
         throw humanizeDmError(e);
       }

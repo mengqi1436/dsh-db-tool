@@ -1229,9 +1229,12 @@ const LIST_SCHEMAS_SQL = `SELECT s.name AS name FROM sys.schemas s
  WHERE s.name NOT IN ('guest', 'sys', 'INFORMATION_SCHEMA') AND s.schema_id < 16384
  ORDER BY s.name`;
 
-// sys.objects 同时覆盖表(U)与视图(V)；is_ms_shipped 排除系统附带对象
-const LIST_TABLES_SQL = `SELECT o.name AS table_name, o.type AS obj_type
+// sys.objects 同时覆盖表(U)与视图(V)；is_ms_shipped 排除系统附带对象；
+// 表注释取对象级扩展属性 MS_Description（class=1 对象级、minor_id=0 表本体，与列注释同源）
+const LIST_TABLES_SQL = `SELECT o.name AS table_name, o.type AS obj_type, ep.value AS table_comment
  FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id
+ LEFT JOIN sys.extended_properties ep
+   ON ep.class = 1 AND ep.major_id = o.object_id AND ep.minor_id = 0 AND ep.name = N'MS_Description'
  WHERE s.name = @p1 AND o.type IN ('U', 'V') AND o.is_ms_shipped = 0
  ORDER BY o.name`;
 
@@ -1482,9 +1485,11 @@ export async function createSqlserverAdapter(
         const res = await req.query(LIST_TABLES_SQL);
         return rowsOf(res).map((r): TableInfo => {
           const raw = String(r['obj_type']);
+          const comment = r['table_comment'];
           return {
             name: String(r['table_name']),
             type: raw === 'U' ? 'TABLE' : raw === 'V' ? 'VIEW' : raw,
+            comment: comment == null || comment === '' ? undefined : String(comment),
             database: db ? `${db}.${schema}` : schema,
           };
         });

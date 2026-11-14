@@ -108,6 +108,19 @@ npm test
 
 ---
 
+## UI 改动的前后对照截图
+
+UI 改动的 PR 必须带 Before/After 视觉证据。截图曾整图发黑：取证页自己画了深色画布，无头浏览器却停在默认浅色配色方案，而插件与宿主的主题都挂在 `prefers-color-scheme` 上——画布颜色是取证页自选的，文字颜色是浏览器配色方案选的，两者错位就成了深底深字、文字不可见。规则：
+
+- **画布与文字用宿主真实主题值**：底色 `--dsw-alias-bg-base`（亮 `#ffffff` / 暗 `#151517`）、字色 `--dsw-alias-label-primary`（亮 `#0f1115` / 暗 `#f9fafb`），不自造「模拟宿主」的底色。
+- **浏览器配色方案显式设置且与画布同侧**（Playwright `colorScheme` / CDP `Emulation.setEmulatedMedia`）；亮、暗两套各拍一组。
+- **Before / After 场景、viewport、主题、缩放一致**，且两版都跑真实产物（真实 `dist/`、改动前后两版真实 `client.js`、真实示例库），不用 mock 页面冒充旧实现。
+- **推送前做像素校验**：每张图的文字像素占比必须大于 0（发黑旧图曾为 0），并按 raw URL 拉回核对 md5；作废旧图必须从 `assets/` 删除，不留新旧并存。
+
+完整机制与操作细节见 `docs/ui-screenshot-guidance.md`。
+
+---
+
 ## 提交与发版
 
 ### 提交信息

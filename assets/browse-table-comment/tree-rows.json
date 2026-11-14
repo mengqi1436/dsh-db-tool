@@ -1,0 +1,22 @@
+{
+  "before": [
+    "▶\n示例库\npostgresql",
+    "▶\ndbt_shot",
+    "▶\npublic",
+    "orders · TABLE",
+    "products · TABLE",
+    "users · TABLE",
+    "v_order_stats · VIEW",
+    "▶\npostgres"
+  ],
+  "after": [
+    "▶\n示例库\npostgresql",
+    "▶\ndbt_shot",
+    "▶\npublic",
+    "orders · 订单主表",
+    "products · 商品表",
+    "users · 用户表",
+    "v_order_stats · VIEW · 订单状态统计视图",
+    "▶\npostgres"
+  ]
+}

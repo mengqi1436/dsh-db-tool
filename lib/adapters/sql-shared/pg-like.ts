@@ -341,23 +341,30 @@ export async function createPgLikeAdapter(
     schema: string | null,
   ): Promise<TableSearchHit[]> => {
     const params = schema ? [pattern, schema] : [pattern];
+    // 注释取法与 listTables 一致（obj_description），搜表结果同样带表注释供 UI 展示
     const res = await p.query(
-      `SELECT table_schema, table_name, table_type
-       FROM information_schema.tables
-       WHERE table_name ILIKE $1 ESCAPE '~'
-         AND table_schema <> 'information_schema' AND table_schema NOT LIKE 'pg\\_%'
-         ${schema ? 'AND table_schema = $2' : ''}
-       ORDER BY table_schema, table_name
+      `SELECT t.table_schema, t.table_name, t.table_type,
+              obj_description(c.oid, 'pg_class') AS table_comment
+       FROM information_schema.tables t
+       LEFT JOIN pg_catalog.pg_class c
+         ON c.relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = t.table_schema)
+        AND c.relname = t.table_name
+       WHERE t.table_name ILIKE $1 ESCAPE '~'
+         AND t.table_schema <> 'information_schema' AND t.table_schema NOT LIKE 'pg\\_%'
+         ${schema ? 'AND t.table_schema = $2' : ''}
+       ORDER BY t.table_schema, t.table_name
        LIMIT ${cap}`,
       params,
     );
     return res.rows.map((r): TableSearchHit => {
       const rawType = String(r.table_type);
+      const comment = r.table_comment;
       return {
         database: dbName,
         schema: String(r.table_schema),
         name: String(r.table_name),
         type: rawType === 'BASE TABLE' ? 'TABLE' : rawType,
+        comment: comment == null || comment === '' ? undefined : String(comment),
       };
     });
   };
@@ -470,16 +477,24 @@ export async function createPgLikeAdapter(
     listTables: (database) =>
       humanize(`${kind} 列出表`, async () => {
         const { db, schema } = parseBrowseTarget(database, 'schema');
+        // 表注释经 pg_description 取回（COMMENT ON TABLE 的存储位置）；(relnamespace, relname) 唯一，
+        // LEFT JOIN 不会放大行数，无注释的表拿 NULL → undefined
         const res = await poolFor(db).query(
-          `SELECT table_name, table_type FROM information_schema.tables
-           WHERE table_schema = $1 ORDER BY table_name`,
+          `SELECT t.table_name, t.table_type, obj_description(c.oid, 'pg_class') AS table_comment
+           FROM information_schema.tables t
+           LEFT JOIN pg_catalog.pg_class c
+             ON c.relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = t.table_schema)
+            AND c.relname = t.table_name
+           WHERE t.table_schema = $1 ORDER BY t.table_name`,
           [schema],
         );
         return res.rows.map((r) => {
           const rawType = String(r.table_type);
+          const comment = r.table_comment;
           return {
             name: String(r.table_name),
             type: rawType === 'BASE TABLE' ? 'TABLE' : rawType,
+            comment: comment == null || comment === '' ? undefined : String(comment),
             database: db ? `${db}.${schema}` : schema,
           } satisfies TableInfo;
         });
