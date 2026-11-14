@@ -1,10 +1,27 @@
 # Changelog — dsh-db-tool
 
-## 未发布
+## 1.9.12
+
+本版是「浏览体验优化 + 依赖升级」：「数据浏览」对象树默认收起、表行显示中文表注释，并跟进 mongodb、bson、@codemirror/language、@types/node 四项依赖升级，另附 UI 截图取证规范文档。
+
+### 新增
+
+- **「数据浏览」表行显示表注释**：pg/gaussdb、SQL Server、Oracle、达梦的 `listTables` 与 pg 系 `searchTables` 带回表级注释（新增可选字段 `TableInfo.comment`，不影响既有调用方：pg 系取 `pg_description`，SQL Server 取对象级扩展属性 `MS_Description`，Oracle 与达梦联 `ALL_TAB_COMMENTS`；mysql 原有，sqlite/mongodb/redis 无表注释概念保持为空）。对象树表行注释以「 · 注释」拼进行标签，与库内搜表结果行的既有展示一致；顺带把类型后缀判定改为大小写不敏感，普通表不再误挂「 · TABLE」，视图仍显示「 · VIEW」。分字段映射、行数、排序均不变。
 
 ### 变更
 
 - **「数据浏览」对象树默认收起**：打开数据浏览时对象树不再自动展开占位，只保留「对象树」标题行（含已授权连接数），点击一键展开/收起，对齐 Navicat 左侧目录树的收纳习惯。分区顺序不变（工具条 → 树壳 → 面包屑 → 结构/数据），树收起后内容区直接获得面板剩余高度，长目录树不再挤压下方表格；树内库筛选与表名搜索工具条不受折叠影响，连接层首次激活自动拉取库列表的行为保持不变，收起状态下工具条的库筛选下拉仍可用。
+
+### 依赖
+
+- **mongodb 7.6.0 → 7.8.0**：minor 升级；`vendor/mongodb-driver.cjs` 构建产物随动，bundle 内 `bson` 保持 external，与运行时 `require('bson')` 维持同一模块实例。
+- **bson 7.3.3 → 7.3.4**：补丁级升级。
+- **@codemirror/language 6.12.4 → 6.13.1**：minor 升级；`vendor/codemirror-sql.cjs` 构建产物随动。
+- **@types/node 26.6.2 → 26.6.6**：补丁级升级，仅类型声明，不影响运行时。
+
+### 杂项
+
+- **UI 截图取证规范**：新增 `docs/ui-screenshot-guidance.md`，复盘对象树收起截图第一版整图发黑的根因（取证页自造深色画布与浏览器 `prefers-color-scheme` 错位，深底深字），固化画布与文字取宿主真实主题解析值、显式设置浏览器配色方案、Before/After 同条件跑真实产物、推送前像素校验等做法；`AGENTS.md` 新增「UI 改动的前后对照截图」约定一节，`.gitignore` 为新文档补逐文件 `!` 例外。纯文档与仓库约定改动，不随 npm 包发布。
 
 ## 1.9.11
 
