@@ -29,5 +29,6 @@ out/
 .impeccable/
 docs/*
 !docs/sidebar-right-migration.md
+!docs/ui-screenshot-guidance.md
 DESIGN.md
 PRODUCT.md
