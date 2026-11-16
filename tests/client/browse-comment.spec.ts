@@ -1,11 +1,11 @@
 /**
- * 「数据浏览」对象树表行注释布局的离线测试（stub React 多轮渲染 + 脚本化 fetch）。
+ * 「数据浏览」对象树表行注释布局（Apple 设置列表式）的离线测试（stub React 多轮渲染 + 脚本化 fetch）。
  *
  * 覆盖：
  *  1) mysql（两层：连接 → 库 → 表）与 postgresql（三层：连接 → 库 → schema → 表）两条树路径，
- *     表行的表名占左列且贴合内容（.dbt-treename.dbt-treename-fit），中文注释为紧跟其后的
- *     独立块（.dbt-treecomment），两者之间有竖向隔断（.dbt-treesep），不再以「 · 注释」拼进名称；
- *  2) 无注释的表行没有隔断与注释块；
+ *     表行的表名占左列（.dbt-treename），中文注释为右对齐独立块（.dbt-treecomment，Apple
+ *     设置列表式左右分区，无竖向隔断线），不再以「 · 注释」拼进名称；
+ *  2) 无注释的表行没有注释块；全树不渲染竖向隔断线；
  *  3) 普通表不挂「 · TABLE」类型后缀（大小写不敏感判定），视图等非普通表仍显示类型；
  *  4) 库内搜表结果行与树表行同一布局契约。
  *
@@ -171,7 +171,7 @@ async function expandTo(conn: any, tables: any[], ...want: string[]) {
 
 /* ---------- 表行结构断言辅助 ---------- */
 
-/** 找到文本命中的表行，拆出名称块/隔断/注释块三个结构元素 */
+/** 找到文本命中的表行，拆出名称块/注释块两个结构元素 */
 function rowParts(tree: El, rowText: string) {
 	const row = collect(tree).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-treerow') && flatText(e).includes(rowText));
 	expect(row, `未找到表行「${rowText}」`).toBeTruthy();
@@ -179,14 +179,18 @@ function rowParts(tree: El, rowText: string) {
 	const pick = (cls: string) => kids.find((e) => (e.props.className as string).includes(cls)) ?? null;
 	return {
 		name: pick('dbt-treename'),
-		sep: pick('dbt-treesep'),
 		comment: pick('dbt-treecomment'),
 	};
 }
 
+/** 全树不应渲染竖向隔断线（Apple 设置列表式：左右分区留白 + 行间横向分隔线，无竖线） */
+function expectNoSep(tree: El) {
+	expect(collect(tree).some((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-treesep')), '不应存在竖向隔断线').toBe(false);
+}
+
 /* ---------- 用例 ---------- */
 
-describe('数据浏览对象树：表行注释布局（左表名、右注释、中间隔断）', () => {
+describe('数据浏览对象树：表行注释布局（Apple 设置列表式：左表名、右注释）', () => {
 	it('mysql 两层树：表名与注释分列两侧且有隔断，普通表不挂 TABLE 后缀', async () => {
 		const tree = await expandTo(
 			{ id: 'c1', name: '主库', kind: 'mysql' },
@@ -198,17 +202,15 @@ describe('数据浏览对象树：表行注释布局（左表名、右注释、�
 		);
 		const users = rowParts(tree, 'users');
 		expect(flatText(users.name)).toBe('users'); // 表名单独占左列，不再拼接注释
-		expect(users.sep, 'users 行缺竖向隔断').toBeTruthy();
 		expect(users.comment, 'users 行缺注释块').toBeTruthy();
 		expect(users.comment!.props.title).toBe('用户表'); // 截断时悬停可读全文
-		expect(users.name!.props.className).toContain('dbt-treename-fit'); // 名称列贴合内容：隔断与注释紧跟表名
 		const vlogs = rowParts(tree, 'v_logs');
 		expect(flatText(vlogs.name)).toBe('v_logs · VIEW'); // 非普通表仍显示类型
-		expect(vlogs.sep).toBeNull(); // 无注释：无隔断、无注释块
-		expect(vlogs.comment).toBeNull();
+		expect(vlogs.comment).toBeNull(); // 无注释：无注释块
 		const text = flatText(tree);
 		expect(text).not.toContain('users · 用户表'); // 注释不再拼进名称
 		expect(text).not.toContain('· TABLE'); // 普通表不挂类型后缀（此前大小写敏感判定漏放）
+		expectNoSep(tree);
 	});
 
 	it('postgresql 三层树（库→schema→表）：注释布局契约一致', async () => {
@@ -220,10 +222,10 @@ describe('数据浏览对象树：表行注释布局（左表名、右注释、�
 		);
 		const orders = rowParts(tree, 'orders');
 		expect(flatText(orders.name)).toBe('orders');
-		expect(orders.sep, 'orders 行缺竖向隔断').toBeTruthy();
 		expect(flatText(orders.comment)).toBe('订单主表');
 		expect(flatText(tree)).not.toContain('orders · 订单主表');
 		expect(flatText(tree)).not.toContain('· TABLE');
+		expectNoSep(tree);
 	});
 
 	it('库内搜表结果行：同一布局契约（库名.表名占左、注释右列、中间隔断）', async () => {
@@ -250,8 +252,8 @@ describe('数据浏览对象树：表行注释布局（左表名、右注释、�
 		});
 		const hit = rowParts(resultTree, 'mydb.users');
 		expect(flatText(hit.name)).toBe('mydb.users');
-		expect(hit.sep, '搜索结果行缺竖向隔断').toBeTruthy();
 		expect(flatText(hit.comment)).toBe('用户表');
 		expect(flatText(resultTree)).not.toContain('mydb.users · 用户表');
+		expectNoSep(resultTree);
 	});
 });
