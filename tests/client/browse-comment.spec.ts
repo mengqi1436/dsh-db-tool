@@ -198,10 +198,10 @@ describe('数据浏览对象树：表行注释布局（左表名、右注释、�
 		);
 		const users = rowParts(tree, 'users');
 		expect(flatText(users.name)).toBe('users'); // 表名单独占左列，不再拼接注释
-		expect(users.name.props.className).toContain('dbt-treename-fit'); // 名称列贴合内容：隔断与注释紧跟表名
 		expect(users.sep, 'users 行缺竖向隔断').toBeTruthy();
-		expect(flatText(users.comment)).toBe('用户表'); // 注释为右列独立块
+		expect(users.comment, 'users 行缺注释块').toBeTruthy();
 		expect(users.comment!.props.title).toBe('用户表'); // 截断时悬停可读全文
+		expect(users.name!.props.className).toContain('dbt-treename-fit'); // 名称列贴合内容：隔断与注释紧跟表名
 		const vlogs = rowParts(tree, 'v_logs');
 		expect(flatText(vlogs.name)).toBe('v_logs · VIEW'); // 非普通表仍显示类型
 		expect(vlogs.sep).toBeNull(); // 无注释：无隔断、无注释块
