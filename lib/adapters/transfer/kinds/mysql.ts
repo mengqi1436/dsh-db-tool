@@ -15,12 +15,15 @@ import type { ResolvedConnection } from '../../types.js';
 import { assertIdent, quoteIdent } from '../../sql-shared/common.js';
 import { openMysqlRaw } from '../../mysql/index.js';
 import { safeDefaultExpr } from '../model.js';
+import type { ForeignKeyEdge } from '../deps.js';
 import type {
   MidType,
   ShardKeyType,
   TransferCell,
   TransferColumn,
   TransferCursor,
+  TransferForeignKey,
+  TransferIndex,
   TransferLocator,
   TransferReader,
   TransferRow,
@@ -28,6 +31,18 @@ import type {
   TransferWriter,
   WriteMode,
 } from '../model.js';
+
+/** 写端目录查询辅助（信息结构schema 只读，客户端转义） */
+async function q(raw: MysqlRaw, sql: string, params?: unknown[]): Promise<RowDataPacket[]> {
+  const [rows] = await raw.pool.query(sql, params ?? []);
+  return (Array.isArray(rows) ? rows : []) as RowDataPacket[];
+}
+
+/** 写端默认库名（未指定时抛错——写路径必须显式落库） */
+function defaultDbOf(raw: MysqlRaw): string {
+  if (raw.database === '') throw new Error('mysql 传输写端缺少默认库（连接未指定 database）');
+  return assertIdent(raw.database, '库名');
+}
 
 /** COLUMN_TYPE → 中间类型（base 取首词去显示宽度；unsigned 不影响宽度决策） */
 export function mysqlTypeToMid(columnType: string): MidType {
@@ -155,6 +170,73 @@ export function createMysqlTransferReader(raw: MysqlRaw): TransferReader {
     },
 
     describe,
+
+    // 结构随迁：二级索引（排除 PRIMARY；FULLTEXT/SPATIAL 特型不进清单——无法无损映射）
+    describeIndexes: async (table) => {
+      const db = defaultDb();
+      const tbl = assertIdent(table, '表名');
+      const rows = await q(
+        `SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE, INDEX_TYPE
+         FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME <> 'PRIMARY'
+         ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
+        [db, tbl],
+      );
+      const byName = new Map<string, TransferIndex>();
+      for (const r of rows) {
+        const name = String(r.INDEX_NAME);
+        const type = String(r.INDEX_TYPE ?? 'BTREE').toUpperCase();
+        if (type !== 'BTREE') continue;
+        const idx = byName.get(name);
+        if (idx === undefined) {
+          byName.set(name, {
+            name,
+            columns: [String(r.COLUMN_NAME)],
+            unique: Number(r.NON_UNIQUE) === 0,
+            sourceType: type,
+          });
+          continue;
+        }
+        idx.columns.push(String(r.COLUMN_NAME));
+      }
+      return [...byName.values()];
+    },
+
+    // 结构随迁：出向外键（含参照动作与被引用列；限定同库内）
+    describeForeignKeys: async (table) => {
+      const db = defaultDb();
+      const tbl = assertIdent(table, '表名');
+      const rows = await q(
+        `SELECT rc.CONSTRAINT_NAME, kcu.COLUMN_NAME, rc.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME,
+                rc.DELETE_RULE, rc.UPDATE_RULE, kcu.ORDINAL_POSITION
+         FROM information_schema.REFERENTIAL_CONSTRAINTS rc
+         JOIN information_schema.KEY_COLUMN_USAGE kcu
+           ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+          AND kcu.TABLE_NAME = rc.TABLE_NAME
+         WHERE rc.CONSTRAINT_SCHEMA = ? AND rc.TABLE_NAME = ?
+         ORDER BY rc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`,
+        [db, tbl],
+      );
+      const byName = new Map<string, TransferForeignKey>();
+      for (const r of rows) {
+        const name = String(r.CONSTRAINT_NAME);
+        let fk = byName.get(name);
+        if (fk === undefined) {
+          fk = {
+            name,
+            columns: [],
+            referencedTable: String(r.REFERENCED_TABLE_NAME),
+            referencedColumns: [],
+            onDelete: r.DELETE_RULE == null ? undefined : String(r.DELETE_RULE),
+            onUpdate: r.UPDATE_RULE == null ? undefined : String(r.UPDATE_RULE),
+          };
+          byName.set(name, fk);
+        }
+        fk.columns.push(String(r.COLUMN_NAME));
+        fk.referencedColumns.push(String(r.REFERENCED_COLUMN_NAME));
+      }
+      return [...byName.values()];
+    },
 
     count: async (table) => {
       const db = defaultDb();
@@ -309,34 +391,108 @@ export function createMysqlTransferWriter(raw: MysqlRaw, writeMode: WriteMode = 
         ? `${quoteIdent(assertIdent(raw.database, '库名'), '`')}.`
         : '';
       const defs = table.columns.map((c) => {
+        // 自增列：AUTO_INCREMENT 需要整数类型且为键（本模型仅对主键整数列生成，
+        // 计数器在显式插入原值后由 InnoDB 自动推进到 max+1，无需 afterLoad）
+        const isAutoInt = c.autoIncrement === true && c.primaryKey && (c.midType === 'int' || c.midType === 'bigint');
         let d = `${quoteIdent(c.name, '`')} ${midToMysqlType(c)}`;
         if (!c.nullable) d += ' NOT NULL';
         if (c.default != null) {
           const expr = safeDefaultExpr(c.default);
           if (expr != null) d += ` DEFAULT ${expr}`;
         }
+        if (isAutoInt) d += ' AUTO_INCREMENT';
+        if (c.comment != null && c.comment !== '') d += ` COMMENT '${c.comment.replaceAll("'", "''")}'`;
         return d;
       });
       const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => quoteIdent(c.name, '`'));
       const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
+      const tail = table.comment != null && table.comment !== ''
+        ? ` COMMENT='${table.comment.replaceAll("'", "''")}'`
+        : '';
       const head = `CREATE TABLE ${db}${quoteIdent(table.name, '`')}`;
-      await pool.query(`${head} (${defs.join(', ')}${pk})`);
+      await pool.query(`${head} (${defs.join(', ')}${pk})${tail}`);
+    },
+
+    // 结构随迁：数据装载完成后建索引（先装数据后建索引为官方批量装载实践）
+    createIndex: async (table, index) => {
+      const db = raw.database !== ''
+        ? `${quoteIdent(assertIdent(raw.database, '库名'), '`')}.`
+        : '';
+      const idxName = assertIdent(index.name, '索引名');
+      const cols = index.columns.map((c) => quoteIdent(assertIdent(c, '索引列'), '`'));
+      const unique = index.unique ? 'UNIQUE ' : '';
+      await raw.pool.query(
+        `CREATE ${unique}INDEX ${quoteIdent(idxName, '`')} ON ${db}${quoteIdent(assertIdent(table, '表名'), '`')} (${cols.join(', ')})`,
+      );
+    },
+
+    // 结构随迁：全部表数据装载完成后加外键约束（数据齐备后校验才能通过）
+    createForeignKey: async (table, fk) => {
+      const db = raw.database !== ''
+        ? `${quoteIdent(assertIdent(raw.database, '库名'), '`')}.`
+        : '';
+      let actions = '';
+      if (fk.onDelete != null && fk.onDelete !== 'NO ACTION') actions += ` ON DELETE ${fk.onDelete}`;
+      if (fk.onUpdate != null && fk.onUpdate !== 'NO ACTION') actions += ` ON UPDATE ${fk.onUpdate}`;
+      await raw.pool.query(
+        `ALTER TABLE ${db}${quoteIdent(assertIdent(table, '表名'), '`')} ADD CONSTRAINT ${quoteIdent(assertIdent(fk.name, '约束名'), '`')} `
+        + `FOREIGN KEY (${fk.columns.map((c) => quoteIdent(assertIdent(c, '外键列'), '`')).join(', ')}) `
+        + `REFERENCES ${db}${quoteIdent(assertIdent(fk.referencedTable, '被引用表'), '`')} `
+        + `(${fk.referencedColumns.map((c) => quoteIdent(assertIdent(c, '被引用列'), '`')).join(', ')})${actions}`,
+      );
+    },
+
+    // 结构随迁：目标端已有索引名清单（统一「表名.索引名」形态，编排层同名去重用；
+    // MySQL 索引名仅表内唯一）
+    listIndexes: async () => {
+      const db = raw.database;
+      if (db === '') throw new Error('mysql 传输写端缺少默认库（连接未指定 database）');
+      const rows = await q(
+        raw,
+        `SELECT DISTINCT TABLE_NAME, INDEX_NAME FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = ? AND INDEX_NAME <> 'PRIMARY'`,
+        [db],
+      );
+      return rows
+        .filter((r) => r.TABLE_NAME != null && r.INDEX_NAME != null)
+        .map((r) => `${String(r.TABLE_NAME)}.${String(r.INDEX_NAME)}`);
     },
 
     // 目标端外键依赖边：information_schema.REFERENTIAL_CONSTRAINTS 官方目录，
-    // 限定同库内（CONSTRAINT_SCHEMA = UNIQUE_CONSTRAINT_SCHEMA）
+    // 限定同库内（CONSTRAINT_SCHEMA = UNIQUE_CONSTRAINT_SCHEMA）；name/列清单供
+    // 结构随迁同名去重
     listForeignKeys: async () => {
       const db = raw.database;
       if (db === '') throw new Error('mysql 传输写端缺少默认库（连接未指定 database）');
-      const [rows] = await pool.query(
-        `SELECT TABLE_NAME, REFERENCED_TABLE_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS
-         WHERE CONSTRAINT_SCHEMA = ? AND UNIQUE_CONSTRAINT_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL`,
+      const rows = await q(
+        raw,
+        `SELECT rc.CONSTRAINT_NAME, rc.TABLE_NAME, rc.REFERENCED_TABLE_NAME, kcu.COLUMN_NAME, kcu.REFERENCED_COLUMN_NAME, kcu.ORDINAL_POSITION
+         FROM information_schema.REFERENTIAL_CONSTRAINTS rc
+         JOIN information_schema.KEY_COLUMN_USAGE kcu
+           ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+          AND kcu.TABLE_NAME = rc.TABLE_NAME
+         WHERE rc.CONSTRAINT_SCHEMA = ? AND rc.UNIQUE_CONSTRAINT_SCHEMA = ? AND rc.REFERENCED_TABLE_NAME IS NOT NULL
+         ORDER BY rc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`,
         [db, db],
       );
-      const list = (Array.isArray(rows) ? rows : []) as RowDataPacket[];
-      return list
-        .filter((r) => r.TABLE_NAME != null && r.REFERENCED_TABLE_NAME != null)
-        .map((r) => ({ table: String(r.TABLE_NAME), referencedTable: String(r.REFERENCED_TABLE_NAME) }));
+      const byName = new Map<string, ForeignKeyEdge & { columns: string[]; referencedColumns: string[] }>();
+      for (const r of rows) {
+        const name = String(r.CONSTRAINT_NAME);
+        let edge = byName.get(name);
+        if (edge === undefined) {
+          edge = {
+            name,
+            table: String(r.TABLE_NAME),
+            referencedTable: String(r.REFERENCED_TABLE_NAME),
+            columns: [],
+            referencedColumns: [],
+          };
+          byName.set(name, edge);
+        }
+        edge.columns.push(String(r.COLUMN_NAME));
+        edge.referencedColumns.push(String(r.REFERENCED_COLUMN_NAME));
+      }
+      return [...byName.values()];
     },
 
     writeBatch: async (table, rows: TransferRow[]) => {

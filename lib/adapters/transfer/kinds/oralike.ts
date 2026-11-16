@@ -18,6 +18,8 @@ import type {
   TransferCell,
   TransferColumn,
   TransferCursor,
+  TransferForeignKey,
+  TransferIndex,
   TransferReader,
   TransferRow,
   TransferTable,
@@ -25,6 +27,12 @@ import type {
   WriteMode,
 } from '../model.js';
 import { safeDefaultExpr } from '../model.js';
+import type { ForeignKeyEdge } from '../deps.js';
+
+/** 字符串字面量转义（COMMENT ON 内联用） */
+function oraQuoteLit(s: string): string {
+  return `'${s.replaceAll("'", "''")}'`;
+}
 
 /** 驱动无关的最小连接面（oracledb.Connection 与 dmdb DmConnLike 同构） */
 export interface OraLikeConn {
@@ -243,6 +251,78 @@ export function createOraLikeTransferReader(
 
     describe,
 
+    // 结构随迁：二级索引（排除主键/唯一约束自带的索引与函数基/LOB 特型——无法无损映射）
+    describeIndexes: async (table) => {
+      const own = sanitize(owner, 'owner');
+      const tab = sanitize(table, '表名');
+      const rows = await exec(
+        `SELECT IX.INDEX_NAME, IC.COLUMN_NAME, IX.UNIQUENESS, IX.INDEX_TYPE, IC.COLUMN_POSITION
+         FROM ALL_INDEXES IX
+         JOIN ALL_IND_COLUMNS IC ON IC.INDEX_OWNER = IX.OWNER AND IC.INDEX_NAME = IX.INDEX_NAME
+         WHERE IX.OWNER = :o AND IX.TABLE_NAME = :t
+           AND IX.INDEX_TYPE NOT LIKE 'FUNCTION%'
+           AND IX.INDEX_TYPE NOT IN ('LOB', 'DOMAIN')
+           AND IX.INDEX_NAME NOT IN (
+             SELECT CONSTRAINT_NAME FROM ALL_CONSTRAINTS
+             WHERE OWNER = :o AND TABLE_NAME = :t AND CONSTRAINT_TYPE IN ('P', 'U')
+           )
+         ORDER BY IX.INDEX_NAME, IC.COLUMN_POSITION`,
+        [own, tab, own, tab],
+      );
+      const byName = new Map<string, TransferIndex>();
+      for (const r of rows) {
+        const name = String(r.INDEX_NAME ?? '');
+        const idx = byName.get(name);
+        const col = String(r.COLUMN_NAME ?? '');
+        if (idx === undefined) {
+          byName.set(name, {
+            name,
+            columns: [col],
+            unique: String(r.UNIQUENESS ?? '').toUpperCase() === 'UNIQUE',
+            sourceType: String(r.INDEX_TYPE ?? ''),
+          });
+          continue;
+        }
+        idx.columns.push(col);
+      }
+      return [...byName.values()];
+    },
+
+    // 结构随迁：出向外键（含 ON DELETE 参照动作与被引用列；Oracle 族无 ON UPDATE，写端忽略）
+    describeForeignKeys: async (table) => {
+      const own = sanitize(owner, 'owner');
+      const tab = sanitize(table, '表名');
+      const rows = await exec(
+        `SELECT a.CONSTRAINT_NAME, acs.COLUMN_NAME, rc.TABLE_NAME AS REF_TABLE, rcc.COLUMN_NAME AS REF_COL,
+                a.DELETE_RULE, acs.POSITION
+         FROM ALL_CONSTRAINTS a
+         JOIN ALL_CONS_COLUMNS acs ON acs.OWNER = a.OWNER AND acs.CONSTRAINT_NAME = a.CONSTRAINT_NAME AND acs.TABLE_NAME = a.TABLE_NAME
+         JOIN ALL_CONSTRAINTS rc ON rc.OWNER = a.R_OWNER AND rc.CONSTRAINT_NAME = a.R_CONSTRAINT_NAME
+         JOIN ALL_CONS_COLUMNS rcc ON rcc.OWNER = rc.OWNER AND rcc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME AND rcc.POSITION = acs.POSITION
+         WHERE a.CONSTRAINT_TYPE = 'R' AND a.OWNER = :o AND a.TABLE_NAME = :t
+         ORDER BY a.CONSTRAINT_NAME, acs.POSITION`,
+        [own, tab],
+      );
+      const byName = new Map<string, TransferForeignKey>();
+      for (const r of rows) {
+        const name = String(r.CONSTRAINT_NAME ?? '');
+        let fk = byName.get(name);
+        if (fk === undefined) {
+          fk = {
+            name,
+            columns: [],
+            referencedTable: String(r.REF_TABLE ?? ''),
+            referencedColumns: [],
+            onDelete: r.DELETE_RULE == null ? undefined : String(r.DELETE_RULE),
+          };
+          byName.set(name, fk);
+        }
+        fk.columns.push(String(r.COLUMN_NAME ?? ''));
+        fk.referencedColumns.push(String(r.REF_COL ?? ''));
+      }
+      return [...byName.values()];
+    },
+
     count: async (table) => {
       const own = escIdent(sanitize(owner, 'owner'));
       const tab = escIdent(sanitize(table, '表名'));
@@ -420,6 +500,79 @@ export function createOraLikeTransferWriter(
         const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${escIdent(c.name)}"`);
         const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
         await conn.execute(`CREATE TABLE ${qual(table.name)} (${defs.join(', ')}${pk})`, [], { autoCommit: true });
+        // 注释随迁：COMMENT ON 官方形态（失败仅影响注释本身，由调用方隔离）
+        if (table.comment != null && table.comment !== '') {
+          await conn.execute(`COMMENT ON TABLE ${qual(table.name)} IS ${oraQuoteLit(table.comment)}`, [], { autoCommit: true }).catch(() => {});
+        }
+        for (const c of table.columns) {
+          if (c.comment == null || c.comment === '') continue;
+          await conn.execute(
+            `COMMENT ON COLUMN ${qual(table.name)}."${escIdent(c.name)}" IS ${oraQuoteLit(c.comment)}`,
+            [],
+            { autoCommit: true },
+          ).catch(() => {});
+        }
+      } finally {
+        await conn.close().catch(() => {});
+      }
+    },
+
+    // 结构随迁：数据装载完成后建索引（先装数据后建索引为官方批量装载实践）
+    createIndex: async (table, index) => {
+      const conn = await pool.getConnection();
+      try {
+        const unique = index.unique ? 'UNIQUE ' : '';
+        const cols = index.columns.map((c) => `"${escIdent(sanitize(c, '索引列'))}"`).join(', ');
+        await conn.execute(
+          `CREATE ${unique}INDEX "${escIdent(sanitize(index.name, '索引名'))}" ON ${qual(sanitize(table, '表名'))} (${cols})`,
+          [],
+          { autoCommit: true },
+        );
+      } finally {
+        await conn.close().catch(() => {});
+      }
+    },
+
+    // 结构随迁：全部表数据装载完成后加外键约束。Oracle 族无 ON UPDATE 参照动作
+    //（SQL 语言参考仅 ON DELETE），update 动作忽略
+    createForeignKey: async (table, fk) => {
+      const conn = await pool.getConnection();
+      try {
+        let actions = '';
+        if (fk.onDelete != null && fk.onDelete !== 'NO ACTION') actions += ` ON DELETE ${fk.onDelete}`;
+        await conn.execute(
+          `ALTER TABLE ${qual(sanitize(table, '表名'))} ADD CONSTRAINT "${escIdent(sanitize(fk.name, '约束名'))}" `
+          + `FOREIGN KEY (${fk.columns.map((c) => `"${escIdent(sanitize(c, '外键列'))}"`).join(', ')}) `
+          + `REFERENCES ${qual(sanitize(fk.referencedTable, '被引用表'))} `
+          + `(${fk.referencedColumns.map((c) => `"${escIdent(sanitize(c, '被引用列'))}"`).join(', ')})${actions}`,
+          [],
+          { autoCommit: true },
+        );
+      } finally {
+        await conn.close().catch(() => {});
+      }
+    },
+
+    // 结构随迁：目标端已有索引名清单（统一「表名.索引名」形态，编排层同名去重用；
+    // Oracle/DM 索引名 owner 内唯一）
+    listIndexes: async () => {
+      const conn = await pool.getConnection();
+      try {
+        const own = sanitize(owner, 'owner');
+        const r = await conn.execute(
+          `SELECT TABLE_NAME, INDEX_NAME FROM ALL_INDEXES WHERE OWNER = :o`,
+          [own],
+          { outFormat: 4002 /* OBJECT */, maxRows: 100000 },
+        );
+        const rows = r.rows ?? [];
+        return rows
+          .map((row) => {
+            const rec = row as Record<string, unknown>;
+            return rec.TABLE_NAME == null || rec.INDEX_NAME == null
+              ? ''
+              : `${String(rec.TABLE_NAME)}.${String(rec.INDEX_NAME)}`;
+          })
+          .filter((n) => n !== '');
       } finally {
         await conn.close().catch(() => {});
       }
@@ -427,27 +580,41 @@ export function createOraLikeTransferWriter(
 
     // 目标端外键依赖边：ALL_CONSTRAINTS 官方目录（CONSTRAINT_TYPE='R' 为外键，
     // 经 R_OWNER+R_CONSTRAINT_NAME 回连取被引用表），限定同 owner 内（Oracle/DM 单库
-    // 多 schema 模型，owner 即目标 schema）；表名按目录存储形态原样返回，大小写归一
-    // 由编排层 edgeKey 处理
+    // 多 schema 模型，owner 即目标 schema）；name/列清单供结构随迁同名去重。
+    // 表名按目录存储形态原样返回，大小写归一由编排层 edgeKey 处理
     listForeignKeys: async () => {
       const conn = await pool.getConnection();
       try {
         const own = sanitize(owner, 'owner');
         const r = await conn.execute(
-          `SELECT a.TABLE_NAME AS TABLE_NAME, b.TABLE_NAME AS REF_TABLE_NAME
+          `SELECT a.CONSTRAINT_NAME, a.TABLE_NAME AS TABLE_NAME, b.TABLE_NAME AS REF_TABLE_NAME,
+                  acs.COLUMN_NAME AS COL, rcc.COLUMN_NAME AS REF_COL, acs.POSITION
            FROM ALL_CONSTRAINTS a
            JOIN ALL_CONSTRAINTS b ON b.OWNER = a.R_OWNER AND b.CONSTRAINT_NAME = a.R_CONSTRAINT_NAME
-           WHERE a.CONSTRAINT_TYPE = 'R' AND a.OWNER = :o AND b.OWNER = :o`,
+           JOIN ALL_CONS_COLUMNS acs ON acs.OWNER = a.OWNER AND acs.CONSTRAINT_NAME = a.CONSTRAINT_NAME AND acs.TABLE_NAME = a.TABLE_NAME
+           JOIN ALL_CONS_COLUMNS rcc ON rcc.OWNER = b.OWNER AND rcc.CONSTRAINT_NAME = b.CONSTRAINT_NAME AND rcc.POSITION = acs.POSITION
+           WHERE a.CONSTRAINT_TYPE = 'R' AND a.OWNER = :o AND b.OWNER = :o
+           ORDER BY a.CONSTRAINT_NAME, acs.POSITION`,
           [own, own],
           { outFormat: 4002 /* OBJECT */, maxRows: 100000 },
         );
         const rows = r.rows ?? [];
-        return rows
-          .map((row) => {
-            const rec = row as Record<string, unknown>;
-            return { table: String(rec.TABLE_NAME ?? ''), referencedTable: String(rec.REF_TABLE_NAME ?? '') };
-          })
-          .filter((e) => e.table !== '' && e.referencedTable !== '');
+        const byName = new Map<string, ForeignKeyEdge & { columns: string[]; referencedColumns: string[] }>();
+        for (const row of rows) {
+          const rec = row as Record<string, unknown>;
+          const name = String(rec.CONSTRAINT_NAME ?? '');
+          const table = String(rec.TABLE_NAME ?? '');
+          const referencedTable = String(rec.REF_TABLE_NAME ?? '');
+          if (table === '' || referencedTable === '') continue;
+          let edge = byName.get(name);
+          if (edge === undefined) {
+            edge = { name, table, referencedTable, columns: [], referencedColumns: [] };
+            byName.set(name, edge);
+          }
+          edge.columns.push(String(rec.COL ?? ''));
+          edge.referencedColumns.push(String(rec.REF_COL ?? ''));
+        }
+        return [...byName.values()];
       } finally {
         await conn.close().catch(() => {});
       }

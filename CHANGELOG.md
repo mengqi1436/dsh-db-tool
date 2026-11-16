@@ -2,7 +2,11 @@
 
 ## 未发布
 
-本版是「数据传输外键依赖修复」：目标端已有外键关系（预置 schema）时，覆盖删除 / truncate 清空 / 装载不再因「有其他对象依赖它」或外键冲突而失败，与 Navicat 等工具的依赖排序行为对齐。
+本版是「数据传输外键依赖修复 + 结构随迁」：目标端已有外键关系时，覆盖删除 / truncate 清空 / 装载不再因「有其他对象依赖它」或外键冲突而失败，与 Navicat 等工具的依赖排序行为对齐；二级索引、外键约束与自增列随数据一同迁移（对齐 Navicat 数据传输结构能力）。
+
+### 新增
+
+- **数据传输结构随迁**：源端的二级索引（含唯一索引）、外键约束（含参照动作）、自增列随数据一同迁移。索引在全部数据装载完成后创建（先装数据后建索引为各库官方批量装载实践），按「表名.索引名」同名去重；外键在所有表数据齐备后统一创建（数据齐备后校验才能通过，循环引用与自引用亦然），目标端已有的同边外键跳过；重复传输不产生失败噪音。自增列目标端还原为原生自增：MySQL `AUTO_INCREMENT`（计数器随显式插入自动推进）、PostgreSQL/GaussDB `SERIAL` 家族 + 装载后 `setval` 校准序列起点（不校准则目标端后续插入主键冲突）、SQL Server `IDENTITY(1,1)` + `SET IDENTITY_INSERT` 装载（种子自动推进）、SQLite 整数主键天然 rowid 自增；Oracle/达梦自增暂不随迁（11g 序列+触发器与 DM IDENTITY 语法差异，后续版本支持）。SQLite 外键在 `CREATE TABLE` 内联（SQLite 无 `ALTER TABLE ADD CONSTRAINT`），其余五类走装载后 `ALTER TABLE ADD CONSTRAINT`。索引/外键逐条失败隔离记入传输失败清单，不阻断数据传输。范围对照 Navicat 18 官方手册数据传输能力（「包含索引 / 包含外键约束 / 包含唯一键 / 包含自动递增」为文档化开关）：CHECK 约束、触发器、视图、独立序列、字符集/引擎、注释不随迁；权限（用户/角色/授权）不随迁——Navicat 数据传输与结构同步的文档化范围均不含权限，行为一致。
 
 ### 修复
 
@@ -14,7 +18,7 @@
 
 ### 测试
 
-- 新增 `tests/adapters-sql/transfer-deps.test.ts`（外键图收窄 / SCC 循环组 / 拓扑排序，15 条）、`tests/adapters-sql/transfer-gating.test.ts`（假读写端注入的门控编排，10 条：装载门控、删除趟顺序、循环组整组删除且照常装载、预检快速失败与传染、清空趟不重复清空、无边直通、规划失败退化、失败上游不阻塞下游、门控等待期取消收口）、`tests/adapters-sql/transfer-fk.test.ts`（sqlite 真机外键回归，10 条：node:sqlite 默认启用外键约束，覆盖被引用父表的删除/清空/装载与循环组场景）；`tests/adapters-sql/sqlserver-adversarial.test.ts`、`tests/adapters-sql/transfer-sqlserver.test.ts`、`tests/adapters-nosql-ent/transfer-redis.spec.ts` 的 `beforeLoad` 调用点随契约收窄同步。
+- 新增 `tests/adapters-sql/transfer-deps.test.ts`（外键图收窄 / SCC 循环组 / 拓扑排序，15 条）、`tests/adapters-sql/transfer-gating.test.ts`（假读写端注入的门控编排，10 条：装载门控、删除趟顺序、循环组整组删除且照常装载、预检快速失败与传染、清空趟不重复清空、无边直通、规划失败退化、失败上游不阻塞下游、门控等待期取消收口）、`tests/adapters-sql/transfer-fk.test.ts`（sqlite 真机外键与结构随迁回归，20 条：node:sqlite 默认启用外键约束，覆盖被引用父表的删除/清空/装载与循环组场景、索引/外键/结构随迁还原与重复传输去重）；`tests/adapters-sql/transfer-sqlserver.test.ts` 新增结构随迁契约 4 条（IDENTITY DDL、IDENTITY_INSERT 包裹、索引/外键创建形态、去重键）；`tests/adapters-sql/sqlserver-adversarial.test.ts`、`tests/adapters-nosql-ent/transfer-redis.spec.ts` 的 `beforeLoad` 调用点随契约收窄同步。
 
 ## 1.9.13
 

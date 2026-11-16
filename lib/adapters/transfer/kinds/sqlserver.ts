@@ -20,12 +20,15 @@ import { assertIdent } from '../../sql-shared/common.js';
 import { openSqlserverRaw } from '../../sqlserver/index.js';
 import type { SqlPool, SqlTransaction } from '../../sqlserver/index.js';
 import { safeDefaultExpr } from '../model.js';
+import type { ForeignKeyEdge } from '../deps.js';
 import type {
   MidType,
   ShardKeyType,
   TransferCell,
   TransferColumn,
   TransferCursor,
+  TransferForeignKey,
+  TransferIndex,
   TransferLocator,
   TransferReader,
   TransferRow,
@@ -169,6 +172,12 @@ function errorNumber(e: unknown): number | undefined {
     if (typeof n === 'string' && /^\d+$/.test(n)) return Number(n);
   }
   return undefined;
+}
+
+/** 目录参照动作描述（NO_ACTION/SET_NULL 等）→ SQL 形态 */
+function fkActionNameOf(desc: unknown): string | undefined {
+  if (desc == null) return undefined;
+  return String(desc).replaceAll('_', ' ');
 }
 
 /** 是否锁等待失败（可降级 DELETE）：优先按错误号；驱动偶尔丢 number 时按文案兜底
@@ -350,6 +359,78 @@ export function createSqlserverTransferReader(pool: SqlPool, schema: string): Tr
 
     describe,
 
+    // 结构随迁：二级索引（排除主键约束索引、筛选索引、列存储/假设索引等特型）
+    describeIndexes: async (table) => {
+      const tbl = assertIdent(table, '表名');
+      const rows = await q(
+        `SELECT i.name AS index_name, i.is_unique, i.type_desc, c.name AS column_name, ic.key_ordinal
+         FROM sys.indexes i
+         JOIN sys.objects o ON o.object_id = i.object_id
+         JOIN sys.schemas s ON s.schema_id = o.schema_id
+         JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
+         JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+         WHERE s.name = @schema AND o.name = @table AND i.name IS NOT NULL AND i.is_primary_key = 0
+           AND i.is_hypothetical = 0 AND i.has_filter = 0 AND i.type_desc NOT LIKE '%COLUMNSTORE%'
+         ORDER BY i.name, ic.key_ordinal`,
+        { schema: sch, table: tbl },
+      );
+      const byName = new Map<string, TransferIndex>();
+      for (const r of rows) {
+        const name = String(r.index_name);
+        const idx = byName.get(name);
+        const col = String(r.column_name ?? '');
+        if (idx === undefined) {
+          byName.set(name, {
+            name,
+            columns: [col],
+            unique: r.is_unique === true,
+            sourceType: String(r.type_desc ?? ''),
+          });
+          continue;
+        }
+        idx.columns.push(col);
+      }
+      return [...byName.values()];
+    },
+
+    // 结构随迁：出向外键（含参照动作与被引用列；限定同模式内）
+    describeForeignKeys: async (table) => {
+      const tbl = assertIdent(table, '表名');
+      const rows = await q(
+        `SELECT fk.name, pc.name AS col, rt.name AS ref_table, rcc.name AS ref_col,
+                fk.delete_referential_action_desc, fk.update_referential_action_desc, fkc.key_ordinal
+         FROM sys.foreign_keys fk
+         JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+         JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+         JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+         JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+         JOIN sys.schemas ps ON ps.schema_id = fk.schema_id
+         JOIN sys.columns rcc ON rcc.object_id = fkc.referenced_object_id AND rcc.column_id = fkc.referenced_column_id
+         WHERE ps.name = @schema AND OBJECT_NAME(fk.parent_object_id) = @table AND rs.name = @schema
+         ORDER BY fk.name, fkc.key_ordinal`,
+        { schema: sch, table: tbl },
+      );
+      const byName = new Map<string, TransferForeignKey>();
+      for (const r of rows) {
+        const name = String(r.name ?? '');
+        let fk = byName.get(name);
+        if (fk === undefined) {
+          fk = {
+            name,
+            columns: [],
+            referencedTable: String(r.ref_table ?? ''),
+            referencedColumns: [],
+            onDelete: fkActionNameOf(r.delete_referential_action_desc),
+            onUpdate: fkActionNameOf(r.update_referential_action_desc),
+          };
+          byName.set(name, fk);
+        }
+        fk.columns.push(String(r.col ?? ''));
+        fk.referencedColumns.push(String(r.ref_col ?? ''));
+      }
+      return [...byName.values()];
+    },
+
     count: async (table) => {
       // COUNT_BIG：COUNT 的 int 返回值在 >21 亿行时溢出
       const rows = await q(`SELECT COUNT_BIG(*) AS n FROM ${tblOf(assertIdent(table, '表名'))}`);
@@ -520,11 +601,18 @@ export function createSqlserverTransferWriter(
         throw new Error(`表 ${table.name} 无列定义，无法建表（源表结构为空？）`);
       }
       const defs = table.columns.map((c) => {
+        // 自增列用 IDENTITY(1,1)（目标端自增继续工作；装载经 SET IDENTITY_INSERT，
+        // 显式插入后种子自动推进到已插入最大值）；仅整数/大整数控
+        const isAutoInt = c.autoIncrement === true && (c.midType === 'int' || c.midType === 'bigint');
         let d = `${sqlserverIdent(c.name)} ${midToSqlserverType(c)}`;
-        if (!c.nullable) d += ' NOT NULL';
-        if (c.default != null) {
-          const expr = safeDefaultExpr(c.default);
-          if (expr != null) d += ` DEFAULT ${expr}`;
+        if (isAutoInt) {
+          d += ' IDENTITY(1,1) NOT NULL';
+        } else {
+          if (!c.nullable) d += ' NOT NULL';
+          if (c.default != null) {
+            const expr = safeDefaultExpr(c.default);
+            if (expr != null) d += ` DEFAULT ${expr}`;
+          }
         }
         return d;
       });
@@ -533,23 +621,79 @@ export function createSqlserverTransferWriter(
       await q(`CREATE TABLE ${tblOf(table.name)} (${defs.join(', ')}${pk})`);
     },
 
+    // 结构随迁：数据装载完成后建索引（先装数据后建索引为官方批量装载实践）
+    createIndex: async (table, index) => {
+      const unique = index.unique ? 'UNIQUE ' : '';
+      const cols = index.columns.map((c) => sqlserverIdent(assertIdent(c, '索引列')));
+      await q(
+        `CREATE ${unique}NONCLUSTERED INDEX ${sqlserverIdent(assertIdent(index.name, '索引名'))} `
+        + `ON ${tblOf(assertIdent(table, '表名'))} (${cols.join(', ')})`,
+      );
+    },
+
+    // 结构随迁：全部表数据装载完成后加外键约束（数据齐备后校验才能通过）
+    createForeignKey: async (table, fk) => {
+      let actions = '';
+      if (fk.onDelete != null && fk.onDelete !== 'NO ACTION') actions += ` ON DELETE ${fk.onDelete}`;
+      if (fk.onUpdate != null && fk.onUpdate !== 'NO ACTION') actions += ` ON UPDATE ${fk.onUpdate}`;
+      await q(
+        `ALTER TABLE ${tblOf(assertIdent(table, '表名'))} ADD CONSTRAINT ${sqlserverIdent(assertIdent(fk.name, '约束名'))} `
+        + `FOREIGN KEY (${fk.columns.map((c) => sqlserverIdent(assertIdent(c, '外键列'))).join(', ')}) `
+        + `REFERENCES ${tblOf(assertIdent(fk.referencedTable, '被引用表'))} `
+        + `(${fk.referencedColumns.map((c) => sqlserverIdent(assertIdent(c, '被引用列'))).join(', ')})${actions}`,
+      );
+    },
+
+    // 结构随迁：目标端已有索引名清单（统一「表名.索引名」形态，编排层同名去重用；
+    // SQL Server 索引名仅表内唯一）
+    listIndexes: async () => {
+      const rows = await q(
+        `SELECT o.name AS table_name, i.name AS index_name FROM sys.indexes i
+         JOIN sys.objects o ON o.object_id = i.object_id
+         JOIN sys.schemas s ON s.schema_id = o.schema_id
+         WHERE s.name = @schema AND i.name IS NOT NULL AND i.is_hypothetical = 0`,
+        { schema: sch },
+      );
+      return rows
+        .filter((r) => r.table_name != null && r.index_name != null)
+        .map((r) => `${String(r.table_name)}.${String(r.index_name)}`);
+    },
+
     // 目标端外键依赖边：sys.foreign_keys 官方目录视图（parent=引用方 / referenced=被引用方），
-    // 限定同 schema 内（跨 schema 引用与选择集排序无关）
+    // 限定同 schema 内（跨 schema 引用与选择集排序无关）；name/列清单供结构随迁同名去重
     listForeignKeys: async () => {
       const rows = await q(
-        `SELECT pt.name AS table_name, rt.name AS referenced_table
+        `SELECT fk.name, pt.name AS table_name, rt.name AS referenced_table, pc.name AS col, rcc.name AS ref_col, fkc.key_ordinal
          FROM sys.foreign_keys fk
          JOIN sys.tables pt ON pt.object_id = fk.parent_object_id
          JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
          JOIN sys.schemas ps ON ps.schema_id = pt.schema_id
          JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
-         WHERE ps.name = @schema AND rs.name = @schema`,
+         JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+         JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+         JOIN sys.columns rcc ON rcc.object_id = fkc.referenced_object_id AND rcc.column_id = fkc.referenced_column_id
+         WHERE ps.name = @schema AND rs.name = @schema
+         ORDER BY fk.name, fkc.key_ordinal`,
         { schema: sch },
       );
-      return rows.map((r) => ({
-        table: String(r.table_name ?? ''),
-        referencedTable: String(r.referenced_table ?? ''),
-      }));
+      const byName = new Map<string, ForeignKeyEdge & { columns: string[]; referencedColumns: string[] }>();
+      for (const r of rows) {
+        const name = String(r.name ?? '');
+        let edge = byName.get(name);
+        if (edge === undefined) {
+          edge = {
+            name,
+            table: String(r.table_name ?? ''),
+            referencedTable: String(r.referenced_table ?? ''),
+            columns: [],
+            referencedColumns: [],
+          };
+          byName.set(name, edge);
+        }
+        edge.columns.push(String(r.col ?? ''));
+        edge.referencedColumns.push(String(r.ref_col ?? ''));
+      }
+      return [...byName.values()];
     },
 
     writeBatch: async (table, rows: TransferRow[]) => {
@@ -575,9 +719,15 @@ export function createSqlserverTransferWriter(
       const perStmt = sqlserverPerStmt(width);
       const tbl = tblOf(table.name);
       const colList = colIds.join(', ');
+      // 自增列显式插入原值需要 SET IDENTITY_INSERT（会话级、一次仅一张表；本批独占
+      // 独立事务连接，装载完成后种子自动推进到已插入最大值，无需 afterLoad）
+      const hasIdentity = cols.some((c) => c.autoIncrement === true && (c.midType === 'int' || c.midType === 'bigint'));
       const tx = openTx();
       await tx.begin();
       try {
+        if (hasIdentity) {
+          await tx.request().query(`SET IDENTITY_INSERT ${tbl} ON`);
+        }
         let written = 0;
         for (let i = 0; i < rows.length; i += perStmt) {
           const chunk = rows.slice(i, i + perStmt);
@@ -610,6 +760,9 @@ export function createSqlserverTransferWriter(
           });
           const res = await req.query(sql);
           written += (res.rowsAffected ?? []).reduce((a: number, b: number) => a + b, 0);
+        }
+        if (hasIdentity) {
+          await tx.request().query(`SET IDENTITY_INSERT ${tbl} OFF`);
         }
         await tx.commit();
         return written;

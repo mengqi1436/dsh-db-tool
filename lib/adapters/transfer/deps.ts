@@ -18,6 +18,12 @@ export interface ForeignKeyEdge {
   table: string;
   /** 被引用方（父表） */
   referencedTable: string;
+  /** 约束名（目录有名字的 kind 带回；SQLite 外键无名省略）——结构随迁同名去重用 */
+  name?: string;
+  /** 子表列清单（排序后）——无名外键的边匹配用 */
+  columns?: string[];
+  /** 父表列清单（排序后） */
+  referencedColumns?: string[];
 }
 
 export interface DependencyPlan {

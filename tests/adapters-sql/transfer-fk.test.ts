@@ -191,16 +191,91 @@ for (const mode of ['node', 'better'] as const) {
       }
     }, 30000);
 
-    it('sqlite 写端 listForeignKeys：PRAGMA foreign_key_list 返回引用边', async () => {
+    it('sqlite 写端 listForeignKeys：PRAGMA foreign_key_list 返回引用边（含列清单）', async () => {
       const dst = await makeFkTarget(FK_TARGET_DDL, []);
       const { createSqliteTransferWriterFromConn } = await import('../../lib/adapters/transfer/kinds/sqlite.js');
       const w = await createSqliteTransferWriterFromConn(connOf('w', dst), 'insert');
       try {
         const edges = await w.listForeignKeys!();
-        expect(edges).toContainEqual({ table: 'child', referencedTable: 'parent' });
+        const edge = edges.find((e) => e.table === 'child' && e.referencedTable === 'parent');
+        expect(edge).toBeDefined();
+        expect(edge?.columns).toEqual(['parent_id']);
+        expect(edge?.referencedColumns).toEqual(['id']);
       } finally {
         await w.close();
       }
+    }, 30000);
+
+    it('结构随迁：源端索引与外键 → 覆盖传输后目标端还原（索引建出、外键内联、行数一致）', async () => {
+      const srcFile = join(dir, `src-struct-${++seq}.db`);
+      const seed = await createSqliteAdapter(connOf('seed2', srcFile));
+      try {
+        await seed.execute('CREATE TABLE parent (id INTEGER PRIMARY KEY, v TEXT)');
+        await seed.execute('CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES parent(id))');
+        await seed.execute('CREATE INDEX idx_child_parent ON child (parent_id)');
+        await seed.execute("INSERT INTO parent VALUES (2, 'p2')");
+        await seed.execute('INSERT INTO child VALUES (20, 2)');
+      } finally {
+        await seed.close();
+      }
+      const dst = join(dir, `dst-struct-${seq}.db`);
+      const task = startTransferTask(connOf('s', srcFile), connOf('t', dst), {
+        tables: ['parent', 'child'],
+        writeMode: 'insert',
+        overwriteStructure: true,
+        tableConcurrency: 2,
+      });
+      const snap = await task.finished;
+      expect(snap.failures).toHaveLength(0);
+      expect(snap.status).toBe('done');
+      const check = await createSqliteAdapter(connOf('chk', dst));
+      try {
+        // 行数一致
+        const parent = await check.query('SELECT id FROM parent ORDER BY id');
+        const child = await check.query('SELECT id FROM child ORDER BY id');
+        expect(parent.rows).toEqual([[2]]);
+        expect(child.rows).toEqual([[20]]);
+        // 索引随迁：目标端存在同名二级索引
+        const indexes = await check.query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name");
+        expect(indexes.rows.flat()).toContain('idx_child_parent');
+        // 外键随迁：重建后的 child 表内联 REFERENCES（SQLite 无 ALTER ADD CONSTRAINT）
+        const fks = await check.query('PRAGMA foreign_key_list(child)');
+        expect(fks.rows.some((row) => row[2] === 'parent')).toBe(true);
+      } finally {
+        await check.close();
+      }
+    }, 30000);
+
+    it('结构随迁去重：目标端已有同名索引/同边外键 → 跳过创建，无失败记录', async () => {
+      const srcFile = join(dir, `src-dup-${++seq}.db`);
+      const seed = await createSqliteAdapter(connOf('seed3', srcFile));
+      try {
+        await seed.execute('CREATE TABLE parent (id INTEGER PRIMARY KEY, v TEXT)');
+        await seed.execute('CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES parent(id))');
+        await seed.execute('CREATE INDEX idx_child_parent ON child (parent_id)');
+        await seed.execute("INSERT INTO parent VALUES (2, 'p2')");
+        await seed.execute('INSERT INTO child VALUES (20, 2)');
+      } finally {
+        await seed.close();
+      }
+      const dst = join(dir, `dst-dup-${seq}.db`);
+      // 第一遍：覆盖传输（建索引 + 内联外键）
+      const first = startTransferTask(connOf('s1', srcFile), connOf('t', dst), {
+        tables: ['parent', 'child'],
+        writeMode: 'insert',
+        overwriteStructure: true,
+        tableConcurrency: 2,
+      });
+      expect((await first.finished).status).toBe('done');
+      // 第二遍：ignore 模式增量重跑（结构已存在 → 全部跳过，不产生失败）
+      const second = startTransferTask(connOf('s2', srcFile), connOf('t', dst), {
+        tables: ['parent', 'child'],
+        writeMode: 'ignore',
+        tableConcurrency: 2,
+      });
+      const snap = await second.finished;
+      expect(snap.status).toBe('done');
+      expect(snap.failures).toHaveLength(0);
     }, 30000);
   });
 }

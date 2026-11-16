@@ -17,6 +17,8 @@ import {
   createTransferReader,
   createTransferWriter,
   type TransferCell,
+  type TransferForeignKey,
+  type TransferIndex,
   type TransferReader,
   type TransferRow,
   type TransferTable,
@@ -276,6 +278,29 @@ export function startTransferTask(
       writer = w;
       const t: TransferTable = await r.describe(name);
       prog.totalRows = await r.count(name);
+      // 结构随迁采集：源端索引/外键定义（读取失败不阻断数据传输，记入失败清单）
+      if (r.describeIndexes !== undefined || r.describeForeignKeys !== undefined) {
+        try {
+          const idx = await r.describeIndexes?.(name);
+          if (idx !== undefined && idx.length > 0) structIdx.set(name, idx);
+        } catch (e) {
+          failures.push({
+            table: name,
+            shard: -1,
+            error: `结构随迁：读取源端索引失败: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+        try {
+          const fks = await r.describeForeignKeys?.(name);
+          if (fks !== undefined && fks.length > 0) structFks.set(name, fks);
+        } catch (e) {
+          failures.push({
+            table: name,
+            shard: -1,
+            error: `结构随迁：读取源端外键失败: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+      }
       // 先查目标表是否存在——有无表都不该「建表失败」：
       // 无表 → 建表再写；有表 → 按写入模式处理（结构冲突可开覆盖表结构选项）
       const exists = await w.tableExists(name);
@@ -288,7 +313,7 @@ export function startTransferTask(
           const msg = e instanceof Error ? e.message : String(e);
           throw new Error(`删除目标表 ${name} 失败（可能仍被其他表/视图依赖）: ${msg}`);
         }
-        await w.createTable(t);
+        await w.createTable(t, structFks.get(name));
       } else if (exists) {
         if (opts.writeMode === 'truncate' && w.beforeLoad) {
           // 清空趟（门控模式）已按子表先行的顺序整批清空过的表不再重复清空
@@ -298,7 +323,7 @@ export function startTransferTask(
         }
         // ignore/replace：写入语句自带冲突处理，直接写
       } else {
-        await w.createTable(t);
+        await w.createTable(t, structFks.get(name));
       }
       const keyType = await r.shardKey(name);
       const keyCol = keyType ? (t.columns.find((c) => c.primaryKey) ?? t.columns[0]) : undefined;
@@ -347,6 +372,19 @@ export function startTransferTask(
       }
       // 表级终态：分片未跑完（取消时 worker 提前退出）不得标 done——否则被误读为「已完整传输」
       const complete = prog.shardsDone + prog.shardsFailed >= prog.shardsTotal;
+      // 自增序列起点校准（pg 系 serial：显式插入原值不推进序列，需 setval 到 max+1）。
+      // 失败仅记失败清单，不改变数据已完整的表级状态
+      if (complete && w.afterLoad !== undefined) {
+        try {
+          await w.afterLoad(t);
+        } catch (e) {
+          failures.push({
+            table: name,
+            shard: -1,
+            error: `结构随迁：自增序列起点校准失败: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+      }
       prog.status = complete
         ? (prog.shardsFailed > 0 ? 'failed' : 'done')
         : 'cancelled';
@@ -378,6 +416,87 @@ export function startTransferTask(
     }
   }
 
+  /** 结构随迁趟：全部表数据装载完成后建索引、加外键约束（数据齐备后校验才能通过，
+   *  循环引用与自引用亦然）。逐条失败隔离记入失败清单，不阻断、不改变表级状态。
+   *  目标端已有同名索引 / 同边外键（重复传输、目标预置结构）跳过创建。 */
+  async function runStructurePass(): Promise<void> {
+    if (structIdx.size === 0 && structFks.size === 0) return;
+    let writer: TransferWriter;
+    try {
+      writer = await createTransferWriter(target, opts.writeMode, dstLoc);
+    } catch (e) {
+      failures.push({
+        table: '*',
+        shard: -1,
+        error: `结构随迁：目标写端创建失败: ${e instanceof Error ? e.message : String(e)}`,
+      });
+      return;
+    }
+    try {
+      // 目标端既有索引名 / 外键边内省：失败按空集处理（尽力创建，冲突由失败清单呈现）
+      let existingIdx = new Set<string>();
+      let existingFks: ForeignKeyEdge[] = [];
+      try {
+        existingIdx = new Set(((await writer.listIndexes?.()) ?? []).map(normalizeIdxKey));
+        existingFks = (await writer.listForeignKeys?.()) ?? [];
+      } catch {
+        existingIdx = new Set();
+        existingFks = [];
+      }
+      const sameCols = (a: string[], b: string[]): boolean => {
+        const ka = [...a].map(edgeKey).sort();
+        const kb = [...b].map(edgeKey).sort();
+        return ka.length === kb.length && ka.every((k, i) => k === kb[i]);
+      };
+      const fkExists = (table: string, fk: TransferForeignKey): boolean =>
+        existingFks.some((e) => {
+          if (edgeKey(e.table) !== edgeKey(table) || edgeKey(e.referencedTable) !== edgeKey(fk.referencedTable)) {
+            return false;
+          }
+          if (e.name !== undefined && e.name !== '') return e.name === fk.name;
+          if ((e.columns?.length ?? 0) > 0) {
+            return sameCols(e.columns ?? [], fk.columns) && sameCols(e.referencedColumns ?? [], fk.referencedColumns);
+          }
+          return false;
+        });
+      for (const [table, indexes] of structIdx) {
+        for (const idx of indexes) {
+          if (cancelled) return;
+          // 索引键统一「表名.索引名」形态（mysql/sqlserver 索引名仅表内唯一）
+          if (existingIdx.has(normalizeIdxKey(`${table}.${idx.name}`))) continue;
+          if (writer.createIndex === undefined) continue;
+          try {
+            await writer.createIndex(table, idx);
+          } catch (e) {
+            failures.push({
+              table,
+              shard: -1,
+              error: `结构随迁：索引 ${table}.${idx.name} 创建失败: ${e instanceof Error ? e.message : String(e)}`,
+            });
+          }
+        }
+      }
+      for (const [table, fks] of structFks) {
+        for (const fk of fks) {
+          if (cancelled) return;
+          if (fkExists(table, fk)) continue;
+          if (writer.createForeignKey === undefined) continue;
+          try {
+            await writer.createForeignKey(table, fk);
+          } catch (e) {
+            failures.push({
+              table,
+              shard: -1,
+              error: `结构随迁：外键 ${table}.${fk.name} 创建失败（引用表是否在本次传输范围内？）: ${e instanceof Error ? e.message : String(e)}`,
+            });
+          }
+        }
+      }
+    } finally {
+      await writer.close().catch(() => {});
+    }
+  }
+
   // ---------- 目标端依赖门控 ----------
   // 目标端已有外键关系（预置 schema；本工具建表不创建外键）时，按用户选择顺序处理
   // 各表会让父表的删除/清空被未处理子表引用而失败（PG 2BP01「有其他对象依赖它」/
@@ -401,6 +520,18 @@ export function startTransferTask(
 
   /** 清空趟已清空的表（truncate 模式，runTable 跳过二次清空） */
   const cleared = new Set<string>();
+
+  /** 结构随迁采集：源端索引/外键定义（按源表名分组，装载趟时逐表采集） */
+  const structIdx = new Map<string, TransferIndex[]>();
+  const structFks = new Map<string, TransferForeignKey[]>();
+
+  /** 索引键归一：「表名.索引名」按 edgeKey 大小写归一（末段为索引名，表名可含点号的
+   *  病理名按最后一段切分） */
+  const normalizeIdxKey = (raw: string): string => {
+    const dot = raw.lastIndexOf('.');
+    if (dot < 0) return edgeKey(raw);
+    return `${edgeKey(raw.slice(0, dot))}.${edgeKey(raw.slice(dot + 1))}`;
+  };
 
   /** 把一张表按失败收口（预检/删除趟/清空趟的提前失败），快照与进度事件同步 */
   function failUpfront(name: string, error: string): void {
@@ -610,6 +741,7 @@ export function startTransferTask(
     const gate = await planGating();
     if (gate === null) {
       await runUngated();
+      await runStructurePass();
       finish();
       return;
     }
@@ -619,6 +751,7 @@ export function startTransferTask(
       await runClearPass(gate, failed);
       await gate.writer.close().catch(() => {});
       await runGatedLoad(gate, failed);
+      await runStructurePass();
       finish();
     } catch (e) {
       // 兜底（趟与 runTable 理论上全捕获）：终态前等残余 worker 收尾

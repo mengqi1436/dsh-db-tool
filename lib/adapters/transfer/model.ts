@@ -64,6 +64,33 @@ export interface TransferTable {
   comment?: string;
 }
 
+/** 索引中间模型：源端目录读取 → 目标端装载数据就位后建索引（先装载数据后建索引为
+ *  各库官方批量装载实践，避免逐行维护索引开销）。仅承载普通列索引（含唯一索引）；
+ *  表达式/部分/FULLTEXT/空间等特型索引不进中间模型，由读端如实标注跳过。 */
+export interface TransferIndex {
+  /** 索引名；目标端同名冲突按失败隔离记录，不阻断数据传输 */
+  name: string;
+  columns: string[];
+  unique: boolean;
+  /** 源端原始索引类型（仅诊断展示） */
+  sourceType?: string;
+}
+
+/** 外键约束中间模型：源端目录读取 → 目标端全部表数据装载完成后统一创建
+ *  （数据齐备后校验才能通过，循环引用与自引用亦然）。referencedTable 为本库本模式内
+ *  的被引用表名；跨库/跨模式引用不在传输范围。 */
+export interface TransferForeignKey {
+  /** 约束名；目标端同名冲突按失败隔离记录 */
+  name: string;
+  columns: string[];
+  referencedTable: string;
+  referencedColumns: string[];
+  /** 参照动作，源端目录原样大写（CASCADE/SET NULL/RESTRICT/NO ACTION/SET DEFAULT）；
+   *  目标端不支持的动作（如 Oracle 族无 ON UPDATE）由写端忽略 */
+  onDelete?: string;
+  onUpdate?: string;
+}
+
 /** 游标形态：keyset 链式批读（顺序模式）/ offset 全序（无分片键降级）/
  *  range 区间（分片并行：hi 端恒开区间；loInclusive=true 为 k>=lo（分片首批），
  *  false 为 k>lo（批间链式），lo 为 null 表示区间左端开放） */
@@ -88,6 +115,11 @@ export interface TransferReader {
   shardKey(table: string): Promise<ShardKeyType | null>;
   /** 游标批读。列序与 describe 一致；返回行数 < limit 即读完 */
   readBatch(table: string, cursor: TransferCursor, limit: number): Promise<TransferRow[]>;
+  /** 表的二级索引清单（排除主键约束索引自身；表达式/部分等特型索引不进清单，
+   *  由编排层如实标注跳过）。结构随迁用；未实现的 kind 不随迁索引 */
+  describeIndexes?(table: string): Promise<TransferIndex[]>;
+  /** 表的出向外键定义（引用方视角，含参照动作）。结构随迁用；未实现的 kind 不随迁外键 */
+  describeForeignKeys?(table: string): Promise<TransferForeignKey[]>;
   /** ORDER BY column 起第 offset 行的键值（越界返回 null）——分片切块探测用；
    *  未实现则该源不支持分片并行（编排层回退 keyset 链）。 */
   keyAt?(table: string, column: string, offset: number): Promise<TransferCell | null>;
@@ -104,8 +136,16 @@ export interface TransferWriter {
    *  PG/SQL Server 官方单语句多表 DROP、MySQL 官方 FOREIGN_KEY_CHECKS=0 窗口、
    *  SQLite 官方 foreign_keys=OFF 窗口、Oracle/DM 官方 DROP TABLE ... CASCADE CONSTRAINTS） */
   dropTables?(names: string[]): Promise<void>;
-  /** 按中间模型建表（已存在时抛错，由编排层决定覆盖策略） */
-  createTable(table: TransferTable): Promise<void>;
+  /** 按中间模型建表（已存在时抛错，由编排层决定覆盖策略）。foreignKeys 为源端出向
+   *  外键定义，仅支持「建表内联」的 kind（SQLite 无 ALTER ADD CONSTRAINT）在创建时使用，
+   *  其余 kind 忽略、统一走装载后的 createForeignKey */
+  createTable(table: TransferTable, foreignKeys?: TransferForeignKey[]): Promise<void>;
+  /** 数据装载完成后建索引（未实现则该源索引不随迁，由编排层记录跳过） */
+  createIndex?(table: string, index: TransferIndex): Promise<void>;
+  /** 全部表数据装载完成后加外键约束（未实现则该源外键不随迁，由编排层记录跳过） */
+  createForeignKey?(table: string, fk: TransferForeignKey): Promise<void>;
+  /** 目标端已有索引名清单（结构随迁同名去重用；未实现则按「无既有索引」处理） */
+  listIndexes?(): Promise<string[]>;
   /** 批量写入（写入端事务粒度由实现决定：单批单事务，失败整批回滚）。返回实际写入行数 */
   writeBatch(table: TransferTable, rows: TransferRow[]): Promise<number>;
   /** 清空后写入（truncate 模式）：传输开始前清空目标表已有数据。各库用官方推荐形态
