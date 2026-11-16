@@ -320,9 +320,9 @@ export function createRedisTransferWriter(raw: RedisRawClient, writeMode: WriteM
       wroteAny.delete(name);
     },
 
-    beforeLoad: async (table) => {
-      await clear(table.name, false);
-      wroteAny.delete(table.name);
+    beforeLoad: async (name) => {
+      await clear(name, false);
+      wroteAny.delete(name);
     },
 
     createTable: async (table) => {

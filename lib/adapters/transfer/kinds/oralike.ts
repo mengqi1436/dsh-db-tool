@@ -369,17 +369,34 @@ export function createOraLikeTransferWriter(
         await conn.close().catch(() => {});
       }
     },
+    // 循环外键表组整组删除：Oracle 官方 DROP TABLE ... CASCADE CONSTRAINTS
+    // （SQL Language Reference：删除引用被删表主键/唯一键的外键约束）；DM8 语法为
+    // DROP TABLE ... [RESTRICT|CASCADE]（《DM8_SQL语言使用手册》§3.5.3，CASCADE 删除
+    // 唯一列/主键上的引用完整性约束，不支持 CASCADE CONSTRAINTS 写法）。循环组内逐表
+    // 普通 DROP 会被 ORA-02449 / DM 错误拦截。CASCADE 的约束副作用仅落在引用方的表上，
+    // 组内引用方随后全部删除重建，不影响组外对象
+    dropTables: async (names) => {
+      const cascade = kind === 'oracle' ? 'CASCADE CONSTRAINTS' : 'CASCADE';
+      for (const n of names) {
+        const conn = await pool.getConnection();
+        try {
+          await conn.execute(`DROP TABLE ${qual(n)} ${cascade}`, [], { autoCommit: true });
+        } finally {
+          await conn.close().catch(() => {});
+        }
+      }
+    },
     // truncate 模式前置清空：TRUNCATE TABLE 重置高水位（Oracle/DM 官方手册；DDL 隐式提交，此处独占前置时机无影响）
-    beforeLoad: async (table) => {
+    beforeLoad: async (name) => {
       const conn = await pool.getConnection();
       try {
         // 同连接先设 DDL 锁等待：TRUNCATE 被活跃事务持有时默认无限等（oracle ddl_lock_timeout，DM 兼容）；
         // TRUNCATE 拿不到锁/遇外键（ORA-02266）降级 DELETE（行级锁有限等待）
         await conn.execute('ALTER SESSION SET DDL_LOCK_TIMEOUT = 15', [], { autoCommit: true }).catch(() => {});
         try {
-          await conn.execute(`TRUNCATE TABLE ${qual(table.name)}`, [], { autoCommit: true });
+          await conn.execute(`TRUNCATE TABLE ${qual(name)}`, [], { autoCommit: true });
         } catch {
-          await conn.execute(`DELETE FROM ${qual(table.name)}`, [], { autoCommit: true });
+          await conn.execute(`DELETE FROM ${qual(name)}`, [], { autoCommit: true });
         }
       } finally {
         await conn.close().catch(() => {});
@@ -403,6 +420,34 @@ export function createOraLikeTransferWriter(
         const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${escIdent(c.name)}"`);
         const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
         await conn.execute(`CREATE TABLE ${qual(table.name)} (${defs.join(', ')}${pk})`, [], { autoCommit: true });
+      } finally {
+        await conn.close().catch(() => {});
+      }
+    },
+
+    // 目标端外键依赖边：ALL_CONSTRAINTS 官方目录（CONSTRAINT_TYPE='R' 为外键，
+    // 经 R_OWNER+R_CONSTRAINT_NAME 回连取被引用表），限定同 owner 内（Oracle/DM 单库
+    // 多 schema 模型，owner 即目标 schema）；表名按目录存储形态原样返回，大小写归一
+    // 由编排层 edgeKey 处理
+    listForeignKeys: async () => {
+      const conn = await pool.getConnection();
+      try {
+        const own = sanitize(owner, 'owner');
+        const r = await conn.execute(
+          `SELECT a.TABLE_NAME AS TABLE_NAME, b.TABLE_NAME AS REF_TABLE_NAME
+           FROM ALL_CONSTRAINTS a
+           JOIN ALL_CONSTRAINTS b ON b.OWNER = a.R_OWNER AND b.CONSTRAINT_NAME = a.R_CONSTRAINT_NAME
+           WHERE a.CONSTRAINT_TYPE = 'R' AND a.OWNER = :o AND b.OWNER = :o`,
+          [own, own],
+          { outFormat: 4002 /* OBJECT */, maxRows: 100000 },
+        );
+        const rows = r.rows ?? [];
+        return rows
+          .map((row) => {
+            const rec = row as Record<string, unknown>;
+            return { table: String(rec.TABLE_NAME ?? ''), referencedTable: String(rec.REF_TABLE_NAME ?? '') };
+          })
+          .filter((e) => e.table !== '' && e.referencedTable !== '');
       } finally {
         await conn.close().catch(() => {});
       }

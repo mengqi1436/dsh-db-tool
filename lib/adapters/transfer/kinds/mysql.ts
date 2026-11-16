@@ -256,11 +256,37 @@ export function createMysqlTransferWriter(raw: MysqlRaw, writeMode: WriteMode = 
       const db = raw.database !== '' ? `${quoteIdent(assertIdent(raw.database, '库名'), '`')}.` : '';
       await pool.query(`DROP TABLE ${db}${quoteIdent(assertIdent(name, '表名'), '`')}`);
     },
+    // 循环外键表组整组删除：MySQL 官方 FOREIGN_KEY_CHECKS=0 窗口（官方手册
+    // foreign_key_checks 节：DROP TABLE drops tables that have foreign keys that are
+    // referred to by other tables；mysqldump 自动输出禁用 foreign_key_checks 的语句），
+    // 窗口结束回读原值复位；单表删除被引用表会被 ER_FK_CANNOT_DROP_PARENT(3730) 拦截。
+    // 整个窗口固定在一条池连接上执行
+    dropTables: async (names) => {
+      const db = raw.database !== '' ? `${quoteIdent(assertIdent(raw.database, '库名'), '`')}.` : '';
+      const conn = await pool.getConnection();
+      try {
+        const [prev] = await conn.query('SELECT @@SESSION.foreign_key_checks AS v');
+        const rows = (Array.isArray(prev) ? prev : []) as RowDataPacket[];
+        const prevValue = String(rows[0]?.v ?? '1');
+        await conn.query('SET SESSION FOREIGN_KEY_CHECKS = 0');
+        try {
+          for (const n of names) {
+            await conn.query(`DROP TABLE ${db}${quoteIdent(assertIdent(n, '表名'), '`')}`);
+          }
+        } finally {
+          await conn.query(`SET SESSION FOREIGN_KEY_CHECKS = ${prevValue === '0' ? '0' : '1'}`).catch(() => {});
+        }
+      } finally {
+        conn.release();
+      }
+    },
     // truncate 模式前置清空（MySQL 8.4 官方手册「Optimizing InnoDB DDL Operations」：清空首选
     // TRUNCATE，有外键时可能需回退 DELETE）。TRUNCATE 要表级独占 MDL，被活跃调度器/长事务
     // 持有时默认等 31536000s（真机实证：进度无限卡死）——先设 lock_wait_timeout=15s 拿不到即
-    // 降级 DELETE FROM（行锁由 innodb_lock_wait_timeout 默认 50s 有限等待，可安全完成）
-    beforeLoad: async (table) => {
+    // 降级 DELETE FROM（行锁由 innodb_lock_wait_timeout 默认 50s 有限等待，可安全完成）；
+    // 被外键引用时 TRUNCATE 报 ER_TRUNCATE_ILLEGAL_FK(1701)，同口径降级 DELETE
+    // （依赖排序由编排层先行：选择集内子表已先清空，DELETE 不再被引用拦截）
+    beforeLoad: async (name) => {
       const db = raw.database !== ''
         ? `${quoteIdent(assertIdent(raw.database, '库名'), '`')}.`
         : '';
@@ -268,10 +294,10 @@ export function createMysqlTransferWriter(raw: MysqlRaw, writeMode: WriteMode = 
       try {
         await conn.query('SET SESSION lock_wait_timeout = 15');
         try {
-          await conn.query(`TRUNCATE TABLE ${db}${quoteIdent(table.name, '`')}`);
+          await conn.query(`TRUNCATE TABLE ${db}${quoteIdent(name, '`')}`);
         } catch {
-          // MDL 拿不到（表被活跃连接占用）：降级 DELETE（行级锁，有限等待）
-          await conn.query(`DELETE FROM ${db}${quoteIdent(table.name, '`')}`);
+          // MDL 拿不到（表被活跃连接占用）/ 被外键引用：降级 DELETE（行级锁，有限等待）
+          await conn.query(`DELETE FROM ${db}${quoteIdent(name, '`')}`);
         }
       } finally {
         conn.release();
@@ -295,6 +321,22 @@ export function createMysqlTransferWriter(raw: MysqlRaw, writeMode: WriteMode = 
       const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
       const head = `CREATE TABLE ${db}${quoteIdent(table.name, '`')}`;
       await pool.query(`${head} (${defs.join(', ')}${pk})`);
+    },
+
+    // 目标端外键依赖边：information_schema.REFERENTIAL_CONSTRAINTS 官方目录，
+    // 限定同库内（CONSTRAINT_SCHEMA = UNIQUE_CONSTRAINT_SCHEMA）
+    listForeignKeys: async () => {
+      const db = raw.database;
+      if (db === '') throw new Error('mysql 传输写端缺少默认库（连接未指定 database）');
+      const [rows] = await pool.query(
+        `SELECT TABLE_NAME, REFERENCED_TABLE_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS
+         WHERE CONSTRAINT_SCHEMA = ? AND UNIQUE_CONSTRAINT_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL`,
+        [db, db],
+      );
+      const list = (Array.isArray(rows) ? rows : []) as RowDataPacket[];
+      return list
+        .filter((r) => r.TABLE_NAME != null && r.REFERENCED_TABLE_NAME != null)
+        .map((r) => ({ table: String(r.TABLE_NAME), referencedTable: String(r.REFERENCED_TABLE_NAME) }));
     },
 
     writeBatch: async (table, rows: TransferRow[]) => {

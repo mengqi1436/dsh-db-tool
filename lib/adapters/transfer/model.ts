@@ -12,6 +12,7 @@
  * TransferCell 覆盖 bigint / Uint8Array，浏览侧 normalizeCell 的 BLOB 截断与 bigint 降位不适用于此处。
  */
 import type { DbKind, ResolvedConnection } from '../types.js';
+import type { ForeignKeyEdge } from './deps.js';
 
 /** 中间类型：类型映射矩阵的枢纽（源 midType → 目标列类型） */
 export type MidType =
@@ -99,15 +100,23 @@ export interface TransferWriter {
   tableExists(name: string): Promise<boolean>;
   /** 删除目标表（覆盖表结构选项用） */
   dropTable(name: string): Promise<void>;
+  /** 循环外键引用表组的整组删除（覆盖表结构；循环组单表删除必失败——
+   *  PG/SQL Server 官方单语句多表 DROP、MySQL 官方 FOREIGN_KEY_CHECKS=0 窗口、
+   *  SQLite 官方 foreign_keys=OFF 窗口、Oracle/DM 官方 DROP TABLE ... CASCADE CONSTRAINTS） */
+  dropTables?(names: string[]): Promise<void>;
   /** 按中间模型建表（已存在时抛错，由编排层决定覆盖策略） */
   createTable(table: TransferTable): Promise<void>;
   /** 批量写入（写入端事务粒度由实现决定：单批单事务，失败整批回滚）。返回实际写入行数 */
   writeBatch(table: TransferTable, rows: TransferRow[]): Promise<number>;
   /** 清空后写入（truncate 模式）：传输开始前清空目标表已有数据。各库用官方推荐形态
    *  （SQL 系 TRUNCATE，SQLite 无此语句用 DELETE，mongo deleteMany({})）；无需处理时省略 */
-  beforeLoad?(table: TransferTable): Promise<void>;
+  beforeLoad?(name: string): Promise<void>;
   /** 传输完成钩子（自增列重置起点等）；无需处理时省略 */
   afterLoad?(table: TransferTable): Promise<void>;
+  /** 目标端外键依赖边（同库同模式内 table→referencedTable；跨模式/跨库引用排除）。
+   *  支持目录查询的 SQL kind 实现（mysql/pg 系/sqlserver/oralike/sqlite），编排层据此
+   *  做删除/清空/装载依赖排序；mongo/redis 无外键概念省略 */
+  listForeignKeys?(): Promise<ForeignKeyEdge[]>;
   close(): Promise<void>;
 }
 

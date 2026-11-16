@@ -96,6 +96,7 @@ Moving table data between databases of the same or different kinds:
 
 - **Write modes**: `insert` (append), `ignore` (skip conflicts), `replace` (overwrite), `truncate` (clear first)
 - **Automatic table creation**: generates DDL from the source table structure when the target table is absent
+- **Dependency ordering**: when the target schema already has foreign keys, operations are ordered automatically — child tables are dropped/cleared first, parent tables are loaded first; mutually referencing table groups are dropped as a group via each database's official mechanism (their load order is not guaranteed and foreign key conflicts fail as-is); target tables referenced by tables outside the selection fail fast with a clear message on overwrite
 - **Paged reads**: ordered cursor (keyset), range, or offset strategies
 - **Progress and history**: live progress push plus per-project transfer history
 - **Transfer configuration**: saved per project, auto-saved, restored after restart, cleared when a connection becomes invalid

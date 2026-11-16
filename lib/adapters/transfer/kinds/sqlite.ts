@@ -209,9 +209,29 @@ export function createSqliteTransferWriter(
     dropTable: async (name) => {
       db.exec(`DROP TABLE ${quoteIdent(assertIdent(name, '表名'))}`);
     },
+    // 循环外键表组整组删除：SQLite 官方批量重建流程——PRAGMA foreign_keys=OFF 期间
+    // 删除/装载不被外键拦截（https://sqlite.org/lang_altertable.html 步骤一：
+    // "If foreign key constraints are enabled, disable them using PRAGMA foreign_keys=OFF"；
+    // 该 PRAGMA 必须在事务外设置，事务内为 no-op，本写端语句均自动提交无悬挂事务）。
+    // 结束前按打开时的原值复位：node:sqlite 的 enableForeignKeyConstraints 默认 true
+    //（实测新连接 PRAGMA foreign_keys=1）、better-sqlite3 默认不启用——回读原值，
+    // 不把 OFF 会话误置成 ON、也不把 ON 会话误置成 OFF
+    dropTables: async (names) => {
+      const before = Number(
+        (db.prepare('PRAGMA foreign_keys').get() as Record<string, unknown> | undefined)?.foreign_keys ?? 0,
+      );
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        for (const n of names) {
+          db.exec(`DROP TABLE ${quoteIdent(assertIdent(n, '表名'))}`);
+        }
+      } finally {
+        db.exec(`PRAGMA foreign_keys = ${before === 0 ? 'OFF' : 'ON'}`);
+      }
+    },
     // truncate 模式前置清空：SQLite 官方无 TRUNCATE 语句，DELETE FROM 即全表清空
-    beforeLoad: async (table) => {
-      db.exec(`DELETE FROM ${quoteIdent(table.name)}`);
+    beforeLoad: async (name) => {
+      db.exec(`DELETE FROM ${quoteIdent(assertIdent(name, '表名'))}`);
     },
 
     createTable: async (table) => {
@@ -228,6 +248,28 @@ export function createSqliteTransferWriter(
       const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => quoteIdent(c.name));
       const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
       db.exec(`CREATE TABLE ${quoteIdent(table.name)} (${defs.join(', ')}${pk})`);
+    },
+
+    // 目标端外键依赖边：PRAGMA foreign_key_list 官方接口（table 列为被引用表名）；
+    // 编排层据此做删除/清空/装载依赖排序（连接默认不开外键时排序同样成立——
+    // 外键约束一旦存在，排序就是唯一不依赖会话开关的官方做法）
+    listForeignKeys: async () => {
+      const edges: Array<{ table: string; referencedTable: string }> = [];
+      const tables = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+        .all() as Record<string, unknown>[];
+      for (const t of tables) {
+        const name = String(t.name ?? '');
+        if (name === '') continue;
+        const fks = db
+          .prepare(`PRAGMA foreign_key_list(${quoteIdent(assertIdent(name, '表名'))})`)
+          .all() as Record<string, unknown>[];
+        for (const fk of fks) {
+          const ref = fk.table == null ? '' : String(fk.table);
+          if (ref !== '') edges.push({ table: name, referencedTable: ref });
+        }
+      }
+      return edges;
     },
 
     writeBatch: async (table, rows: TransferRow[]) => {

@@ -207,17 +207,25 @@ export function createPgTransferWriter(
     dropTable: async (name) => {
       await pool.query(`DROP TABLE ${quoteIdent(schema)}.${quoteIdent(name)}`);
     },
+    // 循环外键表组整组删除：PG 官方单语句多表 DROP 可删除相互外键引用的表组
+    // （https://www.postgresql.org/docs/current/sql-droptable.html，单表删除会被
+    // SQLSTATE 2BP01「other objects depend on it」拦截）
+    dropTables: async (names) => {
+      const list = names.map((n) => `${quoteIdent(schema)}.${quoteIdent(assertIdent(n, '表名'))}`).join(', ');
+      await pool.query(`DROP TABLE ${list}`);
+    },
     // truncate 模式前置清空：TRUNCATE 重置表而无行级日志开销（PG 官方文档 TRUNCATE 节）
     // 同连接先设 lock_timeout（管 MDL 与行锁）：TRUNCATE 被长事务持有时 MDL 等待默认无限；
-    // TRUNCATE 拿不到锁（15s）降级 DELETE（行级锁，同一 lock_timeout 有限等待）
-    beforeLoad: async (table) => {
+    // TRUNCATE 拿不到锁（15s）或被外键引用（官方限制：引用它的表必须同语句一并清空）
+    // 降级 DELETE（行级锁，同一 lock_timeout 有限等待）
+    beforeLoad: async (name) => {
       const client = await pool.connect();
       try {
         await client.query("SET lock_timeout = '15s'");
         try {
-          await client.query(`TRUNCATE TABLE ${quoteIdent(schema)}.${quoteIdent(table.name)}`);
+          await client.query(`TRUNCATE TABLE ${quoteIdent(schema)}.${quoteIdent(name)}`);
         } catch {
-          await client.query(`DELETE FROM ${quoteIdent(schema)}.${quoteIdent(table.name)}`);
+          await client.query(`DELETE FROM ${quoteIdent(schema)}.${quoteIdent(name)}`);
         }
       } finally {
         client.release();
@@ -237,6 +245,25 @@ export function createPgTransferWriter(
       const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => quoteIdent(c.name));
       const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
       await pool.query(`CREATE TABLE ${quoteIdent(schema)}.${quoteIdent(table.name)} (${defs.join(', ')}${pk})`);
+    },
+
+    // 目标端外键依赖边：pg_constraint 官方目录（conrelid 引用方 / confrelid 被引用方），
+    // 限定本模式内（跨模式引用与选择集排序无关）
+    listForeignKeys: async () => {
+      const res = await pool.query(
+        `SELECT c.relname AS table_name, r.relname AS referenced_table
+         FROM pg_catalog.pg_constraint x
+         JOIN pg_catalog.pg_class c ON c.oid = x.conrelid
+         JOIN pg_catalog.pg_class r ON r.oid = x.confrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         JOIN pg_catalog.pg_namespace rn ON rn.oid = r.relnamespace
+         WHERE x.contype = 'f' AND n.nspname = $1 AND rn.nspname = $1`,
+        [schema],
+      );
+      return res.rows.map((r: Record<string, unknown>) => ({
+        table: String(r.table_name),
+        referencedTable: String(r.referenced_table),
+      }));
     },
 
     writeBatch: async (table, rows: TransferRow[]) => {

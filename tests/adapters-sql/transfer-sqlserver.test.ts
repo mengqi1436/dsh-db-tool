@@ -636,7 +636,7 @@ describe('sqlserver 写端（mock pool + mock 事务）', () => {
     });
     const { pool } = makePool();
     const w = createSqlserverTransferWriter(pool as never, okTx, 'dbo', 'truncate');
-    await w.beforeLoad!({ name: 't', columns: cols3 });
+    await w.beforeLoad!('t');
     // 成功路径必须复位 -1（会话级设置随连接回池，否则 15s 上限残留给后续请求）
     expect(ok.map((c) => c.sql)).toEqual(['SET LOCK_TIMEOUT 15000', 'TRUNCATE TABLE [dbo].[t]', 'SET LOCK_TIMEOUT -1']);
 
@@ -649,7 +649,7 @@ describe('sqlserver 写端（mock pool + mock 事务）', () => {
       }),
     });
     const w2 = createSqlserverTransferWriter(pool as never, badTx, 'dbo', 'truncate');
-    await w2.beforeLoad!({ name: 't', columns: cols3 });
+    await w2.beforeLoad!('t');
     expect(bad.map((c) => c.sql)).toEqual(['SET LOCK_TIMEOUT 15000', 'TRUNCATE TABLE [dbo].[t]', 'DELETE FROM [dbo].[t]', 'SET LOCK_TIMEOUT -1']);
   });
 
@@ -666,7 +666,7 @@ describe('sqlserver 写端（mock pool + mock 事务）', () => {
       const { pool } = makePool();
       const w = createSqlserverTransferWriter(pool as never, tx, 'dbo', 'truncate');
       try {
-        await w.beforeLoad!({ name: 't', columns: cols3 });
+        await w.beforeLoad!('t');
         return { rejected: false, sqls: recs.map((c) => c.sql) };
       } catch {
         return { rejected: true, sqls: recs.map((c) => c.sql) };

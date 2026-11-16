@@ -184,6 +184,20 @@ function isLockWaitError(e: unknown): boolean {
   return msgs.some((m) => /lock request time out|deadlock|死锁/i.test(m));
 }
 
+/** 是否外键引用导致的 TRUNCATE 失败（Msg 4712，可降级 DELETE）：TRUNCATE 官方限制
+ *  「being referenced by a FOREIGN KEY constraint」；与锁等待同口径——只在确定可安全
+ *  换 DELETE 的失败形态下降级，权限/对象不存在等仍上抛。 */
+function isForeignKeyTruncateError(e: unknown): boolean {
+  const num = errorNumber(e);
+  if (num != null) return num === 4712;
+  const inner = (e as { originalError?: unknown } | null | undefined)?.originalError;
+  const msgs = [
+    e instanceof Error ? e.message : String(e),
+    inner instanceof Error ? inner.message : '',
+  ];
+  return msgs.some((m) => /referenced by a foreign key/i.test(m));
+}
+
 /** sql_variant 列：驱动按值的实际类型返回标量（number/string/Date/Buffer），必须显式转文本
  *  才能统一搬运（映射归 text，见 sqlserverTypeToMid） */
 function isVariant(c: TransferColumn): boolean {
@@ -457,14 +471,20 @@ export function createSqlserverTransferWriter(
       await q(`DROP TABLE ${tblOf(name)}`);
     },
 
+    // 循环外键表组整组删除：SQL Server 官方单语句多表 DROP TABLE T1, T2 可删除
+    // 相互外键引用的表组（MS Learn DROP TABLE）；单表删除被引用表会被 Msg 3726 拦截
+    dropTables: async (names) => {
+      await q(`DROP TABLE ${names.map((n) => tblOf(assertIdent(n, '表名'))).join(', ')}`);
+    },
+
     // truncate 模式前置清空：TRUNCATE 表级锁被长事务持有时默认无限等待——同一事务（同一连接）
     // 内先 SET LOCK_TIMEOUT 15000（毫秒），**只有锁等待类失败**才降级 DELETE FROM（行级锁，
     // 同一 15s 上限内有限等待）。权限(229)/对象不存在(208) 等失败上抛：静默换 DELETE 会改变
     // 语义（DELETE 不重置 IDENTITY 种子 → truncate 模式名不副实）并掩盖真实错误。
     // SET LOCK_TIMEOUT 是会话级设置，连接回池后不自动复位 → 成功路径结束前显式恢复默认
     // （-1 = 无限等待），避免把 15s 上限带给后续无关请求。
-    beforeLoad: async (table) => {
-      const tbl = tblOf(table.name);
+    beforeLoad: async (name) => {
+      const tbl = tblOf(assertIdent(name, '表名'));
       const tx = openTx();
       await tx.begin();
       try {
@@ -472,13 +492,16 @@ export function createSqlserverTransferWriter(
         try {
           await tx.request().query(`TRUNCATE TABLE ${tbl}`);
         } catch (e) {
-          if (!isLockWaitError(e)) {
+          if (!isLockWaitError(e) && !isForeignKeyTruncateError(e)) {
             const num = errorNumber(e);
             throw new Error(
-              `TRUNCATE TABLE ${sch}.${table.name} 失败${num != null ? `（错误号 ${num}）` : ''}，`
-              + `未降级 DELETE（仅锁等待超时才降级）：${e instanceof Error ? e.message : String(e)}`,
+              `TRUNCATE TABLE ${sch}.${name} 失败${num != null ? `（错误号 ${num}）` : ''}，`
+              + `未降级 DELETE（仅锁等待超时与外键引用才降级）：${e instanceof Error ? e.message : String(e)}`,
             );
           }
+          // 外键引用（Msg 4712）与锁等待同口径降级 DELETE：依赖排序由编排层先行，
+          // 选择集内子表已先清空，DELETE 不再被引用拦截；注意 DELETE 不重置 IDENTITY
+          // 种子（truncate 模式在该表上的语义损失，与 mysql/pg/oralike 降级路径一致）
           await tx.request().query(`DELETE FROM ${tbl}`);
         }
         await tx.request().query('SET LOCK_TIMEOUT -1');
@@ -508,6 +531,25 @@ export function createSqlserverTransferWriter(
       const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => sqlserverIdent(c.name));
       const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
       await q(`CREATE TABLE ${tblOf(table.name)} (${defs.join(', ')}${pk})`);
+    },
+
+    // 目标端外键依赖边：sys.foreign_keys 官方目录视图（parent=引用方 / referenced=被引用方），
+    // 限定同 schema 内（跨 schema 引用与选择集排序无关）
+    listForeignKeys: async () => {
+      const rows = await q(
+        `SELECT pt.name AS table_name, rt.name AS referenced_table
+         FROM sys.foreign_keys fk
+         JOIN sys.tables pt ON pt.object_id = fk.parent_object_id
+         JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+         JOIN sys.schemas ps ON ps.schema_id = pt.schema_id
+         JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+         WHERE ps.name = @schema AND rs.name = @schema`,
+        { schema: sch },
+      );
+      return rows.map((r) => ({
+        table: String(r.table_name ?? ''),
+        referencedTable: String(r.referenced_table ?? ''),
+      }));
     },
 
     writeBatch: async (table, rows: TransferRow[]) => {
