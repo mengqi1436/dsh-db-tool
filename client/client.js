@@ -703,6 +703,9 @@ window.__ModuleLoader__.load({
 				".dbt-chev.open{transform:rotate(90deg);}",
 				".dbt-chev.leaf{visibility:hidden;}",
 				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				// 表行注释（Apple 设置列表式）：表名居左、中文注释右对齐置灰，左右分区 + 行间既有分隔线承担
+				// 「隔断」职责，中间不留竖线；注释块限宽保证长注释不挤占表名
+				".dbt-treecomment{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dbt-text-secondary);font-size:11px;font-weight:400;}",
 				/* ===== Navicat 式浏览（内嵌面板，纵向流式）：工具栏 → 对象树 → 面包屑 → 分段 → 内容 → 分页 → 详情栏 ===== */
 				".dbt-browse-body{display:flex;flex-direction:column;gap:10px;min-height:0;}",
 				// 顶部工具条：连接/库筛选 + 表名搜索（原树内内嵌行上提，树只负责导航）
@@ -2164,6 +2167,11 @@ window.__ModuleLoader__.load({
 					extra || null,
 				);
 			}
+			// 表行注释块（Apple 设置列表式）：右对齐置灰小字，超宽省略并以 title 保留全文；
+			// 与表名之间靠左右分区留白分隔（行间另有横向分隔线），不再用竖线
+			const tableCommentExtra = (comment) => [
+				React.createElement("span", { className: "dbt-treecomment", key: "text", title: comment }, comment),
+			];
 
 			// 组装树：连接 → 库/schema → 表（懒加载缓存，未加载完成显示 …）；表节点点击上报选中记录与触发元素
 			const treeRows = [];
@@ -2187,8 +2195,9 @@ window.__ModuleLoader__.load({
 						for (const h of hits) {
 							const active = !!sel && sel.connId === c.id && sel.db === h.database && (!h.schema || sel.schemaName === h.schema) && !!sel.table && sel.table.name === h.name;
 							treeRows.push(treerow("sr:" + c.id + "/" + h.database + "/" + (h.schema ? h.schema + "." : "") + h.name, 1, false, true,
-								h.database + "." + h.name + (h.comment ? " · " + h.comment : ""),
-								(e) => onSelect({ connId: c.id, db: h.database, schemaName: h.schema, table: { name: h.name, type: h.type } }, e.currentTarget), active));
+								h.database + "." + h.name,
+								(e) => onSelect({ connId: c.id, db: h.database, schemaName: h.schema, table: { name: h.name, type: h.type } }, e.currentTarget), active,
+								h.comment ? tableCommentExtra(h.comment) : null));
 						}
 					}
 					continue;
@@ -2221,8 +2230,9 @@ window.__ModuleLoader__.load({
 							for (const tb of tlist) {
 								const active = !!sel && sel.connId === c.id && sel.db === d && sel.schemaName === s && sel.table.name === tb.name;
 								treeRows.push(treerow("t:" + sk + "/" + tb.name, 3, false, true,
-									tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : "") + (tb.comment ? " · " + tb.comment : ""),
-									(e) => onSelect({ connId: c.id, db: d, schemaName: s, table: tb }, e.currentTarget), active));
+									tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : ""),
+									(e) => onSelect({ connId: c.id, db: d, schemaName: s, table: tb }, e.currentTarget), active,
+									tb.comment ? tableCommentExtra(tb.comment) : null));
 							}
 						}
 						continue;
@@ -2233,8 +2243,9 @@ window.__ModuleLoader__.load({
 					for (const tb of tlist) {
 						const active = !!sel && sel.connId === c.id && sel.db === d && sel.table.name === tb.name;
 						treeRows.push(treerow("t:" + c.id + "/" + d + "/" + tb.name, 2, false, true,
-							tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : "") + (tb.comment ? " · " + tb.comment : ""),
-							(e) => onSelect({ connId: c.id, db: d, table: tb }, e.currentTarget), active));
+							tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : ""),
+							(e) => onSelect({ connId: c.id, db: d, table: tb }, e.currentTarget), active,
+							tb.comment ? tableCommentExtra(tb.comment) : null));
 					}
 				}
 			}

@@ -1,10 +1,13 @@
 /**
- * 「数据浏览」对象树表行显示表注释的离线测试（stub React 多轮渲染 + 脚本化 fetch）。
+ * 「数据浏览」对象树表行注释布局（Apple 设置列表式）的离线测试（stub React 多轮渲染 + 脚本化 fetch）。
  *
  * 覆盖：
- *  1) mysql（两层：连接 → 库 → 表）与 postgresql（三层：连接 → 库 → schema → 表）两条
- *     树路径的表行都把 listTables 返回的 comment 以「 · 注释」拼进标签；
- *  2) 普通表不再挂「 · TABLE」类型后缀（大小写不敏感判定），视图等非普通表仍显示类型。
+ *  1) mysql（两层：连接 → 库 → 表）与 postgresql（三层：连接 → 库 → schema → 表）两条树路径，
+ *     表行的表名占左列（.dbt-treename），中文注释为右对齐独立块（.dbt-treecomment，Apple
+ *     设置列表式左右分区，无竖向隔断线），不再以「 · 注释」拼进名称；
+ *  2) 无注释的表行没有注释块；全树不渲染竖向隔断线；
+ *  3) 普通表不挂「 · TABLE」类型后缀（大小写不敏感判定），视图等非普通表仍显示类型；
+ *  4) 库内搜表结果行与树表行同一布局契约。
  *
  * 说明：stub React 不带调度器，state 更新只写槽位；用「渲染 → 逐层点击展开行 →
  * flush 微任务」的循环驱动懒加载（effect 在渲染后统一执行，对齐真实时序）。
@@ -132,6 +135,7 @@ async function expandTo(conn: any, tables: any[], ...want: string[]) {
 	const byUrl = new Map<string, unknown>([
 		['databases', ['mydb']],
 		['tables', tables],
+		['searchHits', tables.map((x: any) => ({ database: 'mydb', name: x.name, type: x.type, comment: x.comment || '' }))],
 	]);
 	if (conn.kind === 'postgresql') byUrl.set('schemas', ['public']);
 	fetchImpl = (async (url: string) => {
@@ -140,6 +144,7 @@ async function expandTo(conn: any, tables: any[], ...want: string[]) {
 		if (path.includes('/databases')) data = byUrl.get('databases');
 		else if (path.includes('/schemas')) data = byUrl.get('schemas');
 		else if (path.includes('/tables')) data = byUrl.get('tables');
+		else if (path.includes('/search-tables')) data = byUrl.get('searchHits') ?? [];
 		return { ok: true, text: () => Promise.resolve(JSON.stringify({ ok: true, data })) };
 	}) as any;
 	reactStub.reset();
@@ -164,10 +169,29 @@ async function expandTo(conn: any, tables: any[], ...want: string[]) {
 	return reactStub.render(T.BrowseTree, props());
 }
 
+/* ---------- 表行结构断言辅助 ---------- */
+
+/** 找到文本命中的表行，拆出名称块/注释块两个结构元素 */
+function rowParts(tree: El, rowText: string) {
+	const row = collect(tree).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-treerow') && flatText(e).includes(rowText));
+	expect(row, `未找到表行「${rowText}」`).toBeTruthy();
+	const kids = collect(row).filter((e) => e !== row && typeof e.props.className === 'string');
+	const pick = (cls: string) => kids.find((e) => (e.props.className as string).includes(cls)) ?? null;
+	return {
+		name: pick('dbt-treename'),
+		comment: pick('dbt-treecomment'),
+	};
+}
+
+/** 全树不应渲染竖向隔断线（Apple 设置列表式：左右分区留白 + 行间横向分隔线，无竖线） */
+function expectNoSep(tree: El) {
+	expect(collect(tree).some((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-treesep')), '不应存在竖向隔断线').toBe(false);
+}
+
 /* ---------- 用例 ---------- */
 
-describe('数据浏览对象树：表行显示表注释', () => {
-	it('mysql 两层树：表行拼「 · 注释」，普通表不挂 TABLE 后缀', async () => {
+describe('数据浏览对象树：表行注释布局（Apple 设置列表式：左表名、右注释）', () => {
+	it('mysql 两层树：表名与注释分列两侧且有隔断，普通表不挂 TABLE 后缀', async () => {
 		const tree = await expandTo(
 			{ id: 'c1', name: '主库', kind: 'mysql' },
 			[
@@ -176,21 +200,60 @@ describe('数据浏览对象树：表行显示表注释', () => {
 			],
 			'mydb',
 		);
+		const users = rowParts(tree, 'users');
+		expect(flatText(users.name)).toBe('users'); // 表名单独占左列，不再拼接注释
+		expect(users.comment, 'users 行缺注释块').toBeTruthy();
+		expect(users.comment!.props.title).toBe('用户表'); // 截断时悬停可读全文
+		const vlogs = rowParts(tree, 'v_logs');
+		expect(flatText(vlogs.name)).toBe('v_logs · VIEW'); // 非普通表仍显示类型
+		expect(vlogs.comment).toBeNull(); // 无注释：无注释块
 		const text = flatText(tree);
-		expect(text).toContain('users · 用户表');
-		expect(text).toContain('v_logs · VIEW'); // 非普通表仍显示类型
-		expect(text).not.toContain('· TABLE'); // 普通表不再挂类型后缀（此前大小写敏感判定漏放）
+		expect(text).not.toContain('users · 用户表'); // 注释不再拼进名称
+		expect(text).not.toContain('· TABLE'); // 普通表不挂类型后缀（此前大小写敏感判定漏放）
+		expectNoSep(tree);
 	});
 
-	it('postgresql 三层树（库→schema→表）：表行同样拼「 · 注释」', async () => {
+	it('postgresql 三层树（库→schema→表）：注释布局契约一致', async () => {
 		const tree = await expandTo(
 			{ id: 'c2', name: '分析库', kind: 'postgresql' },
 			[{ name: 'orders', type: 'TABLE', comment: '订单主表' }],
 			'mydb',
 			'public',
 		);
-		const text = flatText(tree);
-		expect(text).toContain('orders · 订单主表');
-		expect(text).not.toContain('· TABLE');
+		const orders = rowParts(tree, 'orders');
+		expect(flatText(orders.name)).toBe('orders');
+		expect(flatText(orders.comment)).toBe('订单主表');
+		expect(flatText(tree)).not.toContain('orders · 订单主表');
+		expect(flatText(tree)).not.toContain('· TABLE');
+		expectNoSep(tree);
+	});
+
+	it('库内搜表结果行：同一布局契约（库名.表名占左、注释右列、中间隔断）', async () => {
+		const tree = await expandTo(
+			{ id: 'c3', name: '主库', kind: 'mysql' },
+			[{ name: 'users', type: 'TABLE', comment: '用户表' }],
+			'mydb',
+		);
+		// 顶栏搜索框输入关键词后回车触发 /search-tables（闭包随渲染重建，回车须用重渲染后的新元素）
+		const input = collect(tree).find((e) => e.type === 'input' && e.props['aria-label'] && typeof e.props.onKeyDown === 'function');
+		expect(input, '未找到搜索输入框').toBeTruthy();
+		input!.props.onChange({ target: { value: 'users' } });
+		const fresh = reactStub.render(T.BrowseTree, {
+			conns: [{ id: 'c3', name: '主库', kind: 'mysql' }], projectPath: 'E:/proj', sel: null,
+			onSelect: () => {}, autoExpand: true, refreshTick: 0,
+		});
+		const freshInput = collect(fresh).find((e) => e.type === 'input' && e.props['aria-label'] && typeof e.props.onKeyDown === 'function');
+		expect(freshInput, '重渲染后未找到搜索输入框').toBeTruthy();
+		freshInput!.props.onKeyDown({ key: 'Enter' });
+		await flush();
+		const resultTree = reactStub.render(T.BrowseTree, {
+			conns: [{ id: 'c3', name: '主库', kind: 'mysql' }], projectPath: 'E:/proj', sel: null,
+			onSelect: () => {}, autoExpand: true, refreshTick: 0,
+		});
+		const hit = rowParts(resultTree, 'mydb.users');
+		expect(flatText(hit.name)).toBe('mydb.users');
+		expect(flatText(hit.comment)).toBe('用户表');
+		expect(flatText(resultTree)).not.toContain('mydb.users · 用户表');
+		expectNoSep(resultTree);
 	});
 });
