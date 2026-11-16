@@ -3,8 +3,8 @@
  *
  * 覆盖：
  *  1) mysql（两层：连接 → 库 → 表）与 postgresql（三层：连接 → 库 → schema → 表）两条树路径，
- *     表行的表名单独占左列（.dbt-treename），中文注释右对齐成独立块（.dbt-treecomment），
- *     两者之间有竖向隔断（.dbt-treesep），不再以「 · 注释」拼进名称；
+ *     表行的表名占左列且贴合内容（.dbt-treename.dbt-treename-fit），中文注释为紧跟其后的
+ *     独立块（.dbt-treecomment），两者之间有竖向隔断（.dbt-treesep），不再以「 · 注释」拼进名称；
  *  2) 无注释的表行没有隔断与注释块；
  *  3) 普通表不挂「 · TABLE」类型后缀（大小写不敏感判定），视图等非普通表仍显示类型；
  *  4) 库内搜表结果行与树表行同一布局契约。
@@ -198,6 +198,7 @@ describe('数据浏览对象树：表行注释布局（左表名、右注释、�
 		);
 		const users = rowParts(tree, 'users');
 		expect(flatText(users.name)).toBe('users'); // 表名单独占左列，不再拼接注释
+		expect(users.name.props.className).toContain('dbt-treename-fit'); // 名称列贴合内容：隔断与注释紧跟表名
 		expect(users.sep, 'users 行缺竖向隔断').toBeTruthy();
 		expect(flatText(users.comment)).toBe('用户表'); // 注释为右列独立块
 		expect(users.comment!.props.title).toBe('用户表'); // 截断时悬停可读全文

@@ -703,9 +703,10 @@ window.__ModuleLoader__.load({
 				".dbt-chev.open{transform:rotate(90deg);}",
 				".dbt-chev.leaf{visibility:hidden;}",
 				".dbt-treename{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
-				// 表行注释块：表名占左、中文注释右对齐，中间以竖向隔断线分开（避免连成一串）
+				// 表行注释块：表名左、中文注释紧跟其后，中间以竖向隔断线分开（隔断是名称与注释之间的界线，避免连成一串）
+				".dbt-treename-fit{flex:0 1 auto;}",
 				".dbt-treesep{flex:none;width:1px;align-self:stretch;margin:5px 0;background:var(--dbt-separator);}",
-				".dbt-treecomment{flex:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dbt-text-secondary);font-size:11px;font-weight:400;}",
+				".dbt-treecomment{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dbt-text-secondary);font-size:11px;font-weight:400;}",
 				/* ===== Navicat 式浏览（内嵌面板，纵向流式）：工具栏 → 对象树 → 面包屑 → 分段 → 内容 → 分页 → 详情栏 ===== */
 				".dbt-browse-body{display:flex;flex-direction:column;gap:10px;min-height:0;}",
 				// 顶部工具条：连接/库筛选 + 表名搜索（原树内内嵌行上提，树只负责导航）
@@ -2142,7 +2143,8 @@ window.__ModuleLoader__.load({
 				}
 			}
 			// 树行：chevron（▸ 展开旋转 90°）+ 名称 + 可选右侧标注；交互行为 treeitem（roving tabindex 见上）
-			function treerow(key, level, isOpen, leaf, label, onClick, active, extra) {
+			// nameFit：表行名称列贴合内容（flex:0 1 auto），使隔断与注释紧跟表名而非被推到行右端
+			function treerow(key, level, isOpen, leaf, label, onClick, active, extra, nameFit) {
 				if (onClick) liveKeys.add(key);
 				return React.createElement(
 					"div",
@@ -2163,11 +2165,11 @@ window.__ModuleLoader__.load({
 						style: { paddingLeft: 12 + level * 16 },
 					},
 					React.createElement("span", { className: "dbt-chev" + (isOpen ? " open" : "") + (leaf ? " leaf" : "") }, "▶"),
-					React.createElement("span", { className: "dbt-treename" }, label),
+					React.createElement("span", { className: "dbt-treename" + (nameFit ? " dbt-treename-fit" : "") }, label),
 					extra || null,
 				);
 			}
-			// 表行右侧注释：竖向隔断 + 右对齐灰色小字注释（表名与注释分列两侧，不再以「 · 」拼进名称）
+			// 表行注释块：竖向隔断 + 灰色小字注释（表名与注释相邻分列，隔断居间；不再以「 · 」拼进名称）
 			const tableCommentExtra = (comment) => [
 				React.createElement("span", { className: "dbt-treesep", "aria-hidden": "true", key: "sep" }),
 				React.createElement("span", { className: "dbt-treecomment", key: "text", title: comment }, comment),
@@ -2197,7 +2199,7 @@ window.__ModuleLoader__.load({
 							treeRows.push(treerow("sr:" + c.id + "/" + h.database + "/" + (h.schema ? h.schema + "." : "") + h.name, 1, false, true,
 								h.database + "." + h.name,
 								(e) => onSelect({ connId: c.id, db: h.database, schemaName: h.schema, table: { name: h.name, type: h.type } }, e.currentTarget), active,
-								h.comment ? tableCommentExtra(h.comment) : null));
+								h.comment ? tableCommentExtra(h.comment) : null, true));
 						}
 					}
 					continue;
@@ -2232,7 +2234,7 @@ window.__ModuleLoader__.load({
 								treeRows.push(treerow("t:" + sk + "/" + tb.name, 3, false, true,
 									tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : ""),
 									(e) => onSelect({ connId: c.id, db: d, schemaName: s, table: tb }, e.currentTarget), active,
-									tb.comment ? tableCommentExtra(tb.comment) : null));
+									tb.comment ? tableCommentExtra(tb.comment) : null, true));
 							}
 						}
 						continue;
@@ -2245,7 +2247,7 @@ window.__ModuleLoader__.load({
 						treeRows.push(treerow("t:" + c.id + "/" + d + "/" + tb.name, 2, false, true,
 							tb.name + (tb.type && tb.type.toLowerCase() !== "table" ? " · " + tb.type : ""),
 							(e) => onSelect({ connId: c.id, db: d, table: tb }, e.currentTarget), active,
-							tb.comment ? tableCommentExtra(tb.comment) : null));
+							tb.comment ? tableCommentExtra(tb.comment) : null, true));
 					}
 				}
 			}
