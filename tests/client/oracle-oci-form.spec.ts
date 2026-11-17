@@ -287,10 +287,12 @@ describe('4 URL 方式切回分字段：oracle 专有参数反解不丢', () => 
 		// 提交带出（同一状态槽里点「测试」，走真实 draftBody 路径）
 		fetchCalls.length = 0;
 		const testBtn = collect(fields).find((n) => n.type === 'button' && flatText(n) === probe.t('test'));
-		await testBtn.props.onClick();
+		expect(testBtn, '未找到「测试」按钮').toBeDefined();
+		await testBtn!.props.onClick();
 		const call = fetchCalls.find((c) => String(c.url).includes('test-draft'));
-		expect(call.body.fields.serviceType).toBe('sid');
-		expect(call.body.fields.ociLibDir).toBe('/opt/ic');
+		expect(call, '未发出 test-draft 请求').toBeDefined();
+		expect(call!.body.fields.serviceType).toBe('sid');
+		expect(call!.body.fields.ociLibDir).toBe('/opt/ic');
 	});
 
 	it('URL 无 oracle 专有参数 → 切分字段回落默认（service/Thin），不发键', async () => {
