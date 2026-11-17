@@ -1,5 +1,11 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+### 修复
+
+- **Oracle OCI 库路径粘贴容错**：`fields.ociLibDir` / URL `?ociLibDir=` 在原样保留用户输入的基础上做归一化——去掉成对包裹引号（Windows 资源管理器「复制文件地址」给出的 `"C:\instantclient_19_19"`）、指向库文件（`oci.dll` / `libclntsh.so` 等，按扩展名识别）时改取其所在目录。此前带引号或文件路径直传 `initOracleClient` 的 `libDir`（目录语义）会 DPI-1047「无法加载 OCI 库」，与真正的库损坏难以区分；归一化在适配器连接参数解析单点完成（fields 与 URL 同口径，纯字符串处理不碰文件系统），无法定位目录的裸文件名原样保留交由驱动报错。连接测试仍失败的排查顺序不变：路径是否正确 → 库位数与宿主是否一致 → 客户端版本是否兼容服务器版本（老服务器建议 Instant Client 19c，可连 11.2 及更老；21c/23ai 仅支持 12.1+）。
+
 ## 1.9.15
 
 本版是「Oracle 连接修复」：修掉 oracledb Thin 模式连老服务器报 NJS-138 无法建连的问题——新增 Oracle Instant Client（OCI）库路径入口启用 Thick 模式（即 Navicat 的连接路径），并把新建连接的 Oracle 连接标识对齐 Navicat（服务名 / SID 下拉）。

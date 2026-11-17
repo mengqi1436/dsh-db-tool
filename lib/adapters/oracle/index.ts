@@ -22,6 +22,7 @@
  *  - 标识符默认大写存储：listTables/describeTable 内部统一 toUpperCase 匹配。
  *  - 锁号/密码验证器等常见连接错误转人类可读提示（见 ORA_HINTS）。
  */
+import * as path from 'node:path';
 import oracledb from 'oracledb';
 import { sqlHead, SQL_READ_HEADS } from '../../guard/index.js';
 import { validPort } from '../sql-shared/common.js';
@@ -144,6 +145,34 @@ function optStr(v: unknown): string | undefined {
   return s === '' ? undefined : s;
 }
 
+/**
+ * OCI 库路径归一化（纯字符串处理，不碰文件系统）：
+ *  - 去掉成对包裹引号：Windows 资源管理器「复制文件地址」给出 `"C:\instantclient_19_19"`，
+ *    带引号路径传给 initOracleClient 会 DPI-1047；
+ *  - 指向库文件（oci.dll / libclntsh.so 等）时改取其所在目录：initOracleClient 的
+ *    libDir 语义是目录，直接粘 oci.dll 文件路径是常见误解。
+ * 纯串判定文件：文件名以 .dll/.dylib 结尾或形如 *.so(.N)（版本化 soname），含 `\` 用 win32 规则解析、否则 posix。
+ */
+export function normalizeOciLibDir(raw: string): string {
+  let s = raw.trim();
+  const head = s[0] ?? '';
+  const q = s.length >= 2 && (head === '"' || head === "'") && s.endsWith(head) ? head : '';
+  if (q !== '') s = s.slice(1, -1).trim();
+  if (s === '') return raw.trim();
+  const p = s.includes('\\') ? path.win32 : path.posix;
+  const base = p.basename(s).toLowerCase();
+  const isLibFile = base.endsWith('.dll') || base.endsWith('.dylib') || /\.so(\.\d+)*$/.test(base);
+  if (!isLibFile) return s;
+  const dir = p.dirname(s);
+  return dir === '' || dir === '.' ? s : dir;
+}
+
+/** OCI 库路径入口：optStr 之后过 normalizeOciLibDir（fields 与 URL 同口径） */
+function ociLibDirOf(v: unknown): string | undefined {
+  const s = optStr(v);
+  return s === undefined ? undefined : normalizeOciLibDir(s);
+}
+
 /** SID 校验（fail-closed）：SID 会被拼进 TNS 描述符 CONNECT_DATA=(SID=…)，
  *  `()` `=` 引号与空白会破坏描述符结构，白名单字符集覆盖合法 SID（字母/数字/_ $ # -）。
  *  服务名走 EZConnect 拼接不受此限（现状行为不变）。 */
@@ -184,7 +213,7 @@ export function resolveOracleConn(conn: ResolvedConnection): ResolvedOraConn {
     }
     const port = u.port ? validPort(u.port, 1521, 'oracle') : 1521;
     const serviceType = parseServiceType(u.searchParams.get('serviceType'), 'URL');
-    const ociLibDir = optStr(u.searchParams.get('ociLibDir'));
+    const ociLibDir = ociLibDirOf(u.searchParams.get('ociLibDir'));
     const host = u.hostname;
     const ident = serviceType === 'sid' ? assertOraSid(service) : service;
     return {
@@ -212,7 +241,7 @@ export function resolveOracleConn(conn: ResolvedConnection): ResolvedOraConn {
   }
   const serviceType = parseServiceType(f.serviceType, '');
   const ident = serviceType === 'sid' ? assertOraSid(service.trim()) : service;
-  const ociLibDir = optStr(f.ociLibDir);
+  const ociLibDir = ociLibDirOf(f.ociLibDir);
   return {
     user,
     password: typeof f.password === 'string' ? f.password : '',
