@@ -562,6 +562,21 @@ window.__ModuleLoader__.load({
 		const TAB_ID = "dsh-db-tool";
 		const API = "/dsh-db-tool/api";
 		const DB_KINDS = ["mysql", "postgresql", "gaussdb", "sqlite", "redis", "mongodb", "oracle", "dmdb", "sqlserver"];
+		// kind 展示名：PostgreSQL 全称在窄侧栏里挤压卡片名与下拉宽度，展示统一用简称 PG；
+		// 数据层 kind 值不变，仅展示层映射（未列出的 kind 原样展示，本就足够短）
+		const KIND_SHORT = { postgresql: "PG" };
+		const kindLabel = (kind) => KIND_SHORT[kind] || kind;
+		// 连接按数据库类型分组：组序固定按 DB_KINDS（同类相邻、列表稳定），组内保持既有顺序；
+		// DB_KINDS 之外的 kind（历史数据兜底）追加在末尾；空组直接滤掉不渲染
+		function groupByKind(conns) {
+			const map = new Map();
+			for (const k of DB_KINDS) map.set(k, []);
+			for (const c of conns) {
+				if (!map.has(c.kind)) map.set(c.kind, []);
+				map.get(c.kind).push(c);
+			}
+			return [...map.entries()].filter(([, list]) => list.length > 0);
+		}
 		const PAGE_SIZE = 50; // 契约：preview limit≤50 服务端强制
 
 		// --- HTTP 封装：保留 code / challengeId 供确认通道使用 ---
@@ -723,6 +738,11 @@ window.__ModuleLoader__.load({
 				// 地址副行单行省略 + title 全文（对齐表注释 treecomment 的展示语言）：多行 break-all 会读作表单字段
 				".dbt-conncard-sub{color:var(--dbt-text-secondary);font-family:var(--dbt-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
 				".dbt-conncard-actions{display:flex;gap:8px;margin-top:auto;}",
+				"/* ===== 按数据库类型分组的小节 ===== */",
+				".dbt-kindgroup{display:flex;flex-direction:column;gap:8px;}",
+				".dbt-kindgroup-head{display:flex;gap:6px;align-items:center;}",
+				".dbt-kindgroup-title{display:inline-flex;align-items:center;gap:4px;font-family:var(--dbt-mono);font-size:var(--dbt-caption,11px);font-weight:600;color:var(--dbt-text-secondary);}",
+				".dbt-kindgroup-count{font-family:var(--dbt-mono);font-size:var(--dbt-caption-xs,10px);color:var(--dbt-text-secondary);background:var(--dbt-surface-strong);border-radius:999px;padding:1px 6px;line-height:1.4;}",
 				// 连通状态圆点：装饰性冗余编码（文字状态才是读屏事实源，aria-hidden）；
 				// 灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败，语义色与 DESIGN 约定一致
 				".dbt-statusdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--dbt-surface-strong);box-sizing:border-box;}",
@@ -891,7 +911,7 @@ window.__ModuleLoader__.load({
 						"div",
 						{ className: "dbt-row" },
 						React.createElement("strong", { style: { fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, target.conn),
-						target.kind ? React.createElement("span", { className: "dbt-muted" }, target.kind) : null,
+						target.kind ? React.createElement("span", { className: "dbt-muted" }, kindLabel(target.kind)) : null,
 						target.db ? React.createElement("span", { className: "dbt-muted" }, target.db) : null,
 						modeBadge,
 					) : null,
@@ -1621,7 +1641,7 @@ window.__ModuleLoader__.load({
 					"div",
 					{ className: "dbt-row" },
 					React.createElement("select", { value: form.kind, "aria-label": t("fieldKind"), onChange: (e) => switchKind(e.target.value) },
-						DB_KINDS.map((k) => React.createElement("option", { key: k, value: k }, k))),
+						DB_KINDS.map((k) => React.createElement("option", { key: k, value: k }, kindLabel(k)))),
 					React.createElement("input", { placeholder: t("connName"), "aria-label": t("connName"), value: form.name, onChange: (e) => patch({ name: e.target.value }) }),
 					React.createElement("input", { placeholder: idLabel, "aria-label": idLabel, value: form.id, disabled: !!props.initial, onChange: (e) => patch({ id: e.target.value }) }),
 					React.createElement("label", { className: "dbt-row", style: { flex: "none" } },
@@ -1823,7 +1843,7 @@ window.__ModuleLoader__.load({
 			async function delConn(c) {
 				// 删除确认走全局 DangerDialog（askConfirm 通道），与危险 SQL 确认同一对话框与键盘契约；
 				// window.confirm 已移除（原生弹窗无 aria/焦点管理，且样式割裂）
-				const desc = c.safeUrl || [c.kind, c.host ? c.host + (c.port ? ":" + c.port : "") : ""].filter(Boolean).join(" · ") || c.id;
+				const desc = c.safeUrl || [kindLabel(c.kind), c.host ? c.host + (c.port ? ":" + c.port : "") : ""].filter(Boolean).join(" · ") || c.id;
 				const yes = await props.askConfirm({
 					title: t("deleteConnTitle"),
 					statement: desc,
@@ -1943,11 +1963,20 @@ window.__ModuleLoader__.load({
 							React.createElement("div", { className: "dbt-muted" }, t("noConnsGuide")),
 							React.createElement("button", { className: "dbt-btn primary", ...focusRingProps(), onClick: () => setEditing("new") }, t("addConn")),
 						)
-					: // 卡片网格：auto-fill + minmax 让列数与卡片大小随侧栏宽度自适应（窄栏 1 列、宽栏多列）
+					: // 按数据库类型分组的小节：节头（类型简称 + 数量）+ 既有卡片网格（auto-fill + minmax 自适应不变）
+					groupByKind(conns).map(([kind, list]) => React.createElement(
+						"div",
+						{ className: "dbt-kindgroup", key: kind },
+						React.createElement(
+							"div",
+							{ className: "dbt-kindgroup-head" },
+							React.createElement("span", { className: "dbt-kindgroup-title" }, icon(12), kindLabel(kind)),
+							React.createElement("span", { className: "dbt-kindgroup-count" }, String(list.length)),
+						),
 						React.createElement(
 						"div",
 						{ className: "dbt-conncards" },
-						conns.map((c) => {
+						list.map((c) => {
 							const info = testInfo[c.id];
 							return React.createElement(
 								"div",
@@ -1956,7 +1985,7 @@ window.__ModuleLoader__.load({
 								React.createElement(
 									"div",
 									{ className: "dbt-conncard-head" },
-									React.createElement("span", { className: "dbt-kindchip", style: { color: "var(--dbt-text-secondary, rgba(235,235,245,.6))", fontFamily: MONO_FONT } }, icon(12), c.kind),
+									React.createElement("span", { className: "dbt-kindchip", style: { color: "var(--dbt-text-secondary, rgba(235,235,245,.6))", fontFamily: MONO_FONT } }, icon(12), kindLabel(c.kind)),
 									React.createElement("strong", { className: "dbt-conncard-name" }, c.name || c.id),
 									// 连通状态圆点：灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败；
 									// 装饰性冗余编码（aria-hidden），语义由下方文字承担
@@ -1981,6 +2010,7 @@ window.__ModuleLoader__.load({
 							);
 						}),
 					),
+					)),
 				auditOpen
 					? React.createElement(
 						"div",
@@ -2059,7 +2089,7 @@ window.__ModuleLoader__.load({
 								React.createElement(
 									"div",
 									{ className: "dbt-row", style: { flex: 1, minWidth: 0 } },
-									React.createElement("span", { className: "dbt-kindchip", style: { fontFamily: MONO_FONT } }, c.kind),
+									React.createElement("span", { className: "dbt-kindchip", style: { fontFamily: MONO_FONT } }, kindLabel(c.kind)),
 									React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
 									modeBadge(m),
 								),
@@ -2313,7 +2343,7 @@ window.__ModuleLoader__.load({
 				const ck = "c:" + c.id;
 				const isOpen = !!open[ck];
 				treeRows.push(treerow(ck, 0, isOpen, false, c.name || c.id, () => toggleConn(c), false,
-					React.createElement("span", { className: "dbt-muted", style: { flex: "none", fontSize: 11 } }, c.kind)));
+					React.createElement("span", { className: "dbt-muted", style: { flex: "none", fontSize: 11 } }, kindLabel(c.kind))));
 				if (!isOpen) continue;
 				const list = dbs[c.id];
 				if (loading[ck]) { treeRows.push(treerow(ck + ":l", 1, false, true, "…")); continue; }
@@ -3304,7 +3334,7 @@ window.__ModuleLoader__.load({
 							conns.map((c) => {
 								const g = (grants || []).find((x) => x.connId === c.id);
 								const suffix = g && g.mode ? " · " + g.mode : "";
-								return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + suffix + ")");
+								return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + kindLabel(c.kind) + suffix + ")");
 							})),
 						dbsErr && connId ? React.createElement("span", { className: "dbt-err", role: "alert" },
 							t("trxLoadDbsFail") + "：" + dbsErr + " ",
@@ -3737,7 +3767,7 @@ window.__ModuleLoader__.load({
 				conns.map((c) => {
 					const g = (props.grants || []).find((x) => x.connId === c.id);
 					const suffix = g && g.mode ? " · " + g.mode : "";
-					return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + c.kind + suffix + ")");
+					return React.createElement("option", { key: c.id, value: c.id }, (c.name || c.id) + " (" + kindLabel(c.kind) + suffix + ")");
 				}));
 			// 摘要条层级描述：pg 系「库名.模式名」，其余库层显库名，无层级/未选库显示默认库
 			const scopeText = (conn, db, schema) => {
@@ -4091,13 +4121,10 @@ window.__ModuleLoader__.load({
 				reload().catch((e) => setError(String(e && e.message ? e.message : e)));
 			}, [visible, reload]);
 
-			// 版本号只请求一次（成功或失败都算尝试过）：失败就静默不显示，不在每次切回面板时重试，
-			// 避免把一个纯展示信息变成后台反复失败请求。用 ref 而非 state 记「已尝试」，
-			// 否则 setPluginVer 触发重渲染又会把 effect 拉起来。
-			const verTriedRef = React.useRef(false);
+			// 版本号在每次面板转为可见时拉取：插件在宿主里更新后，切回面板即看到新版本号，无需整页刷新。
+			// 失败静默保留现值（首拉失败则不显示）：纯展示信息，不污染面板错误条，也不在后台反复重试。
 			React.useEffect(() => {
-				if (!visible || verTriedRef.current) return;
-				verTriedRef.current = true;
+				if (!visible) return;
 				api("version")
 					.then((r) => setPluginVer(r && typeof r.version === "string" ? r.version : ""))
 					.catch(() => { /* 拿不到就不显示版本，不影响面板 */ });
@@ -4367,6 +4394,7 @@ window.__ModuleLoader__.load({
 			Panel, TransferView, TransferLogView,
 			urlToFieldsPatch,
 			ConnForm, buildEditForm, EMPTY_FORM,
+			kindLabel, groupByKind,
 			ManageView, GrantsView,
 			BrowseTree, BrowsePane, PreviewGrid,
 		};
