@@ -27,6 +27,12 @@
 - 画布底色四角采样：暗组 `21,21,23`（= `#151517`）、亮组 `255,255,255`（= `#ffffff`），与宿主 token 解析值逐字节一致。
 - 与底色亮度差 > 60 的文字像素占比 2.03%–4.78%（全部 > 0，无「整图发黑」）。
 
+## 一键测试提示（第三轮，按反馈「成功太长 / 失败不准确」优化）
+
+- 成功提示压缩：`✓ 连接成功 · PostgreSQL 17.11`（此前 `version()` 完整编译信息 110+ 字符）；GaussDB 取 `GaussDB Kernel` 内核版本，Oracle/DM banner 压缩为 `Oracle Database 19c` / `DM V8.1.2.128`。
+- 失败提示按错误码翻译：`✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）`。映射范围（mysql/pg 系/mongo/redis/sqlite 驱动原文直出库）分层：网络层特征 → 各库错误码/消息 → 通用 TLS/证书；无把握保留原驱动文案。SQL Server/Oracle/达梦适配器层已有按错误码整形的中文文案，不二次解读（`tests/e2e-mock/sqlserver.spec.ts` 错误回显契约保持原样通过）。
+- 实现：`lib/adapters/connect-feedback.ts`（`conciseServerInfo` + `friendlyConnectError`），`manager.testConnection`/`testDraft` 两条测试路径接入；query/execute 工具链路不变。单测 `tests/adapters-sql/connect-feedback.spec.ts`。
+
 ## 主题语言
 
 样式全部走既有 `--dbt-*` token（表面/圆角/语义色/等宽字体），深浅主题由既有 `prefers-color-scheme` 媒体查询统一反转，未引入新配色源；状态圆点四态：灰=未测试、黄闪=测试中（`dbt-pulse`，`prefers-reduced-motion` 全局关闭）、绿=成功、红=失败。

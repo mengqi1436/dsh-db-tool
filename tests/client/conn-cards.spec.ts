@@ -308,11 +308,11 @@ describe('3 一键测试行为', () => {
 		expect(flatText(summary!)).toContain('0 个失败');
 	});
 
-	it('部分失败：失败卡亮红点并报连接失败，汇总行红色含失败计数', async () => {
+	it('部分失败：失败卡亮红点并显示服务端错误提示，汇总行红色含失败计数', async () => {
 		fetchCalls.length = 0;
 		respondersReset();
 		respondersUse((u) => (u.includes('/connections/c-my/test')
-			? { ok: true, data: { ok: false, error: 'ECONNREFUSED' } }
+			? { ok: true, data: { ok: false, error: '连接被拒绝：127.0.0.1:3306 无服务在监听（ECONNREFUSED）' } }
 			: { ok: true, data: { ok: true, serverInfo: 'PG 17.11' } }));
 		const props = manageProps();
 		const pane = reactStub.render(T.ManageView, props);
@@ -325,18 +325,30 @@ describe('3 一键测试行为', () => {
 		expect(states.filter((s) => s.includes('ok')).length).toBe(2);
 		expect(states.filter((s) => s.includes('fail')).length).toBe(1);
 		const text = flatText(mid);
-		expect(text).toContain('连接失败');
+		expect(text).toContain('无服务在监听'); // 服务端映射后的准确提示原样展示
 		const summary = collect(mid).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-err') && flatText(e).includes('一键测试完成'));
 		expect(summary, '失败时缺少红色汇总').toBeTruthy();
 		expect(flatText(summary!)).toContain('2 个成功');
 		expect(flatText(summary!)).toContain('1 个失败');
 	});
 
+	it('ok:false 无 error 时回退本地「连接失败」文案', async () => {
+		fetchCalls.length = 0;
+		respondersReset();
+		respondersUse(() => ({ ok: true, data: { ok: false } }));
+		const props = manageProps();
+		const pane = reactStub.render(T.ManageView, props);
+		buttons(pane).find((b) => flatText(b) === '一键测试')!.props.onClick();
+		await flushAsync();
+		const mid = reactStub.rerender(T.ManageView, props);
+		expect(flatText(mid)).toContain('连接失败');
+	});
+
 	it('单卡测试：请求对应连接，结果只更新本卡状态（不波及他卡）', async () => {
 		fetchCalls.length = 0;
 		respondersReset();
 		respondersUse((u) => (u.includes('/connections/c-rd/test')
-			? { ok: true, data: { ok: false, error: 'timeout' } }
+			? { ok: true, data: { ok: false, error: '主机名无法解析：db.invalid（ENOTFOUND）' } }
 			: { ok: true, data: { ok: true, serverInfo: 'PG 17.11' } }));
 		const props = manageProps();
 		const pane = reactStub.render(T.ManageView, props);
@@ -349,6 +361,6 @@ describe('3 一键测试行为', () => {
 		const dots = byClass(after, 'dbt-statusdot');
 		expect(String(dots[0]!.props.className)).not.toContain('ok'); // 前两卡未被波及
 		expect(String(dots[2]!.props.className)).toContain('fail');
-		expect(flatText(after)).toContain('连接失败');
+		expect(flatText(after)).toContain('无法解析');
 	});
 });

@@ -195,7 +195,7 @@
       {
         "name": "样本 PG 库",
         "dot": "dbt-statusdot ok",
-        "statusText": "✓ 连接成功 · PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg26.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit"
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
       },
       {
         "name": "本地 SQLite",
@@ -205,12 +205,12 @@
       {
         "name": "订单 MySQL",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: mysql 连接测试: connect ECONNREFUSED 127.0.0.1:3306"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       },
       {
         "name": "缓存 Redis",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: Redis 连接失败（redis://127.0.0.1:6399/0）：connect ECONNREFUSED 127.0.0.1:6399"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       }
     ]
   },
@@ -410,7 +410,7 @@
       {
         "name": "样本 PG 库",
         "dot": "dbt-statusdot ok",
-        "statusText": "✓ 连接成功 · PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg26.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit"
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
       },
       {
         "name": "本地 SQLite",
@@ -420,12 +420,12 @@
       {
         "name": "订单 MySQL",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: mysql 连接测试: connect ECONNREFUSED 127.0.0.1:3306"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       },
       {
         "name": "缓存 Redis",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: Redis 连接失败（redis://127.0.0.1:6399/0）：connect ECONNREFUSED 127.0.0.1:6399"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       }
     ]
   },
@@ -625,7 +625,7 @@
       {
         "name": "样本 PG 库",
         "dot": "dbt-statusdot ok",
-        "statusText": "✓ 连接成功 · PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg26.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit"
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
       },
       {
         "name": "本地 SQLite",
@@ -635,12 +635,12 @@
       {
         "name": "订单 MySQL",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: mysql 连接测试: connect ECONNREFUSED 127.0.0.1:3306"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       },
       {
         "name": "缓存 Redis",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: Redis 连接失败（redis://127.0.0.1:6399/0）：connect ECONNREFUSED 127.0.0.1:6399"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       }
     ]
   },
@@ -840,7 +840,7 @@
       {
         "name": "样本 PG 库",
         "dot": "dbt-statusdot ok",
-        "statusText": "✓ 连接成功 · PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg26.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit"
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
       },
       {
         "name": "本地 SQLite",
@@ -850,12 +850,12 @@
       {
         "name": "订单 MySQL",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: mysql 连接测试: connect ECONNREFUSED 127.0.0.1:3306"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       },
       {
         "name": "缓存 Redis",
         "dot": "dbt-statusdot fail",
-        "statusText": "✗ 连接失败: Redis 连接失败（redis://127.0.0.1:6399/0）：connect ECONNREFUSED 127.0.0.1:6399"
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
       }
     ]
   }

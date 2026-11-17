@@ -19,6 +19,7 @@
 import oracledb from 'oracledb';
 import { sqlHead, SQL_READ_HEADS } from '../../guard/index.js';
 import { validPort } from '../sql-shared/common.js';
+import { conciseServerInfo } from '../connect-feedback.js';
 import type {
   AccessMode,
   AdapterFactory,
@@ -288,7 +289,7 @@ export async function createOracleAdapter(
         const r = await withConn((c) => c.execute('SELECT banner FROM v$version WHERE ROWNUM = 1', [], execOpts));
         const row = (r.rows as Record<string, unknown>[] | undefined)?.[0];
         const banner = row ? String(Object.values(row)[0] ?? '') : '';
-        return { ok: true, serverInfo: banner };
+        return { ok: true, serverInfo: conciseServerInfo('oracle', banner) };
       } catch {
         // v$version 在部分受限环境对普通用户不可读（ORA-00942/ORA-01031）：
         // 版本信息尽力而为，连通性本身用 dual 兜底判定，避免误报连接失败

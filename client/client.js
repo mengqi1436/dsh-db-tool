@@ -1708,17 +1708,20 @@ window.__ModuleLoader__.load({
 				});
 			}
 			// 单连接测试：返回是否连通；三态写入 testInfo（✓ 绿=成功 / ✗ 红=失败 / 测试中=中性）
+			// 失败文案以服务端映射的准确提示为准（按各库错误码归类），本地文案仅兜底
 			async function testOne(id) {
 				setTestInfo((prev) => Object.assign({}, prev, { [id]: { state: "testing", text: t("testing") } }));
 				try {
 					const r = await api("connections/" + encodeURIComponent(id) + "/test", { method: "POST", body: {} });
 					const ok = !!(r && r.ok);
 					setTestInfo((prev) => Object.assign({}, prev, {
-						[id]: { state: ok ? "ok" : "fail", text: ok ? "✓ " + t("testOk") + (r.serverInfo ? " · " + r.serverInfo : "") : "✗ " + t("testFail") },
+						[id]: ok
+							? { state: "ok", text: "✓ " + t("testOk") + (r.serverInfo ? " · " + r.serverInfo : "") }
+							: { state: "fail", text: "✗ " + (r && r.error ? r.error : t("testFail")) },
 					}));
 					return ok;
 				} catch (e) {
-					setTestInfo((prev) => Object.assign({}, prev, { [id]: { state: "fail", text: "✗ " + t("testFail") + ": " + e.message } }));
+					setTestInfo((prev) => Object.assign({}, prev, { [id]: { state: "fail", text: "✗ " + (e.message || t("testFail")) } }));
 					return false;
 				}
 			}
