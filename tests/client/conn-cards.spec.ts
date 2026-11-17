@@ -6,7 +6,9 @@
  *     （dbt-conncards / dbt-conncard），auto-fill + minmax 让列数与卡片大小随侧栏宽度自适应；
  *  2) 连通状态圆点：灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败，装饰性冗余编码（aria-hidden）；
  *  3) 一键测试：一次点击并发（上限 4）测完全部连接，每卡状态各自就位，结束后顶部给计数汇总；
- *  4) 授权视图不受影响：仍走 dbt-group/dbt-listrow 行式布局，dbt-kindchip 全仓仍只有两处。
+ *  4) 授权视图不受影响：仍走 dbt-group/dbt-listrow 行式布局，dbt-kindchip 全仓仍只有两处；
+ *  5) 连接卡片按数据库类型分组（dbt-kindgroup 小节，组序按 DB_KINDS、空组不渲染），
+ *     PostgreSQL 展示统一用简称 PG（kindLabel 映射，数据层 kind 值不变）。
  */
 import { describe, expect, it, beforeAll, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -185,7 +187,7 @@ describe('1 卡片网格样式（源码断言）', () => {
 		expect(sub![1]).toContain('text-overflow:ellipsis');
 		expect(sub![1]).not.toContain('word-break:break-all');
 		expect(src).toContain('title: c.safeUrl || (c.host + ":" + (c.port || ""))');
-		expect(src).toContain('icon(12), c.kind');
+		expect(src).toContain('icon(12), kindLabel(c.kind)');
 	});
 
 	it('连通状态圆点四态齐全（未测试灰 / 测试中黄闪 / 成功绿 / 失败红）', () => {
@@ -197,12 +199,50 @@ describe('1 卡片网格样式（源码断言）', () => {
 	});
 
 	it('连接管理改用卡片网格，不再渲染 inset grouped 行（dbt-group/listrow 留给授权等其他视图）', () => {
-		// 网格容器与卡片本体各出现一次（容器在 ManageView，卡片在 map 回调内）
+		// 网格容器与卡片本体各出现一次（容器在 ManageView 分组 map 内，卡片在 list.map 回调内）
 		expect((src.match(/className: "dbt-conncards"/g) ?? []).length).toBe(1);
 		expect((src.match(/className: "dbt-conncard", key: c\.id/g) ?? []).length).toBe(1);
 		// kind 胶囊全仓仍两处：连接卡片 + 授权行（既有契约不变）
 		const chips = src.match(/className: "dbt-kindchip"/g) ?? [];
 		expect(chips.length).toBe(2);
+	});
+
+	it('按数据库类型分组：分组小节样式落地，节头展示 kindLabel 映射后的简称', () => {
+		const group = /\.dbt-kindgroup\{([^}]*)\}/.exec(src);
+		expect(group, '缺少 .dbt-kindgroup 分组样式').toBeTruthy();
+		expect(group![1]).toContain('flex-direction:column');
+		const head = /\.dbt-kindgroup-head\{([^}]*)\}/.exec(src);
+		expect(head, '缺少 .dbt-kindgroup-head 节头样式').toBeTruthy();
+		expect(head![1]).toContain('align-items:center');
+		// 节头标题走 kindLabel（PG 简称映射），卡片胶囊同理；PG 简称映射单点定义
+		expect(src).toContain('kindLabel(kind)');
+		expect(src).toContain('kindLabel(c.kind)');
+		expect(src).toContain('const KIND_SHORT = { postgresql: "PG" }');
+	});
+});
+
+/* ---------- 1.5 kindLabel / groupByKind 纯函数 ---------- */
+
+describe('1.5 kindLabel 与 groupByKind（导出面契约）', () => {
+	it('kindLabel：postgresql → PG，其余 kind 原样返回', () => {
+		expect(T.kindLabel('postgresql')).toBe('PG');
+		expect(T.kindLabel('mysql')).toBe('mysql');
+		expect(T.kindLabel('sqlserver')).toBe('sqlserver');
+		expect(T.kindLabel('unknown-kind')).toBe('unknown-kind');
+	});
+
+	it('groupByKind：组序按 DB_KINDS 稳定排列，组内保持原顺序，未知 kind 追加末尾，空组滤掉', () => {
+		const groups: [string, any[]][] = T.groupByKind([
+			{ id: 'a', kind: 'redis' },
+			{ id: 'b', kind: 'mysql' },
+			{ id: 'c', kind: 'redis' },
+			{ id: 'd', kind: 'postgresql' },
+			{ id: 'e', kind: 'mysql' },
+			{ id: 'f', kind: 'legacy-kind' },
+		]);
+		expect(groups.map(([k]) => k)).toEqual(['mysql', 'postgresql', 'redis', 'legacy-kind']);
+		expect(groups.map(([, list]) => list.map((c: any) => c.id))).toEqual([['b', 'e'], ['d'], ['a', 'c'], ['f']]);
+		expect(T.groupByKind([])).toEqual([]);
 	});
 });
 
@@ -231,17 +271,25 @@ function renderManage(over: any = {}) {
 }
 
 describe('2 卡片渲染结构', () => {
-	it('每条连接渲染为独立卡片，容器是网格；卡片含 kind 胶囊/名称/副行/动作行', () => {
+	it('每条连接渲染为独立卡片；卡片按数据库类型分组，PG 显示简称', () => {
 		const pane = renderManage();
+		// 三种 kind（mysql/postgresql/redis）各成一组，组序按 DB_KINDS
+		const groups = byClass(pane, 'dbt-kindgroup');
+		expect(groups.length).toBe(3);
 		const grids = byClass(pane, 'dbt-conncards');
-		expect(grids.length).toBe(1);
+		expect(grids.length).toBe(3);
 		const cards = byClass(pane, 'dbt-conncard');
 		expect(cards.length).toBe(3);
 		const text = flatText(pane);
 		for (const c of conns) {
 			expect(text).toContain(c.name);
-			expect(text).toContain(c.kind);
+			expect(text).toContain(T.kindLabel(c.kind));
 		}
+		expect(text).toContain('PG'); // postgresql 简称
+		expect(text).not.toContain('postgresql');
+		// 节头：类型简称 + 数量
+		const heads = byClass(pane, 'dbt-kindgroup-head').map((h) => flatText(h));
+		expect(heads).toEqual(['mysql1', 'PG1', 'redis1']);
 		expect(text).toContain('postgres://u@10.0.0.8:5432/app');
 		expect(text).toContain('10.0.0.9:3306'); // fields 模式回退 host:port
 		// 每卡动作：测试/编辑/删除
