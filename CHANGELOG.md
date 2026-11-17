@@ -1,6 +1,6 @@
 # Changelog — dsh-db-tool
 
-## 未发布
+## 1.9.15
 
 本版是「Oracle 连接修复」：修掉 oracledb Thin 模式连老服务器报 NJS-138 无法建连的问题——新增 Oracle Instant Client（OCI）库路径入口启用 Thick 模式（即 Navicat 的连接路径），并把新建连接的 Oracle 连接标识对齐 Navicat（服务名 / SID 下拉）。
 
@@ -13,6 +13,7 @@
 
 - 新增 `tests/adapters-nosql-ent/oracle-conn-resolve.spec.ts`（21 条）：服务名行为不变、SID 描述符与 fail-closed 校验、ociLibDir 解析（fields/URL 同口径）、ensureOracleClient 幂等/冲突/thin-已建池拒绝、thick 失败不落状态可重试、NJS-138/DPI-1047/NJS-118 行动指引。
 - `tests/store/connections.spec.ts` 补 serviceType / ociLibDir 回填与垃圾值 fail-closed 用例；新增 `tests/client/oracle-oci-form.spec.ts`（10 条）锁「控件存在 + 提交带出 + 编辑回填」三件套与 kind 切换重置。
+
 ## 1.9.14
 
 本版是「数据传输外键依赖修复 + 结构随迁 + 连接管理卡片化」：目标端已有外键关系时，覆盖删除 / truncate 清空 / 装载不再因「有其他对象依赖它」或外键冲突而失败，与 Navicat 等工具的依赖排序行为对齐；二级索引、外键约束与自增列随数据一同迁移（对齐 Navicat 数据传输结构能力）。连接列表从整宽行式改为独立卡片网格，随侧边栏宽度自适应列数与卡片大小，并新增一键测试全部连接的连通状态。
