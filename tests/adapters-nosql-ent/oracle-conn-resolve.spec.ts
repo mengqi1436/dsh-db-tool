@@ -136,6 +136,37 @@ describe('resolveOracleConn：ociLibDir（Thick/OCI 模式入口）', () => {
     expect(r.connectString).toBe('db:1521/ORCLPDB1');
     expect(r.serviceType).toBe('service');
   });
+
+  it('fields：包裹引号剥离（Windows 复制文件地址给出带引号路径）', () => {
+    const r = resolveOracleConn(fieldsConn('a', { host: 'db', user: 'u', database: 'ORCL', ociLibDir: '"C:\\oracle\\instantclient_19_19"' }));
+    expect(r.ociLibDir).toBe('C:\\oracle\\instantclient_19_19');
+  });
+
+  it('fields：指向 oci.dll 文件路径 → 取所在目录（libDir 语义是目录）', () => {
+    const win = resolveOracleConn(fieldsConn('a', { host: 'db', user: 'u', database: 'ORCL', ociLibDir: 'C:\\oracle\\instantclient_19_19\\oci.dll' }));
+    expect(win.ociLibDir).toBe('C:\\oracle\\instantclient_19_19');
+    const posix = resolveOracleConn(fieldsConn('a', { host: 'db', user: 'u', database: 'ORCL', ociLibDir: '/opt/oracle/instantclient_19_19/libclntsh.so' }));
+    expect(posix.ociLibDir).toBe('/opt/oracle/instantclient_19_19');
+    const soname = resolveOracleConn(fieldsConn('a', { host: 'db', user: 'u', database: 'ORCL', ociLibDir: '/opt/ic/libclntsh.so.19.1' }));
+    expect(soname.ociLibDir).toBe('/opt/ic');
+  });
+
+  it('fields：引号 + 库文件组合（引号剥离后再取目录）；目录带点号扩展名误判不触发', () => {
+    const combo = resolveOracleConn(fieldsConn('a', { host: 'db', user: 'u', database: 'ORCL', ociLibDir: ' "C:\\ic\\oci.dll" ' }));
+    expect(combo.ociLibDir).toBe('C:\\ic');
+    const dotted = resolveOracleConn(fieldsConn('a', { host: 'db', user: 'u', database: 'ORCL', ociLibDir: '/opt/ic.19.3' }));
+    expect(dotted.ociLibDir).toBe('/opt/ic.19.3');
+  });
+
+  it('fields：裸 oci.dll 文件名（无法定位目录）原样保留交给驱动报 DPI-1047', () => {
+    const r = resolveOracleConn(fieldsConn('a', { host: 'db', user: 'u', database: 'ORCL', ociLibDir: 'oci.dll' }));
+    expect(r.ociLibDir).toBe('oci.dll');
+  });
+
+  it('URL：?ociLibDir= 带引号/库文件路径与 fields 同口径', () => {
+    const r = resolveOracleConn(mkConn('a', { url: 'oracle://u:p@db:1521/XE?ociLibDir=%22C%3A%5Coracle%5Cic%5Coci.dll%22' }));
+    expect(r.ociLibDir).toBe('C:\\oracle\\ic');
+  });
 });
 
 describe('ensureOracleClient：进程级守卫（thick 一次性、不可逆）', () => {

@@ -1,5 +1,17 @@
 # Changelog — dsh-db-tool
 
+## 1.9.17
+
+本版是「OCI 库路径粘贴容错」：修掉 OCI 库路径带成对包裹引号或直接指向库文件时 `initOracleClient` 报 DPI-1047「无法加载 OCI 库」的问题——粘贴输入在适配器连接参数解析单点归一化，不再与真正的库损坏难以区分。
+
+### 修复
+
+- **Oracle OCI 库路径粘贴容错**：`fields.ociLibDir` / URL `?ociLibDir=` 在原样保留用户输入的基础上做归一化——去掉成对包裹引号（Windows 资源管理器「复制文件地址」给出的 `"C:\instantclient_19_19"`）、指向库文件（`oci.dll` / `libclntsh.so` 等，按扩展名识别）时改取其所在目录。此前带引号或文件路径直传 `initOracleClient` 的 `libDir`（目录语义）会 DPI-1047「无法加载 OCI 库」，与真正的库损坏难以区分；归一化在适配器连接参数解析单点完成（fields 与 URL 同口径，纯字符串处理不碰文件系统），无法定位目录的裸文件名原样保留交由驱动报错。连接测试仍失败的排查顺序不变：路径是否正确 → 库位数与宿主是否一致 → 客户端版本是否兼容服务器版本（老服务器建议 Instant Client 19c，可连 11.2 及更老；21c/23ai 仅支持 12.1+）。
+
+### 测试
+
+- `tests/adapters-nosql-ent/oracle-conn-resolve.spec.ts` 新增 5 条归一化用例：fields 包裹引号剥离（Windows「复制文件地址」带引号路径）、指向 `oci.dll` 文件路径取所在目录、引号 + 库文件组合（目录带点号扩展名不误判）、裸 `oci.dll` 文件名原样保留交驱动报 DPI-1047、URL `?ociLibDir=` 与 fields 同口径。
+
 ## 1.9.16
 
 本版是「连接管理按数据库分类」：连接列表按数据库类型分组展示，PostgreSQL 界面展示统一改用简称 PG，并修掉插件更新后版本徽标不刷新的问题；同时补齐 1.9.15 发版漏改的 package-lock 版本号。
