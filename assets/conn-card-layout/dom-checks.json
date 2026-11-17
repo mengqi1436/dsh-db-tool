@@ -1,612 +1,4 @@
 {
-  "before-dark-500-initial": {
-    "container": "group",
-    "gridStyle": null,
-    "cards": [],
-    "rows": [
-      {
-        "geo": {
-          "x": 16,
-          "y": 156,
-          "w": 468,
-          "h": 66
-        },
-        "text": "postgresql样本 PG 库postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 222,
-          "w": 468,
-          "h": 66
-        },
-        "text": "sqlite本地 SQLitefile:///home/home/conn-card-shots/data/sample.db测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 287,
-          "w": 468,
-          "h": 50
-        },
-        "text": "mysql订单 MySQLmysql://root:***@127.0.0.1:3306/app测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 337,
-          "w": 468,
-          "h": 49
-        },
-        "text": "redis缓存 Redisredis://127.0.0.1:6399/0测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "postgresql样本 PG 库未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "sqlite本地 SQLite未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "mysql订单 MySQL未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "redis缓存 Redis未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "数据库对象已选 0 项"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "每批行数"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "表级并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "分片并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "覆盖已有表结构（删除重建，危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": ""
-      }
-    ],
-    "hostWidth": 500
-  },
-  "before-dark-760-initial": {
-    "container": "group",
-    "gridStyle": null,
-    "cards": [],
-    "rows": [
-      {
-        "geo": {
-          "x": 16,
-          "y": 156,
-          "w": 728,
-          "h": 50
-        },
-        "text": "postgresql样本 PG 库postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 206,
-          "w": 728,
-          "h": 50
-        },
-        "text": "sqlite本地 SQLitefile:///home/home/conn-card-shots/data/sample.db测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 256,
-          "w": 728,
-          "h": 50
-        },
-        "text": "mysql订单 MySQLmysql://root:***@127.0.0.1:3306/app测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 305,
-          "w": 728,
-          "h": 49
-        },
-        "text": "redis缓存 Redisredis://127.0.0.1:6399/0测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "postgresql样本 PG 库未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "sqlite本地 SQLite未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "mysql订单 MySQL未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "redis缓存 Redis未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "数据库对象已选 0 项"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "每批行数"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "表级并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "分片并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "覆盖已有表结构（删除重建，危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": ""
-      }
-    ],
-    "hostWidth": 760
-  },
-  "before-light-500-initial": {
-    "container": "group",
-    "gridStyle": null,
-    "cards": [],
-    "rows": [
-      {
-        "geo": {
-          "x": 16,
-          "y": 156,
-          "w": 468,
-          "h": 66
-        },
-        "text": "postgresql样本 PG 库postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 222,
-          "w": 468,
-          "h": 66
-        },
-        "text": "sqlite本地 SQLitefile:///home/home/conn-card-shots/data/sample.db测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 287,
-          "w": 468,
-          "h": 50
-        },
-        "text": "mysql订单 MySQLmysql://root:***@127.0.0.1:3306/app测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 337,
-          "w": 468,
-          "h": 49
-        },
-        "text": "redis缓存 Redisredis://127.0.0.1:6399/0测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "postgresql样本 PG 库未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "sqlite本地 SQLite未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "mysql订单 MySQL未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "redis缓存 Redis未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "数据库对象已选 0 项"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "每批行数"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "表级并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "分片并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "覆盖已有表结构（删除重建，危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": ""
-      }
-    ],
-    "hostWidth": 500
-  },
-  "before-light-760-initial": {
-    "container": "group",
-    "gridStyle": null,
-    "cards": [],
-    "rows": [
-      {
-        "geo": {
-          "x": 16,
-          "y": 156,
-          "w": 728,
-          "h": 50
-        },
-        "text": "postgresql样本 PG 库postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 206,
-          "w": 728,
-          "h": 50
-        },
-        "text": "sqlite本地 SQLitefile:///home/home/conn-card-shots/data/sample.db测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 256,
-          "w": 728,
-          "h": 50
-        },
-        "text": "mysql订单 MySQLmysql://root:***@127.0.0.1:3306/app测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 16,
-          "y": 305,
-          "w": 728,
-          "h": 49
-        },
-        "text": "redis缓存 Redisredis://127.0.0.1:6399/0测试编辑删除"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "postgresql样本 PG 库未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "sqlite本地 SQLite未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "mysql订单 MySQL未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "redis缓存 Redis未授权只读读写"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "数据库对象已选 0 项"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "每批行数"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "表级并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "分片并行"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": "覆盖已有表结构（删除重建，危险）"
-      },
-      {
-        "geo": {
-          "x": 0,
-          "y": 0,
-          "w": 0,
-          "h": 0
-        },
-        "text": ""
-      }
-    ],
-    "hostWidth": 760
-  },
   "after-dark-500-initial": {
     "container": "grid",
     "gridStyle": "230px 230px",
@@ -616,7 +8,7 @@
           "x": 16,
           "y": 156,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "样本 PG 库",
         "kind": "postgresql",
@@ -634,7 +26,7 @@
           "x": 254,
           "y": 156,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "本地 SQLite",
         "kind": "sqlite",
@@ -650,9 +42,9 @@
       {
         "geo": {
           "x": 16,
-          "y": 279,
+          "y": 265,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "订单 MySQL",
         "kind": "mysql",
@@ -668,9 +60,9 @@
       {
         "geo": {
           "x": 254,
-          "y": 279,
+          "y": 265,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "缓存 Redis",
         "kind": "redis",
@@ -831,7 +223,7 @@
           "x": 16,
           "y": 156,
           "w": 237,
-          "h": 115
+          "h": 101
         },
         "name": "样本 PG 库",
         "kind": "postgresql",
@@ -849,7 +241,7 @@
           "x": 261,
           "y": 156,
           "w": 237,
-          "h": 115
+          "h": 101
         },
         "name": "本地 SQLite",
         "kind": "sqlite",
@@ -867,7 +259,7 @@
           "x": 507,
           "y": 156,
           "w": 237,
-          "h": 115
+          "h": 101
         },
         "name": "订单 MySQL",
         "kind": "mysql",
@@ -883,9 +275,9 @@
       {
         "geo": {
           "x": 16,
-          "y": 279,
+          "y": 265,
           "w": 237,
-          "h": 99
+          "h": 101
         },
         "name": "缓存 Redis",
         "kind": "redis",
@@ -1046,7 +438,7 @@
           "x": 16,
           "y": 156,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "样本 PG 库",
         "kind": "postgresql",
@@ -1064,7 +456,7 @@
           "x": 254,
           "y": 156,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "本地 SQLite",
         "kind": "sqlite",
@@ -1080,9 +472,9 @@
       {
         "geo": {
           "x": 16,
-          "y": 279,
+          "y": 265,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "订单 MySQL",
         "kind": "mysql",
@@ -1098,9 +490,9 @@
       {
         "geo": {
           "x": 254,
-          "y": 279,
+          "y": 265,
           "w": 230,
-          "h": 115
+          "h": 101
         },
         "name": "缓存 Redis",
         "kind": "redis",
@@ -1261,7 +653,7 @@
           "x": 16,
           "y": 156,
           "w": 237,
-          "h": 115
+          "h": 101
         },
         "name": "样本 PG 库",
         "kind": "postgresql",
@@ -1279,7 +671,7 @@
           "x": 261,
           "y": 156,
           "w": 237,
-          "h": 115
+          "h": 101
         },
         "name": "本地 SQLite",
         "kind": "sqlite",
@@ -1297,7 +689,7 @@
           "x": 507,
           "y": 156,
           "w": 237,
-          "h": 115
+          "h": 101
         },
         "name": "订单 MySQL",
         "kind": "mysql",
@@ -1313,9 +705,9 @@
       {
         "geo": {
           "x": 16,
-          "y": 279,
+          "y": 265,
           "w": 237,
-          "h": 99
+          "h": 101
         },
         "name": "缓存 Redis",
         "kind": "redis",

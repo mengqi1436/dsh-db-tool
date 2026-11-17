@@ -6,7 +6,7 @@
 
 ### 新增
 
-- **「连接管理」卡片式自适应布局**：连接列表由 inset grouped 整宽行（`dbt-group`/`dbt-listrow`）改为独立卡片网格（`.dbt-conncards`/`.dbt-conncard`），`grid-template-columns:repeat(auto-fill,minmax(200px,1fr))` 让列数与卡片大小随右侧栏宽度自适应（窄栏 1–2 列、宽栏 3 列以上，卡片始终等分拉伸）。每卡含 kind 胶囊 + 名称主行 + 连接地址副行（safeUrl 已脱敏或 host:port）+ 动作行（测试/编辑/删除），样式全部走既有 `--dbt-*` token，深浅主题随既有 `prefers-color-scheme` 媒体查询统一反转；授权、传输等其他视图的行式布局不受影响。
+- **「连接管理」卡片式自适应布局**：连接列表由 inset grouped 整宽行（`dbt-group`/`dbt-listrow`）改为独立卡片网格（`.dbt-conncards`/`.dbt-conncard`），`grid-template-columns:repeat(auto-fill,minmax(200px,1fr))` 让列数与卡片大小随右侧栏宽度自适应（窄栏 1–2 列、宽栏 3 列以上，卡片始终等分拉伸）。每卡带 hairline 描边 + 独立表面，读作离散卡片对象：kind 胶囊内嵌数据库图标 + 名称主行 + 连接地址副行（safeUrl 已脱敏或 host:port，单行省略 `title` 悬停看全文）+ 动作行（测试/编辑/删除），样式全部走既有 `--dbt-*` token，深浅主题随既有 `prefers-color-scheme` 媒体查询统一反转；授权、传输等其他视图的行式布局不受影响。
 - **一键测试全部连接**：连接管理顶部新增「一键测试」按钮，一次点击并发（上限 4）测完全部连接（复用既有 `POST /connections/<id>/test`），每张卡片独立就位不互相阻塞；卡片头行新增连通状态圆点（灰=未测试、黄闪=测试中、绿=成功、红=失败，装饰性冗余编码 `aria-hidden`，语义文字 `role=status` 供读屏播报），测试中的卡片「测试」按钮禁用防重复，全部测完后顶部给出成功/失败计数汇总行。中英文案同步（`testAll`/`testAllDone`）。
 
 ### 测试

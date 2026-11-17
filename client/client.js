@@ -701,13 +701,15 @@ window.__ModuleLoader__.load({
 				".dbt-listrow:last-child{border-bottom:none;}",
 				// 连接管理卡片网格：auto-fill + minmax 让列数与卡片大小随侧栏宽度自适应
 				// （窄栏 1 列、宽栏多列，卡片始终等分拉伸）；样式全部走既有 --dbt-* token，
-				// 深/浅主题由 token 媒体查询统一反转，与 inset grouped 卡同一表面语言。
+				// 深/浅主题由 token 媒体查询统一反转。卡片带 hairline 描边 + 独立表面，
+				// 让每张连接读作一个离散卡片对象而非表单行。
 				"/* ===== 连接管理：卡片网格（auto-fill 随侧栏宽度自适应列数与卡片大小） ===== */",
 				".dbt-conncards{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--dbt-card-min,200px),1fr));gap:8px;}",
-				".dbt-conncard{background:var(--dbt-surface);border-radius:var(--dbt-radius-card);padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0;}",
+				".dbt-conncard{background:var(--dbt-surface);border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0;box-sizing:border-box;}",
 				".dbt-conncard-head{display:flex;gap:6px;align-items:center;min-width:0;}",
 				".dbt-conncard-name{flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
-				".dbt-conncard-sub{color:var(--dbt-text-secondary);font-family:var(--dbt-mono);font-size:11px;word-break:break-all;}",
+				// 地址副行单行省略 + title 全文（对齐表注释 treecomment 的展示语言）：多行 break-all 会读作表单字段
+				".dbt-conncard-sub{color:var(--dbt-text-secondary);font-family:var(--dbt-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
 				".dbt-conncard-actions{display:flex;gap:8px;margin-top:auto;}",
 				// 连通状态圆点：装饰性冗余编码（文字状态才是读屏事实源，aria-hidden）；
 				// 灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败，语义色与 DESIGN 约定一致
@@ -1880,20 +1882,20 @@ window.__ModuleLoader__.load({
 							return React.createElement(
 								"div",
 								{ className: "dbt-conncard", key: c.id },
-								// 头行：kind 胶囊（技术元数据降次级色）+ 名称主行 + 连通状态圆点
+								// 头行：kind 胶囊（带数据库图标，视觉标识更卡片化）+ 名称主行 + 连通状态圆点
 								React.createElement(
 									"div",
 									{ className: "dbt-conncard-head" },
-									React.createElement("span", { className: "dbt-kindchip", style: { color: "var(--dbt-text-secondary, rgba(235,235,245,.6))", fontFamily: MONO_FONT } }, c.kind),
+									React.createElement("span", { className: "dbt-kindchip", style: { color: "var(--dbt-text-secondary, rgba(235,235,245,.6))", fontFamily: MONO_FONT } }, icon(12), c.kind),
 									React.createElement("strong", { className: "dbt-conncard-name" }, c.name || c.id),
 									// 连通状态圆点：灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败；
 									// 装饰性冗余编码（aria-hidden），语义由下方文字承担
 									React.createElement("span", { className: "dbt-statusdot" + (info && info.state ? " " + info.state : ""), "aria-hidden": "true" }),
 								),
-								// 副行：safeUrl（已脱敏）或 host:port，等宽字体 + 断词换行（卡片窄也要完整可读）
+								// 副行：safeUrl（已脱敏）或 host:port，等宽字体单行省略，title 悬停看全文
 								(c.safeUrl || c.host) ? React.createElement(
 									"div",
-									{ className: "dbt-conncard-sub" },
+									{ className: "dbt-conncard-sub", title: c.safeUrl || (c.host + ":" + (c.port || "")) },
 									c.safeUrl || (c.host + ":" + (c.port || "")),
 								) : null,
 								// 测试反馈三态：文字 + role=status 播报；配色与状态圆点同源（state）

@@ -170,12 +170,22 @@ describe('1 卡片网格样式（源码断言）', () => {
 		expect(m![1]).toContain('gap:8px');
 	});
 
-	it('dbt-conncard 卡片本体走既有 token（表面/圆角），窄卡内容不溢出', () => {
+	it('dbt-conncard 卡片本体走既有 token（表面/圆角/hairline 描边），窄卡内容不溢出', () => {
 		const m = /\.dbt-conncard\{([^}]*)\}/.exec(src);
 		expect(m, '缺少 .dbt-conncard 样式').toBeTruthy();
 		expect(m![1]).toContain('background:var(--dbt-surface');
+		expect(m![1]).toContain('border:1px solid var(--dbt-separator');
 		expect(m![1]).toContain('border-radius:var(--dbt-radius-card');
 		expect(m![1]).toContain('min-width:0');
+	});
+
+	it('卡片读作离散对象而非表单行：地址副行单行省略 + title 全文，kind 胶囊带数据库图标', () => {
+		const sub = /\.dbt-conncard-sub\{([^}]*)\}/.exec(src);
+		expect(sub, '缺少 .dbt-conncard-sub 样式').toBeTruthy();
+		expect(sub![1]).toContain('text-overflow:ellipsis');
+		expect(sub![1]).not.toContain('word-break:break-all');
+		expect(src).toContain('title: c.safeUrl || (c.host + ":" + (c.port || ""))');
+		expect(src).toContain('icon(12), c.kind');
 	});
 
 	it('连通状态圆点四态齐全（未测试灰 / 测试中黄闪 / 成功绿 / 失败红）', () => {
