@@ -2,16 +2,23 @@
 
 ## 未发布
 
-本版是「连接管理卡片式自适应布局」：连接列表从整宽行式改为独立卡片网格，随侧边栏宽度自适应列数与卡片大小，并新增一键测试全部连接的连通状态。
+本版是「数据传输外键依赖修复 + 结构随迁 + 连接管理卡片化」：目标端已有外键关系时，覆盖删除 / truncate 清空 / 装载不再因「有其他对象依赖它」或外键冲突而失败，与 Navicat 等工具的依赖排序行为对齐；二级索引、外键约束与自增列随数据一同迁移（对齐 Navicat 数据传输结构能力）。连接列表从整宽行式改为独立卡片网格，随侧边栏宽度自适应列数与卡片大小，并新增一键测试全部连接的连通状态。
 
 ### 新增
 
-- **「连接管理」卡片式自适应布局**：连接列表由 inset grouped 整宽行（`dbt-group`/`dbt-listrow`）改为独立卡片网格（`.dbt-conncards`/`.dbt-conncard`），`grid-template-columns:repeat(auto-fill,minmax(200px,1fr))` 让列数与卡片大小随右侧栏宽度自适应（窄栏 1–2 列、宽栏 3 列以上，卡片始终等分拉伸）。每卡带 hairline 描边 + 独立表面，读作离散卡片对象：kind 胶囊内嵌数据库图标 + 名称主行 + 连接地址副行（safeUrl 已脱敏或 host:port，单行省略 `title` 悬停看全文）+ 动作行（测试/编辑/删除），样式全部走既有 `--dbt-*` token，深浅主题随既有 `prefers-color-scheme` 媒体查询统一反转；授权、传输等其他视图的行式布局不受影响。
-- **一键测试全部连接**：连接管理顶部新增「一键测试」按钮，一次点击并发（上限 4）测完全部连接（复用既有 `POST /connections/<id>/test`），每张卡片独立就位不互相阻塞；卡片头行新增连通状态圆点（灰=未测试、黄闪=测试中、绿=成功、红=失败，装饰性冗余编码 `aria-hidden`，语义文字 `role=status` 供读屏播报），测试中的卡片「测试」按钮禁用防重复，全部测完后顶部给出成功/失败计数汇总行。中英文案同步（`testAll`/`testAllDone`）。
-- **连接测试提示优化（成功压缩 + 失败按错误码翻译）**：新增共享模块 `lib/adapters/connect-feedback.ts`。成功提示：PostgreSQL/GaussDB 的 `version()` 完整编译信息压缩为「产品 + 短版本」（如 `PostgreSQL 17.11`，GaussDB 优先取 `GaussDB Kernel` 内核版本），Oracle/达梦 banner 同样压缩（`Oracle Database 19c` / `DM V8.1.2.128`），mysql/mongodb/redis/sqlite 原本已简短保持不变。失败提示：连接测试（含保存前测试）的错误按「网络层特征（全库通用）→ 各库错误码/消息特征 → 通用 TLS/证书」分层翻译为准确、可操作的中文，如 ECONNREFUSED →「连接被拒绝：<host:port> 无服务在监听…（ECONNREFUSED）」、MySQL Access denied →「用户名或密码错误（MySQL Access denied）」、PG 28P01/3D000/28000/57P03、MongoDB AuthenticationFailed、Redis WRONGPASS/NOAUTH、SQLite 文件打不开等；无把握的错误返回 null 保留原驱动文案（诊断细节不丢）。适用范围是驱动原文直出的库；SQL Server/Oracle/达梦的适配器层已有按错误码整形的中文文案（TLS 两族区分、ORA/DM 码针对性提示），manager 层放行不二次解读，既有的错误回显契约不变。映射仅在连接测试展示路径生效（`manager.testConnection`/`testDraft`），query/execute 工具链路不受影响。客户端失败卡片原样展示服务端映射后的提示（`r.error` 优先，本地「连接失败」文案仅兜底）。
+- **数据传输结构随迁**：源端的二级索引（含唯一索引）、外键约束（含参照动作）、自增列随数据一同迁移。索引在全部数据装载完成后创建（先装数据后建索引为各库官方批量装载实践），按「表名.索引名」同名去重；外键在所有表数据齐备后统一创建（数据齐备后校验才能通过，循环引用与自引用亦然），目标端已有的同边外键跳过；重复传输不产生失败噪音。自增列目标端还原为原生自增：MySQL `AUTO_INCREMENT`（计数器随显式插入自动推进）、PostgreSQL/GaussDB `SERIAL` 家族 + 装载后 `setval` 校准序列起点（不校准则目标端后续插入主键冲突）、SQL Server `IDENTITY(1,1)` + `SET IDENTITY_INSERT` 装载（种子自动推进）、SQLite 整数主键天然 rowid 自增；Oracle/达梦自增暂不随迁（11g 序列+触发器与 DM IDENTITY 语法差异，后续版本支持）。SQLite 外键在 `CREATE TABLE` 内联（SQLite 无 `ALTER TABLE ADD CONSTRAINT`），其余五类走装载后 `ALTER TABLE ADD CONSTRAINT`。索引/外键逐条失败隔离记入传输失败清单，不阻断数据传输。范围对照 Navicat 18 官方手册数据传输能力（「包含索引 / 包含外键约束 / 包含唯一键 / 包含自动递增」为文档化开关）：CHECK 约束、触发器、视图、独立序列、字符集/引擎、注释不随迁；权限（用户/角色/授权）不随迁——Navicat 数据传输与结构同步的文档化范围均不含权限，行为一致。
+
+### 修复
+
+- **数据传输按目标端外键依赖排序**：目标端存在外键关系时（本工具建表不创建外键，该场景出现在预置 schema 的目标库），此前按用户选择顺序逐表「删除→建表→写入」，父表的覆盖删除会被未处理子表引用拦截（PostgreSQL/GaussDB SQLSTATE 2BP01「cannot drop table ... because other objects depend on it」、SQL Server「referenced by a FOREIGN KEY constraint」、MySQL ER_FK_CANNOT_DROP_PARENT(3730)、Oracle ORA-02449、达梦同类错误），truncate 清空与装载还会报外键冲突（MySQL ER_TRUNCATE_ILLEGAL_FK(1701) / 1452、PG 23503、SQL Server、Oracle ORA-02291）。现在传输开始前查询一次目标端外键目录（mysql `information_schema.REFERENTIAL_CONSTRAINTS`、pg/gaussdb `pg_constraint`、SQL Server `sys.foreign_keys`、Oracle/达梦 `ALL_CONSTRAINTS`、SQLite `PRAGMA foreign_key_list`；mongo/redis 无外键概念），选择集内存在依赖边时启用门控：覆盖删除与 truncate 清空改为独立的删除趟/清空趟，按子表先行顺序整批处理（父表处理时引用它的选择集内子表已先删除/清空）；装载趟用就绪队列门控，被引用表完成装载后引用它的子表才开始。选择集内无边（本工具自建目标表的绝大多数传输）、单表传输与 mongo/redis 目标走原路径，行为不变。
+- **循环外键组整组删除**：互为引用的表组（Tarjan SCC ≥ 2）逐表删除必然失败，改按各库官方形态整组删除——PostgreSQL/GaussDB/SQL Server 单语句多表 `DROP TABLE`（PG 组内互引无需 CASCADE，见官方 ddl-depend Note；SQL Server 要求引用表列在前），MySQL `SET FOREIGN_KEY_CHECKS=0` 窗口（结束回读原值复位），SQLite `PRAGMA foreign_keys=OFF` 窗口（事务外设置，结束回读原值复位），Oracle `DROP TABLE ... CASCADE CONSTRAINTS`（删除引用被删表主键/唯一键的外键约束），达梦 `DROP TABLE ... CASCADE`（DM8 语法为 `[RESTRICT|CASCADE]`，不支持 `CASCADE CONSTRAINTS` 写法）。循环组成员装载时不参与门控（互相等待会死锁），并发装载、冲突如实报错。
+- **覆盖删除预检快速失败**：目标表被「选择集之外」的表外键引用时，覆盖删除必然被数据库拦截，现在规划期提前失败并给出可行动的提示（把引用表一并纳入传输，或先处理其外键约束），不再等驱动报「有其他对象依赖它」；阻塞沿引用链向上传染（引用方删不掉，它引用的父表同样删不掉）。SQLite 不做该预检——其 DROP 外键检查是数据相关的（子表无行时删除可成功），预检会误拦本可成功的传输。
+- **SQL Server truncate 降级口径扩展**：TRUNCATE 因外键引用失败（运行时错误号 4712，消息文本 MS Learn 未发布）与锁等待同口径降级 `DELETE FROM`（依赖排序先行后，选择集内子表已先清空，DELETE 不再被引用拦截）；权限(229)/对象不存在(208) 等失败仍上抛。DELETE 不重置 IDENTITY 种子，与 mysql/pg/oralike 的既有降级路径一致。
+- **写端契约**：`TransferWriter` 新增可选 `listForeignKeys()` 与 `dropTables(names)`；`beforeLoad` 参数由表对象收窄为表名（全部实现只用到表名）。
 
 ### 测试
 
+- 新增 `tests/adapters-sql/transfer-deps.test.ts`（外键图收窄 / SCC 循环组 / 拓扑排序，15 条）、`tests/adapters-sql/transfer-gating.test.ts`（假读写端注入的门控编排，10 条：装载门控、删除趟顺序、循环组整组删除且照常装载、预检快速失败与传染、清空趟不重复清空、无边直通、规划失败退化、失败上游不阻塞下游、门控等待期取消收口）、`tests/adapters-sql/transfer-fk.test.ts`（sqlite 真机外键与结构随迁回归，20 条：node:sqlite 默认启用外键约束，覆盖被引用父表的删除/清空/装载与循环组场景、索引/外键/结构随迁还原与重复传输去重）；`tests/adapters-sql/transfer-sqlserver.test.ts` 新增结构随迁契约 4 条（IDENTITY DDL、IDENTITY_INSERT 包裹、索引/外键创建形态、去重键）；`tests/adapters-sql/sqlserver-adversarial.test.ts`、`tests/adapters-nosql-ent/transfer-redis.spec.ts` 的 `beforeLoad` 调用点随契约收窄同步。
 - 新增 `tests/client/conn-cards.spec.ts`（12 条）：卡片网格样式契约（auto-fill/minmax、token 复用、状态圆点四态）、卡片渲染结构（kind 胶囊/名称/副行/动作行、空状态一键测试禁用）、一键测试行为（逐连接各发一次测试请求、测试中中间态按钮禁用、成功/失败圆点与汇总行计数、单卡测试不波及他卡、服务端错误提示原样展示、无 error 兜底「连接失败」）、`dbt-group`/`dbt-kindchip` 既有使用点契约不变。
 - 新增 `tests/adapters-sql/connect-feedback.spec.ts`（19 条）：版本横幅压缩（PG/GaussDB/Oracle/DM 与已简短库的原样透传）、失败映射分层（网络层通用特征、mysql/postgresql/sqlserver/oracle/dm/mongo/redis/sqlite 各库错误码与消息、通用 TLS 兜底、无把握返回 null）、manager 两条失败路径（抛错与 `{ok:false,error}`）与 `testDraft` 整链路映射、成功路径 serverInfo 透传。
 
