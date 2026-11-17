@@ -1,5 +1,18 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+本版是「Oracle 连接修复」：修掉 oracledb Thin 模式连老服务器报 NJS-138 无法建连的问题——新增 Oracle Instant Client（OCI）库路径入口启用 Thick 模式（即 Navicat 的连接路径），并把新建连接的 Oracle 连接标识对齐 Navicat（服务名 / SID 下拉）。
+
+### 新增
+
+- **Oracle Thick（OCI）模式（NJS-138 修复）**：NJS-138 是 oracledb Thin 模式对服务器 TNS 协议版本的下限拒绝（< 315，常见于 10g/9i 等老服务器），连接参数无法绕过——Thin 协议栈纯 JS 实现，不存在「兼容开关」。修复走 Navicat 同款路径：连接配置新增可选「OCI 库路径」（分字段 `fields.ociLibDir` / URL `?ociLibDir=`），填写本机 Oracle Instant Client 目录后建池前调用 `initOracleClient` 启用 Thick 模式，由 OCI 完成与老服务器的协议协商。Thick 模式是进程级一次性、不可逆操作：同库路径重复启用幂等跳过，不同路径拒绝（NJS-090 语义）；进程内建过任何 Thin 连接后再启用会被拒绝并提示重启宿主（NJS-118 语义）。驱动侧错误同步补了行动指引：NJS-138 提示填 OCI 库路径、DPI-1047 提示检查库路径/位数/客户端版本、NJS-118 提示重启宿主。SYSDBA 等特权角色仍不开放（既有安全边界不变）。
+- **Oracle 连接标识「服务名 / SID」下拉（对齐 Navicat）**：新建/编辑连接表单在 Oracle 分字段模式下，第三格从通用「数据库名」改为「服务名 / SID」类型下拉 + 输入框（对齐 Navicat 的连接标识选择；值仍存 `database` 键，仅按类型分流拼接）：服务名走既有 EZConnect `host:port/service`（行为不变），SID 拼完整 TNS 描述符 `CONNECT_DATA=(SID=…)`（老实例常用；SID 与主机名做 fail-closed 字符校验，防描述符结构被破坏）。URL 模式支持 `?serviceType=sid`。
+
+### 测试
+
+- 新增 `tests/adapters-nosql-ent/oracle-conn-resolve.spec.ts`（21 条）：服务名行为不变、SID 描述符与 fail-closed 校验、ociLibDir 解析（fields/URL 同口径）、ensureOracleClient 幂等/冲突/thin-已建池拒绝、thick 失败不落状态可重试、NJS-138/DPI-1047/NJS-118 行动指引。
+- `tests/store/connections.spec.ts` 补 serviceType / ociLibDir 回填与垃圾值 fail-closed 用例；新增 `tests/client/oracle-oci-form.spec.ts`（10 条）锁「控件存在 + 提交带出 + 编辑回填」三件套与 kind 切换重置。
 ## 1.9.14
 
 本版是「数据传输外键依赖修复 + 结构随迁 + 连接管理卡片化」：目标端已有外键关系时，覆盖删除 / truncate 清空 / 装载不再因「有其他对象依赖它」或外键冲突而失败，与 Navicat 等工具的依赖排序行为对齐；二级索引、外键约束与自增列随数据一同迁移（对齐 Navicat 数据传输结构能力）。连接列表从整宽行式改为独立卡片网格，随侧边栏宽度自适应列数与卡片大小，并新增一键测试全部连接的连通状态。
@@ -24,6 +37,7 @@
 - 新增 `tests/adapters-sql/transfer-deps.test.ts`（外键图收窄 / SCC 循环组 / 拓扑排序，15 条）、`tests/adapters-sql/transfer-gating.test.ts`（假读写端注入的门控编排，10 条：装载门控、删除趟顺序、循环组整组删除且照常装载、预检快速失败与传染、清空趟不重复清空、无边直通、规划失败退化、失败上游不阻塞下游、门控等待期取消收口）、`tests/adapters-sql/transfer-fk.test.ts`（sqlite 真机外键与结构随迁回归，20 条：node:sqlite 默认启用外键约束，覆盖被引用父表的删除/清空/装载与循环组场景、索引/外键/结构随迁还原与重复传输去重）；`tests/adapters-sql/transfer-sqlserver.test.ts` 新增结构随迁契约 4 条（IDENTITY DDL、IDENTITY_INSERT 包裹、索引/外键创建形态、去重键）；`tests/adapters-sql/sqlserver-adversarial.test.ts`、`tests/adapters-nosql-ent/transfer-redis.spec.ts` 的 `beforeLoad` 调用点随契约收窄同步。
 - 新增 `tests/client/conn-cards.spec.ts`（12 条）：卡片网格样式契约（auto-fill/minmax、token 复用、状态圆点四态）、卡片渲染结构（kind 胶囊/名称/副行/动作行、空状态一键测试禁用）、一键测试行为（逐连接各发一次测试请求、测试中中间态按钮禁用、成功/失败圆点与汇总行计数、单卡测试不波及他卡、服务端错误提示原样展示、无 error 兜底「连接失败」）、`dbt-group`/`dbt-kindchip` 既有使用点契约不变。
 - 新增 `tests/adapters-sql/connect-feedback.spec.ts`（19 条）：版本横幅压缩（PG/GaussDB/Oracle/DM 与已简短库的原样透传）、失败映射分层（网络层通用特征、mysql/postgresql/sqlserver/oracle/dm/mongo/redis/sqlite 各库错误码与消息、通用 TLS 兜底、无把握返回 null）、manager 两条失败路径（抛错与 `{ok:false,error}`）与 `testDraft` 整链路映射、成功路径 serverInfo 透传。
+>>>>>>> origin/master
 
 ## 1.9.13
 

@@ -1,0 +1,70 @@
+{
+  "before-dark-form": {
+    "hasSvcTypeSelect": false,
+    "svcTypeValue": null,
+    "svcOptions": [],
+    "identPlaceholder": "数据库名",
+    "dbPlaceholder": "数据库名",
+    "hostValue": "db.corp.example",
+    "portValue": "1521",
+    "identValue": "XE",
+    "hasAdvancedToggle": false,
+    "hasOciInput": false,
+    "pageTextHasOciHint": false
+  },
+  "before-light-form": {
+    "hasSvcTypeSelect": false,
+    "svcTypeValue": null,
+    "svcOptions": [],
+    "identPlaceholder": "数据库名",
+    "dbPlaceholder": "数据库名",
+    "hostValue": "db.corp.example",
+    "portValue": "1521",
+    "identValue": "XE",
+    "hasAdvancedToggle": false,
+    "hasOciInput": false,
+    "pageTextHasOciHint": false
+  },
+  "after-dark-form": {
+    "hasSvcTypeSelect": true,
+    "svcTypeValue": "sid",
+    "svcOptions": [
+      "service",
+      "sid"
+    ],
+    "identPlaceholder": "SID",
+    "dbPlaceholder": null,
+    "hostValue": "db.corp.example",
+    "portValue": "1521",
+    "identValue": "XE",
+    "hasAdvancedToggle": true,
+    "hasOciInput": false,
+    "pageTextHasOciHint": false
+  },
+  "after-dark-oci": {
+    "ariaExpanded": "true",
+    "ociValue": "/opt/oracle/instantclient_19_19",
+    "pageTextHasOciHint": true
+  },
+  "after-light-form": {
+    "hasSvcTypeSelect": true,
+    "svcTypeValue": "sid",
+    "svcOptions": [
+      "service",
+      "sid"
+    ],
+    "identPlaceholder": "SID",
+    "dbPlaceholder": null,
+    "hostValue": "db.corp.example",
+    "portValue": "1521",
+    "identValue": "XE",
+    "hasAdvancedToggle": true,
+    "hasOciInput": false,
+    "pageTextHasOciHint": false
+  },
+  "after-light-oci": {
+    "ariaExpanded": "true",
+    "ociValue": "/opt/oracle/instantclient_19_19",
+    "pageTextHasOciHint": true
+  }
+}

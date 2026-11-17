@@ -73,6 +73,9 @@ declare module 'oracledb' {
     let fetchAsBuffer: number[];
 
     function createPool(poolAttributes: PoolAttributes): Promise<Pool>;
+
+    /** 启用 Thick（OCI）模式：进程级一次性、不可逆；thin 连接建过之后调用抛 NJS-118 */
+    function initOracleClient(options?: { libDir?: string }): void;
   }
   export = oracledb;
 }
