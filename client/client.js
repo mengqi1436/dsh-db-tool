@@ -116,6 +116,12 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "密码",
 			passwordSaved: "已保存（留空保持不变）",
 			fieldsDatabase: "数据库名",
+			fieldsService: "服务名",
+			fieldsSid: "SID",
+			fieldsServiceType: "连接标识类型（服务名/SID）",
+			advancedOra: "高级选项",
+			fieldsOciLibDir: "OCI 库路径（Oracle Instant Client 目录，如 /opt/oracle/instantclient_19_19 或 C:\\oracle\\instantclient_19_19）",
+			ociHint: "服务器报 NJS-138（Thin 模式不支持该服务器版本，Navicat 走 OCI 可连）时填写本机 Oracle Instant Client 目录启用 Thick 模式；库位数须与宿主一致，客户端版本需兼容服务器版本。",
 			fieldsTlsMinVersion: "最低 TLS 版本（连老实例报协议族错误时才需要下探）",
 			tlsMinDefault: "默认（TLSv1.2）",
 			fieldsEncrypt: "加密",
@@ -364,6 +370,12 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "Password",
 			passwordSaved: "Saved (leave blank to keep)",
 			fieldsDatabase: "Database",
+			fieldsService: "Service Name",
+			fieldsSid: "SID",
+			fieldsServiceType: "Connect identifier type (service name/SID)",
+			advancedOra: "Advanced options",
+			fieldsOciLibDir: "OCI library path (Oracle Instant Client directory, e.g. /opt/oracle/instantclient_19_19 or C:\\oracle\\instantclient_19_19)",
+			ociHint: "Fill this in when the server reports NJS-138 (Thin mode does not support that server version; Navicat connects via OCI) to enable Thick mode with a local Oracle Instant Client directory. The library bitness must match the host, and the client version must be compatible with the server.",
 			fieldsTlsMinVersion: "Minimum TLS version (lower it only when an old instance reports a protocol error)",
 			tlsMinDefault: "Default (TLSv1.2)",
 			fieldsEncrypt: "Encryption",
@@ -886,17 +898,21 @@ window.__ModuleLoader__.load({
 		/* ---------------- 连接管理 ---------------- */
 		// encrypt 默认 'auto'：对齐 Navicat 的「自动」策略（适配器按服务端能力协商），
 		// 而不是把「强制加密」当默认，避免老实例连不上时用户被迫先找开关。
-		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", tlsMinVersion: "", encrypt: "auto", trustServerCertificate: false, serverName: "", caCert: "", ssl: false };
+		// oracle.serviceType 默认 'service'（服务名）；'sid' 时服务端拼完整 TNS 描述符。
+		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", serviceType: "service", ociLibDir: "", tlsMinVersion: "", encrypt: "auto", trustServerCertificate: false, serverName: "", caCert: "", ssl: false };
 
-		/** 是否有任一高级 TLS 字段被存过（编辑时据此默认展开高级区，避免用户看不到自己存过的配置） */
+		/** 是否有任一高级选项字段被存过（编辑时据此默认展开高级区，避免用户看不到自己存过的配置）：
+		 *  sqlserver 的 TLS 族 + oracle 的 OCI 库目录族 */
 		function hasAdvancedTls(meta) {
 			if (!meta) return false;
-			return !!(meta.tlsMinVersion || meta.serverName || meta.caCert || meta.trustServerCertificate
+			return !!(meta.tlsMinVersion || meta.serverName || meta.caCert || meta.trustServerCertificate || meta.ociLibDir
 				|| (meta.encrypt !== undefined && meta.encrypt !== null && meta.encrypt !== "" && meta.encrypt !== "auto"));
 		}
 
 		// 高级 TLS 折叠区容器 id（aria-controls 指过来；单表单实例，固定值足够）
 		const TLS_ADVANCED_ID = "dbt-tls-advanced";
+		// oracle 高级选项（OCI 库路径）折叠区容器 id
+		const ORA_ADVANCED_ID = "dbt-ora-advanced";
 
 		// 口令弹窗（ManageView 局部复用，导出/导入共用）：键盘契约对齐 DangerDialog
 		// （Escape=取消、Tab 在对话框内循环锁定）；差异：初始焦点在口令输入框，确认按钮主色。
@@ -1398,12 +1414,18 @@ window.__ModuleLoader__.load({
 			try {
 				const u = new URL(url);
 				const decoded = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
-				return {
+				const patch = {
 					host: u.hostname,
 					port: u.port,
 					user: decoded(u.username),
 					database: decoded(u.pathname.replace(/^\//, "")),
 				};
+				// oracle 专有参数反解：URL 带了才带上（切分字段模式不丢 SID/OCI 配置）
+				const st = u.searchParams.get("serviceType");
+				if (st === "sid" || st === "service") patch.serviceType = st;
+				const oci = (u.searchParams.get("ociLibDir") || "").trim();
+				if (oci) patch.ociLibDir = oci;
+				return patch;
 			} catch {
 				return null;
 			}
@@ -1423,6 +1445,9 @@ window.__ModuleLoader__.load({
 				urlUser: "", urlPassword: "",
 				host: c.host || "", port: c.port != null ? String(c.port) : "",
 				user: c.user || "", database: c.database || "",
+				// oracle 高级项：serviceType 仅 'sid' 合法（其余/缺省回落 'service'）；ociLibDir 留空=Thin 模式
+				serviceType: c.serviceType === "sid" ? "sid" : "service",
+				ociLibDir: c.ociLibDir || "",
 				tlsMinVersion: c.tlsMinVersion || "",
 				// encrypt 四态：'auto'（推荐，交适配器协商）/ true / false / 'strict'，回填时保持原样。
 				// 缺省（老记录没有该键）回落到 EMPTY_FORM 的 'auto'：下拉已无空值项，
@@ -1471,7 +1496,9 @@ window.__ModuleLoader__.load({
 				setDirty((prev) => { const n = new Set(prev); for (const k of Object.keys(p)) n.add(k); return n; });
 			}
 			function switchKind(kind) {
-				setForm((prev) => withKindDefaults(Object.assign({}, prev, { kind }), dirty));
+				// oracle 高级项（serviceType/ociLibDir）随 kind 切换重置：残留值对新 kind 无意义，
+				// 留着还会在切回 oracle 时以旧值回显误导（提交侧虽按 kind 门控，回显本身就是错的）
+				setForm((prev) => withKindDefaults(Object.assign({}, prev, { kind, serviceType: "service", ociLibDir: "" }), dirty));
 				setDirty(new Set());
 				setDraftTest(null);
 			}
@@ -1487,6 +1514,10 @@ window.__ModuleLoader__.load({
 						for (const k of ["host", "port", "user", "database"]) {
 							if (!prev[k] && fromUrl[k]) { next[k] = fromUrl[k]; keep.add(k); }
 						}
+						// oracle 专有参数：URL 带了就跟随（用户在分字段模式手改过的值优先级更高——
+						// serviceType 恒为 'service'/'sid' 二选一，不存在「留空」态，故只看 dirty）
+						if (fromUrl.serviceType && !dirty.has("serviceType")) next.serviceType = fromUrl.serviceType;
+						if (fromUrl.ociLibDir && !prev.ociLibDir) next.ociLibDir = fromUrl.ociLibDir;
 					}
 					return withKindDefaults(next, keep);
 				});
@@ -1512,6 +1543,12 @@ window.__ModuleLoader__.load({
 					// 端口原样发字符串：Number("abc")=NaN 会被 JSON 序列化成 null，服务端按「未提供端口」静默回退默认值，配置错误被掩盖
 					if (form.port) body.fields.port = form.port;
 					if (form.password) body.fields.password = form.password;
+					// oracle 高级项：serviceType 仅 'sid' 才发（缺省=服务端默认 service）；OCI 库路径 trim 后非空才发
+					if (form.kind === "oracle") {
+						if (form.serviceType === "sid") body.fields.serviceType = "sid";
+						const oci = (form.ociLibDir || "").trim();
+						if (oci) body.fields.ociLibDir = oci;
+					}
 					// TLS 相关项仅 sqlserver 有：其它库即使表单残留旧值也不发，避免无关库收到未知键。
 					// 空值一律不注入 —— 留空语义是「沿用适配器默认」（encrypt=true / 信任证书=false /
 					// 不改 TLS 下限），发空字符串反而会触发服务端「取值非法」的 fail-closed 校验。
@@ -1589,7 +1626,16 @@ window.__ModuleLoader__.load({
 							// sqlserver：官方模型 port 可选（默认 1433）且与命名实例互斥——host 直接填 主机\实例名，端口留空
 							React.createElement("input", { placeholder: form.kind === "sqlserver" ? t("fieldsHostInstance") : t("fieldsHost"), "aria-label": t("fieldsHost") + t("requiredMark"), "aria-required": "true", ref: firstInputRef, value: form.host, onChange: (e) => patch({ host: e.target.value }) }),
 							React.createElement("input", { placeholder: t("fieldsPort"), "aria-label": t("fieldsPort"), value: form.port, onChange: (e) => patch({ port: e.target.value }) }),
-							React.createElement("input", { placeholder: t("fieldsDatabase"), "aria-label": t("fieldsDatabase"), value: form.database, onChange: (e) => patch({ database: e.target.value }) })),
+							// oracle：第三格是「服务名 / SID」选择（对齐 Navicat 的连接标识下拉），输入框占位随类型切换；
+							// 其余库维持通用「数据库名」
+							...(form.kind === "oracle"
+								? [
+									React.createElement("select", { key: "svcType", "aria-label": t("fieldsServiceType"), value: form.serviceType, style: { flex: "none" }, onChange: (e) => patch({ serviceType: e.target.value }) },
+										React.createElement("option", { value: "service" }, t("fieldsService")),
+										React.createElement("option", { value: "sid" }, t("fieldsSid"))),
+									React.createElement("input", { key: "svcIdent", placeholder: form.serviceType === "sid" ? t("fieldsSid") : t("fieldsService"), "aria-label": (form.serviceType === "sid" ? t("fieldsSid") : t("fieldsService")) + t("requiredMark"), "aria-required": "true", value: form.database, onChange: (e) => patch({ database: e.target.value }) }),
+								]
+								: [React.createElement("input", { key: "db", placeholder: t("fieldsDatabase"), "aria-label": t("fieldsDatabase"), value: form.database, onChange: (e) => patch({ database: e.target.value }) })])),
 						React.createElement("div", { className: "dbt-row" },
 							React.createElement("input", { placeholder: t("fieldsUser"), "aria-label": t("fieldsUser") + t("requiredMark"), "aria-required": "true", value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
 							React.createElement("input", { type: "password", placeholder: pwLabel, "aria-label": pwLabel, value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
@@ -1637,6 +1683,27 @@ window.__ModuleLoader__.load({
 											React.createElement("input", { placeholder: t("fieldsServerName"), "aria-label": t("fieldsServerName"), value: form.serverName, onChange: (e) => patch({ serverName: e.target.value }) }),
 											React.createElement("input", { placeholder: t("fieldsCaCert"), "aria-label": t("fieldsCaCert"), value: form.caCert, onChange: (e) => patch({ caCert: e.target.value }) })),
 										React.createElement("span", { style: { fontSize: 12, opacity: 0.75 } }, t("tlsHint")))
+									: null)
+							: null,
+						// oracle 高级项：OCI 库路径（Thick 模式）——服务器报 NJS-138（Thin 不支持该服务器
+						// 版本）时的出口，对齐 Navicat 走 OCI 连老服务器的能力。折叠交互与 sqlserver TLS
+						// 区一致：收起只留入口按钮，折叠态不影响 form 值，收起也照样回填与提交。
+						form.kind === "oracle"
+							? React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+								React.createElement("div", { className: "dbt-row" },
+									React.createElement("button", {
+										className: "dbt-btn",
+										type: "button",
+										"aria-label": t("advancedOra"),
+										"aria-expanded": advancedOpen,
+										"aria-controls": advancedOpen ? ORA_ADVANCED_ID : undefined,
+										onClick: () => setAdvancedOpen(!advancedOpen),
+										...focusRingProps(),
+									}, (advancedOpen ? "▾ " : "▸ ") + t("advancedOra"))),
+								advancedOpen
+									? React.createElement("div", { id: ORA_ADVANCED_ID, style: { display: "flex", flexDirection: "column", gap: 6 } },
+										React.createElement("input", { placeholder: t("fieldsOciLibDir"), "aria-label": t("fieldsOciLibDir"), value: form.ociLibDir, onChange: (e) => patch({ ociLibDir: e.target.value }) }),
+										React.createElement("span", { style: { fontSize: 12, opacity: 0.75 } }, t("ociHint")))
 									: null)
 							: null,
 					),

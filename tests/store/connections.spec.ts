@@ -383,4 +383,34 @@ describe('连接导出/导入', () => {
 
     expect(store.connections.get('ss3')?.encrypt).toBeUndefined();
   });
+
+  /* ---- Oracle serviceType / ociLibDir 回填（编辑表单读 meta；NJS-138 修复的 thick 模式入口） ---- */
+
+  it('分字段方式回填 oracle serviceType / ociLibDir（sid 与 OCI 路径编辑不丢）', () => {
+    store.connections.create({
+      id: 'ora',
+      kind: 'oracle',
+      fields: {
+        host: 'db.corp.local',
+        port: 1521,
+        user: 'system',
+        database: 'XE',
+        serviceType: 'sid',
+        ociLibDir: '/opt/oracle/instantclient_19_19',
+      },
+    });
+
+    const meta = store.connections.get('ora');
+    expect(meta?.serviceType).toBe('sid');
+    expect(meta?.ociLibDir).toBe('/opt/oracle/instantclient_19_19');
+  });
+
+  it('oracle serviceType 垃圾值不回填（fail-closed）；未给的项不凭空出现', () => {
+    store.connections.create({ id: 'ora2', kind: 'oracle', fields: { host: 'h', user: 'u', database: 'X', serviceType: 'bogus' } });
+    store.connections.create({ id: 'ora3', kind: 'oracle', fields: { host: 'h', user: 'u', database: 'X' } });
+
+    expect(store.connections.get('ora2')?.serviceType).toBeUndefined();
+    expect(store.connections.get('ora3')?.serviceType).toBeUndefined();
+    expect(store.connections.get('ora3')?.ociLibDir).toBeUndefined();
+  });
 });

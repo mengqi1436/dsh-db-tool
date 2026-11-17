@@ -98,6 +98,10 @@ export interface ConnectionMeta {
   serverName?: string;
   /** 分字段方式的受信 CA（仅 sqlserver；值是 PEM 文本或文件路径，回填原样返回）——编辑回填用 */
   caCert?: string;
+  /** 分字段方式的 Oracle 连接标识类型：'service'（默认）| 'sid'（仅 oracle）——编辑回填用 */
+  serviceType?: 'service' | 'sid';
+  /** 分字段方式的 Oracle Instant Client（OCI）库目录，启用 Thick 模式连老服务器（仅 oracle）——编辑回填用 */
+  ociLibDir?: string;
   /** 已保存密码（仅布尔指示，明文绝不出库）——编辑表单占位/测试草稿拼回用 */
   hasPassword?: boolean;
 }

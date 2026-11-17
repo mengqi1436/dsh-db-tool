@@ -66,7 +66,8 @@ function makeDmPool(rows: Record<string, unknown>[] = [], meta: Array<{ name: st
 describe('Oracle 纯函数', () => {
   it('resolveOracleConn 解析 URL → connectString', () => {
     const r = resolveOracleConn(oraConn);
-    expect(r).toEqual({ user: 'scott', password: 'tiger', connectString: 'dbhost:1521/ORCLPDB1' });
+    // serviceType 显式入契约：缺省 service（NJS-138 修复引入 thick/SID 分流后成为固定字段）
+    expect(r).toEqual({ user: 'scott', password: 'tiger', connectString: 'dbhost:1521/ORCLPDB1', serviceType: 'service' });
   });
   it('resolveOracleConn 缺少 service 报错', () => {
     expect(() => resolveOracleConn({ meta: { id: 'x', kind: 'oracle' }, url: 'oracle://u:p@h:1521/' })).toThrow('SERVICE_NAME');

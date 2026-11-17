@@ -1,5 +1,19 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+本版是「Oracle 连接修复」：修掉 oracledb Thin 模式连老服务器报 NJS-138 无法建连的问题——新增 Oracle Instant Client（OCI）库路径入口启用 Thick 模式（即 Navicat 的连接路径），并把新建连接的 Oracle 连接标识对齐 Navicat（服务名 / SID 下拉）。
+
+### 新增
+
+- **Oracle Thick（OCI）模式（NJS-138 修复）**：NJS-138 是 oracledb Thin 模式对服务器 TNS 协议版本的下限拒绝（< 315，常见于 10g/9i 等老服务器），连接参数无法绕过——Thin 协议栈纯 JS 实现，不存在「兼容开关」。修复走 Navicat 同款路径：连接配置新增可选「OCI 库路径」（分字段 `fields.ociLibDir` / URL `?ociLibDir=`），填写本机 Oracle Instant Client 目录后建池前调用 `initOracleClient` 启用 Thick 模式，由 OCI 完成与老服务器的协议协商。Thick 模式是进程级一次性、不可逆操作：同库路径重复启用幂等跳过，不同路径拒绝（NJS-090 语义）；进程内建过任何 Thin 连接后再启用会被拒绝并提示重启宿主（NJS-118 语义）。驱动侧错误同步补了行动指引：NJS-138 提示填 OCI 库路径、DPI-1047 提示检查库路径/位数/客户端版本、NJS-118 提示重启宿主。SYSDBA 等特权角色仍不开放（既有安全边界不变）。
+- **Oracle 连接标识「服务名 / SID」下拉（对齐 Navicat）**：新建/编辑连接表单在 Oracle 分字段模式下，第三格从通用「数据库名」改为「服务名 / SID」类型下拉 + 输入框（对齐 Navicat 的连接标识选择；值仍存 `database` 键，仅按类型分流拼接）：服务名走既有 EZConnect `host:port/service`（行为不变），SID 拼完整 TNS 描述符 `CONNECT_DATA=(SID=…)`（老实例常用；SID 与主机名做 fail-closed 字符校验，防描述符结构被破坏）。URL 模式支持 `?serviceType=sid`。
+
+### 测试
+
+- 新增 `tests/adapters-nosql-ent/oracle-conn-resolve.spec.ts`（21 条）：服务名行为不变、SID 描述符与 fail-closed 校验、ociLibDir 解析（fields/URL 同口径）、ensureOracleClient 幂等/冲突/thin-已建池拒绝、thick 失败不落状态可重试、NJS-138/DPI-1047/NJS-118 行动指引。
+- `tests/store/connections.spec.ts` 补 serviceType / ociLibDir 回填与垃圾值 fail-closed 用例；新增 `tests/client/oracle-oci-form.spec.ts`（10 条）锁「控件存在 + 提交带出 + 编辑回填」三件套与 kind 切换重置。
+
 ## 1.9.13
 
 本版是「对象树表注释展示优化」：表行从「表名 · 注释」拼接串改为分列布局——表名居左、中文注释右对齐置灰，读起来不再连成一团。

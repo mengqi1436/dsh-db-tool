@@ -1,11 +1,17 @@
 /**
- * Oracle 适配器（oracledb v7 thin 模式，DB 12.1+）。
+ * Oracle 适配器（oracledb thin/thick 双模式，thin 为默认）。
  *
  * 设计要点（依据官方文档调研）：
  *  - oracledb.createPool({ user, password, connectString, poolAlias: <逐池唯一>,
  *    poolMin: 1, poolMax: 10, poolTimeout: 60 })。
  *    禁止 SYSDBA 等特权连接（不透传 privilege）。
  *  - poolAlias 显式传唯一值：不传则落到匿名池（不可经 getPool() 检索），见 createOraPool 注释。
+ *  - Thick（OCI）模式：fields.ociLibDir / URL ?ociLibDir= 指定 Oracle Instant Client
+ *    库目录时，建池前调用 oracledb.initOracleClient（进程级一次性、不可逆，见
+ *    ensureOracleClient 注释）。服务器报 NJS-138（Thin 模式不支持其 TNS 协议版本，
+ *    常见于 10g/9i 等老服务器）时，这是 Navicat（走 OCI）能连、Thin 模式不能连的场景。
+ *  - 服务名/SID（对齐 Navicat）：fields.serviceType = 'service'（默认，EZConnect
+ *    host:port/service）| 'sid'（完整 TNS 描述符 CONNECT_DATA=(SID=…)，老实例常用）。
  *  - CLOB 经全局 fetchAsString 转字符串；BLOB 经全局 fetchAsBuffer 转 Buffer。
  *    （fetchInfo 的键是【列名】而非类型名，按类型统一转换只能用全局 fetchXXX 属性——
  *    官方 connection.rst「fetchInfo」节：「Each column is specified by name」）
@@ -51,8 +57,11 @@ const DDL_KEYWORDS = new Set([
   'COMMENT', 'ANALYZE', 'AUDIT', 'NOAUDIT', 'FLASHBACK', 'PURGE',
 ]);
 
-/** 常见 ORA 错误 → 人类可读提示 */
+/** 常见 ORA/NJS/DPI 错误 → 人类可读提示 */
 export const ORA_HINTS: ReadonlyArray<[RegExp, string]> = [
+  [/NJS-138/, 'node-oracledb Thin 模式不支持该服务器版本（TNS 协议过低，常见于 Oracle 10g/9i 或部分网关）；请在连接的「高级选项」里填写 Oracle Instant Client（OCI）库目录启用 Thick 模式后重试（对齐 Navicat 的连接方式）'],
+  [/NJS-118/, 'Thick（OCI）模式必须在进程内第一个 Oracle 连接建立之前启用：请重启宿主后，再测试/使用带 OCI 库路径的连接'],
+  [/DPI-1047/, '无法加载 Oracle Instant Client（OCI）库：请检查 OCI 库路径是否正确、库位数是否与宿主一致（x64/x86）、客户端版本是否兼容服务器版本'],
   [/ORA-01017/, '用户名或密码错误'],
   [/ORA-12154/, '无法解析连接串中的服务名，请检查 connectString / service_name'],
   [/ORA-12505/, '监听器不认识该 SID：请使用服务名(service_name)而非 SID'],
@@ -115,8 +124,53 @@ async function normalizeCell(v: unknown): Promise<NormalizedCell> {
   return trunc(String(v));
 }
 
-/** 连接参数解析：url（oracle://user:pass@host:1521/service）或 fields */
-export function resolveOracleConn(conn: ResolvedConnection): { user: string; password: string; connectString: string } {
+/** 连接标识类型：service（服务名，默认）/ sid（实例 SID，老实例常用，对齐 Navicat 的下拉） */
+export type OraServiceType = 'service' | 'sid';
+
+export interface ResolvedOraConn {
+  user: string;
+  password: string;
+  connectString: string;
+  /** Thick（OCI）模式的 Instant Client 库目录；undefined = Thin 模式（默认） */
+  ociLibDir?: string;
+  serviceType: OraServiceType;
+}
+
+/** 可选字符串字段解析：trim 后空串视为未提供（表单留空的官方语义，与 validPort 同口径） */
+function optStr(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim();
+  return s === '' ? undefined : s;
+}
+
+/** SID 校验（fail-closed）：SID 会被拼进 TNS 描述符 CONNECT_DATA=(SID=…)，
+ *  `()` `=` 引号与空白会破坏描述符结构，白名单字符集覆盖合法 SID（字母/数字/_ $ # -）。
+ *  服务名走 EZConnect 拼接不受此限（现状行为不变）。 */
+export function assertOraSid(sid: string): string {
+  if (!/^[A-Za-z0-9_$#-]{1,64}$/.test(sid)) {
+    throw new Error(`Oracle 连接的 SID 取值非法：「${sid}」（应为 1-64 位字母/数字/_/$/#/-，不含空白与括号；老实例的 SID 形如 XE/ORCL）`);
+  }
+  return sid;
+}
+
+/** SID 模式的完整 TNS 描述符（EZConnect 无 SID 形态，官方 connectString 接受完整描述符）。
+ *  host 仅允许主机名/IP 常规字符（IPv6 字面量含 []，描述符里不合法，报错引导改用服务名模式）。 */
+function sidConnectString(host: string, port: number, sid: string): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(host)) {
+    throw new Error(`Oracle SID 连接的主机名「${host}」非法（SID 模式下主机仅支持 主机名/IPv4/域名；IPv6 请使用服务名模式或完整 TNS 描述符 URL）`);
+  }
+  return `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${host})(PORT=${port}))(CONNECT_DATA=(SID=${sid})))`;
+}
+
+/** serviceType 解析：未提供='service'；仅接受 'service'/'sid'，其余 fail-closed */
+function parseServiceType(v: unknown, source: string): OraServiceType {
+  if (v === undefined || v === null || v === '') return 'service';
+  if (v === 'service' || v === 'sid') return v;
+  throw new Error(`Oracle 连接${source}的 serviceType 取值非法：${JSON.stringify(String(v))}（可选 service/sid，缺省 service）`);
+}
+
+/** 连接参数解析：url（oracle://user:pass@host:1521/service[?serviceType=sid&ociLibDir=…]）或 fields */
+export function resolveOracleConn(conn: ResolvedConnection): ResolvedOraConn {
   if (conn.url) {
     const u = new URL(conn.url);
     const service = u.pathname.replace(/^\//, '');
@@ -127,11 +181,19 @@ export function resolveOracleConn(conn: ResolvedConnection): { user: string; pas
     if (user === '') {
       throw new Error('Oracle URL 缺少用户名：应为 oracle://user:pass@host:1521/SERVICE_NAME');
     }
+    const port = u.port ? validPort(u.port, 1521, 'oracle') : 1521;
+    const serviceType = parseServiceType(u.searchParams.get('serviceType'), 'URL');
+    const ociLibDir = optStr(u.searchParams.get('ociLibDir'));
+    const host = u.hostname;
+    const ident = serviceType === 'sid' ? assertOraSid(service) : service;
     return {
       user,
       password: decodeURIComponent(u.password),
-      // 端口段校验：':0' 等非法值抛中文错误，不再 host:0 直传驱动
-      connectString: `${u.hostname}:${u.port ? validPort(u.port, 1521, 'oracle') : 1521}/${service}`,
+      connectString: serviceType === 'sid'
+        ? sidConnectString(host, port, ident)
+        : `${host}:${port}/${service}`, // 端口段校验：':0' 等非法值抛中文错误，不再 host:0 直传驱动
+      serviceType,
+      ...(ociLibDir !== undefined ? { ociLibDir } : {}),
     };
   }
   const f = conn.fields ?? {};
@@ -147,11 +209,58 @@ export function resolveOracleConn(conn: ResolvedConnection): { user: string; pas
   if (user === '') {
     throw new Error('Oracle 连接缺少用户名（fields.user）');
   }
+  const serviceType = parseServiceType(f.serviceType, '');
+  const ident = serviceType === 'sid' ? assertOraSid(service.trim()) : service;
+  const ociLibDir = optStr(f.ociLibDir);
   return {
     user,
     password: typeof f.password === 'string' ? f.password : '',
-    connectString: `${host}:${port}/${service}`,
+    connectString: serviceType === 'sid' ? sidConnectString(host, port, ident) : `${host}:${port}/${service}`,
+    serviceType,
+    ...(ociLibDir !== undefined ? { ociLibDir } : {}),
   };
+}
+
+/**
+ * Thick（OCI）模式进程级状态：oracledb.initOracleClient 是模块级一次性、不可逆操作——
+ * 启用后进程内所有 Oracle 连接都走 OCI；且一旦建过任何 Thin 连接（驱动加载 thin 协议栈）
+ * 再启用会抛 NJS-118。thickLibDir：null=未启用；'' =以默认搜索路径启用；其它=以该 libDir 启用。
+ */
+const oraClientState: { thickLibDir: string | null; thinPoolCreated: boolean } = {
+  thickLibDir: null,
+  thinPoolCreated: false,
+};
+
+/** 测试注入的最小驱动面（真实 oracledb 满足此结构） */
+export interface OraClientDriverLike {
+  initOracleClient(options?: { libDir?: string }): void;
+}
+
+/** 测试隔离：重置进程级 thick/thin 状态（仅 vitest 使用） */
+export function resetOraClientStateForTest(): void {
+  oraClientState.thickLibDir = null;
+  oraClientState.thinPoolCreated = false;
+}
+
+/**
+ * 启用 Thick（OCI）模式（幂等）：ociLibDir 相同直接跳过；不同 libDir / 已建过 thin 池时
+ * 抛带行动指引的中文错误（比驱动的 NJS-090/NJS-118 原文更可操作）。必须在 createPool 之前调用。
+ */
+export function ensureOracleClient(libDir: string, driver: OraClientDriverLike = oracledb): void {
+  if (oraClientState.thickLibDir !== null) {
+    if (libDir === oraClientState.thickLibDir) return;
+    throw new Error(`Oracle Thick（OCI）模式已启用且使用了不同的 OCI 库路径（已启用：${oraClientState.thickLibDir === '' ? '默认搜索路径' : oraClientState.thickLibDir}）；同一进程只能启用一次，请改用一致的路径或重启宿主`);
+  }
+  if (oraClientState.thinPoolCreated) {
+    throw new Error('当前进程已创建过 Thin 模式连接，无法再启用 Thick（OCI）模式（驱动限制 NJS-118）；请重启宿主后，在建立其它 Oracle 连接前先使用带 OCI 库路径的连接');
+  }
+  try {
+    driver.initOracleClient({ libDir });
+  } catch (e) {
+    // DPI-1047（库无法加载）等：统一加行动指引；NJS-118 兜底（驱动侧的 thin 状态对我们不可见）
+    throw humanizeOraError(e);
+  }
+  oraClientState.thickLibDir = libDir;
 }
 
 export interface OracleAdapterOptions {
@@ -174,9 +283,12 @@ function nextPoolAlias(conn: ResolvedConnection): string {
   return `dsh-ora-${conn.meta.id}-${++poolSeq}`;
 }
 
-/** 建池（连接串解析、池参数与别名单点维护，供适配器与数据传输入口共用） */
+/** 建池（连接串解析、thick/thin 模式、池参数与别名单点维护，供适配器与数据传输入口共用） */
 async function createOraPool(conn: ResolvedConnection): Promise<oracledb.Pool> {
-  const { user, password, connectString } = resolveOracleConn(conn);
+  const { user, password, connectString, ociLibDir } = resolveOracleConn(conn);
+  // Thick（OCI）初始化必须发生在 createPool 之前：thin 协议栈在首次建池时加载，
+  // 一旦加载（哪怕建池失败），后续 initOracleClient 会被驱动以 NJS-118 拒绝
+  if (ociLibDir !== undefined) ensureOracleClient(ociLibDir);
   try {
     return await oracledb.createPool({
       user,
@@ -189,6 +301,9 @@ async function createOraPool(conn: ResolvedConnection): Promise<oracledb.Pool> {
     });
   } catch (e) {
     throw humanizeOraError(e);
+  } finally {
+    // 保守标记：仅统计 thin 建池尝试（成败都算）；thick 池不影响该标记
+    if (ociLibDir === undefined) oraClientState.thinPoolCreated = true;
   }
 }
 
