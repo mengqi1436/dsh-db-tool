@@ -134,6 +134,9 @@ window.__ModuleLoader__.load({
 			testing: "测试中…",
 			testOk: "连接成功",
 			testFail: "连接失败",
+			// 一键测试：一次点击测完全部连接，卡片各自亮连通状态
+			testAll: "一键测试",
+			testAllDone: "一键测试完成：{ok} 个成功，{fail} 个失败",
 			edit: "编辑",
 			trRefresh: "刷新（重新拉取已展开的库/模式/表）",
 			delete: "删除",
@@ -381,6 +384,8 @@ window.__ModuleLoader__.load({
 			testing: "Testing…",
 			testOk: "Connection OK",
 			testFail: "Connection failed",
+			testAll: "Test all",
+			testAllDone: "Test all done: {ok} passed, {fail} failed",
 			edit: "Edit",
 			trRefresh: "Refresh (reload expanded databases/schemas/tables)",
 			delete: "Delete",
@@ -694,6 +699,25 @@ window.__ModuleLoader__.load({
 				".dbt-group{background:var(--dbt-surface);border-radius:var(--dbt-radius-card);overflow:hidden;display:flex;flex-direction:column;}",
 				".dbt-listrow{display:flex;gap:8px;align-items:center;min-height:var(--dbt-row-h,32px);box-sizing:border-box;padding:6px 12px;border-bottom:1px solid var(--dbt-separator);transition:background .18s var(--dbt-ease);}",
 				".dbt-listrow:last-child{border-bottom:none;}",
+				// 连接管理卡片网格：auto-fill + minmax 让列数与卡片大小随侧栏宽度自适应
+				// （窄栏 1 列、宽栏多列，卡片始终等分拉伸）；样式全部走既有 --dbt-* token，
+				// 深/浅主题由 token 媒体查询统一反转。卡片带 hairline 描边 + 独立表面，
+				// 让每张连接读作一个离散卡片对象而非表单行。
+				"/* ===== 连接管理：卡片网格（auto-fill 随侧栏宽度自适应列数与卡片大小） ===== */",
+				".dbt-conncards{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--dbt-card-min,200px),1fr));gap:8px;}",
+				".dbt-conncard{background:var(--dbt-surface);border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0;box-sizing:border-box;}",
+				".dbt-conncard-head{display:flex;gap:6px;align-items:center;min-width:0;}",
+				".dbt-conncard-name{flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				// 地址副行单行省略 + title 全文（对齐表注释 treecomment 的展示语言）：多行 break-all 会读作表单字段
+				".dbt-conncard-sub{color:var(--dbt-text-secondary);font-family:var(--dbt-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				".dbt-conncard-actions{display:flex;gap:8px;margin-top:auto;}",
+				// 连通状态圆点：装饰性冗余编码（文字状态才是读屏事实源，aria-hidden）；
+				// 灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败，语义色与 DESIGN 约定一致
+				".dbt-statusdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--dbt-surface-strong);box-sizing:border-box;}",
+				".dbt-statusdot.ok{background:var(--dbt-success);}",
+				".dbt-statusdot.fail{background:var(--dbt-danger);}",
+				".dbt-statusdot.testing{background:var(--dbt-warning);animation:dbt-pulse 1.2s ease-in-out infinite;}",
+				"@keyframes dbt-pulse{0%,100%{opacity:1;}50%{opacity:.35;}}",
 				".dbt-tree{display:flex;flex-direction:column;}",
 				"/* ===== Navicat 式对象树（数据浏览） ===== */",
 				".dbt-treerow{display:flex;gap:6px;align-items:center;min-height:var(--dbt-row-h,32px);box-sizing:border-box;padding:0 12px;font-size:13px;cursor:pointer;user-select:none;border-bottom:1px solid var(--dbt-separator);transition:background .15s var(--dbt-ease);}",
@@ -1660,7 +1684,10 @@ window.__ModuleLoader__.load({
 			const [editing, setEditing] = React.useState(null); // null | "new" | ConnectionMeta
 			const [auditOpen, setAuditOpen] = React.useState(false);
 			const [audit, setAudit] = React.useState(null);
-			const [testInfo, setTestInfo] = React.useState({}); // connId -> "ok" | "fail: msg"
+			// 连通测试状态：connId -> { state: "testing"|"ok"|"fail", text }（state 驱动状态圆点与配色，text 供读屏播报）
+			const [testInfo, setTestInfo] = React.useState({});
+			const [testAllBusy, setTestAllBusy] = React.useState(false); // 一键测试进行中（顶部按钮禁用）
+			const [testAllInfo, setTestAllInfo] = React.useState(null); // null | {kind: "ok"|"err", text} 一键测试汇总
 			// 导出/导入流程态：passReq 非空即弹口令窗（"export" | "import"）；fileRef 承载隐藏文件选择器
 			const [passReq, setPassReq] = React.useState(null);
 			const [pendingJson, setPendingJson] = React.useState(null); // 待导入的密文文本（选文件后暂存，口令确认后发送）
@@ -1680,14 +1707,51 @@ window.__ModuleLoader__.load({
 					await reload();
 				});
 			}
-			async function testConn(id) {
-				setTestInfo((prev) => Object.assign({}, prev, { [id]: t("testing") }));
+			// 单连接测试：返回是否连通；三态写入 testInfo（✓ 绿=成功 / ✗ 红=失败 / 测试中=中性）
+			// 失败文案以服务端映射的准确提示为准（按各库错误码归类），本地文案仅兜底
+			async function testOne(id) {
+				setTestInfo((prev) => Object.assign({}, prev, { [id]: { state: "testing", text: t("testing") } }));
 				try {
 					const r = await api("connections/" + encodeURIComponent(id) + "/test", { method: "POST", body: {} });
-					setTestInfo((prev) => Object.assign({}, prev, { [id]: r && r.ok ? "✓ " + t("testOk") + (r.serverInfo ? " · " + r.serverInfo : "") : "✗ " + t("testFail") }));
+					const ok = !!(r && r.ok);
+					setTestInfo((prev) => Object.assign({}, prev, {
+						[id]: ok
+							? { state: "ok", text: "✓ " + t("testOk") + (r.serverInfo ? " · " + r.serverInfo : "") }
+							: { state: "fail", text: "✗ " + (r && r.error ? r.error : t("testFail")) },
+					}));
+					return ok;
 				} catch (e) {
-					setTestInfo((prev) => Object.assign({}, prev, { [id]: "✗ " + t("testFail") + ": " + e.message }));
+					setTestInfo((prev) => Object.assign({}, prev, { [id]: { state: "fail", text: "✗ " + (e.message || t("testFail")) } }));
+					return false;
 				}
+			}
+			async function testConn(id) {
+				await testOne(id);
+			}
+			// 一键测试：一次点击测完全部连接。并发上限 4（大量连接时不瞬时打满驱动/网络），
+			// 每张卡片结果各自就位（不互相阻塞），结束后顶部给一条成功/失败计数汇总（role=status）。
+			async function testAllConn() {
+				if (conns.length === 0 || testAllBusy) return;
+				setTestAllBusy(true);
+				setTestAllInfo(null);
+				setTestInfo(() => {
+					const next = {};
+					for (const c of conns) next[c.id] = { state: "testing", text: t("testing") };
+					return next;
+				});
+				let ok = 0;
+				let fail = 0;
+				const queue = conns.map((c) => c.id); // 队列消费：worker 取完即止，worker 数 = min(4, 连接数)
+				async function worker() {
+					while (queue.length) {
+						const id = queue.shift();
+						if (await testOne(id)) ok += 1;
+						else fail += 1;
+					}
+				}
+				await Promise.all(Array.from({ length: Math.min(4, conns.length) }, worker));
+				setTestAllInfo({ kind: fail === 0 ? "ok" : "err", text: t("testAllDone", { ok, fail }) });
+				setTestAllBusy(false);
 			}
 			async function delConn(c) {
 				// 删除确认走全局 DangerDialog（askConfirm 通道），与危险 SQL 确认同一对话框与键盘契约；
@@ -1792,6 +1856,7 @@ window.__ModuleLoader__.load({
 						"div",
 						{ className: "dbt-row" },
 						React.createElement("button", { className: "dbt-btn", "aria-expanded": auditOpen, ...focusRingProps(), onClick: loadAudit }, t("auditShort")),
+						React.createElement("button", { className: "dbt-btn", disabled: testAllBusy || conns.length === 0, ...focusRingProps(), onClick: testAllConn }, t("testAll")),
 						React.createElement("button", { className: "dbt-btn", disabled: busy === "export", ...focusRingProps(), onClick: () => setPassReq("export") }, t("exportConns")),
 						React.createElement("button", { className: "dbt-btn", disabled: busy === "import", ...focusRingProps(), onClick: () => { if (fileRef.current) fileRef.current.click(); } }, t("importConns")),
 					),
@@ -1801,6 +1866,8 @@ window.__ModuleLoader__.load({
 				React.createElement("input", { type: "file", accept: ".json", "aria-label": t("pickFile"), style: { display: "none" }, ref: fileRef, onChange: onPickFile }),
 				// 导出/导入就地反馈（与测试反馈同语言：dbt-msg 绿 / dbt-err 红）
 				ioInfo ? React.createElement("div", { role: ioInfo.kind === "ok" ? "status" : "alert", className: ioInfo.kind === "ok" ? "dbt-msg" : "dbt-err" }, ioInfo.text) : null,
+				// 一键测试汇总反馈：全部成功=绿，存在失败=红（role=status 供读屏播报）
+				testAllInfo ? React.createElement("div", { role: "status", className: testAllInfo.kind === "ok" ? "dbt-msg" : "dbt-err" }, testAllInfo.text) : null,
 				conns.length === 0
 					? // 空状态引导：一句引导 + 主按钮直达新增表单（state 切换在 ManageView 内）
 						React.createElement(
@@ -1809,43 +1876,43 @@ window.__ModuleLoader__.load({
 							React.createElement("div", { className: "dbt-muted" }, t("noConnsGuide")),
 							React.createElement("button", { className: "dbt-btn primary", ...focusRingProps(), onClick: () => setEditing("new") }, t("addConn")),
 						)
-					: // iOS inset grouped：一张卡装全部连接，行间 hairline 分隔
+					: // 卡片网格：auto-fill + minmax 让列数与卡片大小随侧栏宽度自适应（窄栏 1 列、宽栏多列）
 						React.createElement(
 						"div",
-						{ className: "dbt-group" },
-						conns.map((c) =>
-							React.createElement(
+						{ className: "dbt-conncards" },
+						conns.map((c) => {
+							const info = testInfo[c.id];
+							return React.createElement(
 								"div",
-								{ className: "dbt-listrow", key: c.id },
-								// 左列：kind 徽标 pill + 名称主行，safeUrl 等宽副行
+								{ className: "dbt-conncard", key: c.id },
+								// 头行：kind 胶囊（带数据库图标，视觉标识更卡片化）+ 名称主行 + 连通状态圆点
 								React.createElement(
 									"div",
-									{ style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 } },
-									React.createElement(
-										"div",
-										{ className: "dbt-row" },
-										// kind 为技术元数据，降次级色避免与名称主级争夺权重（DESIGN.md 次级文字语义）
-										React.createElement("span", { className: "dbt-kindchip", style: { color: "var(--dbt-text-secondary, rgba(235,235,245,.6))", fontFamily: MONO_FONT } }, c.kind),
-										React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
-									),
-									(c.safeUrl || c.host) ? React.createElement(
-										"div",
-										{ className: "dbt-muted", style: { fontFamily: MONO_FONT, fontSize: 11, wordBreak: "break-all" } },
-										c.safeUrl || (c.host + ":" + (c.port || "")),
-									) : null,
-									// 测试反馈三态：✓ 绿=成功 / ✗ 红=失败 / 其余（测试中…）中性灰；DESIGN.md 语义色 红=失败 绿=成功，role=status 供读屏播报
-									testInfo[c.id] ? React.createElement("div", { role: "status", className: testInfo[c.id].startsWith("✓") ? "dbt-msg" : testInfo[c.id].startsWith("✗") ? "dbt-err" : "dbt-muted" }, testInfo[c.id]) : null,
+									{ className: "dbt-conncard-head" },
+									React.createElement("span", { className: "dbt-kindchip", style: { color: "var(--dbt-text-secondary, rgba(235,235,245,.6))", fontFamily: MONO_FONT } }, icon(12), c.kind),
+									React.createElement("strong", { className: "dbt-conncard-name" }, c.name || c.id),
+									// 连通状态圆点：灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败；
+									// 装饰性冗余编码（aria-hidden），语义由下方文字承担
+									React.createElement("span", { className: "dbt-statusdot" + (info && info.state ? " " + info.state : ""), "aria-hidden": "true" }),
 								),
-								// 右列：动作按钮（次要语义，danger 仅删除）
+								// 副行：safeUrl（已脱敏）或 host:port，等宽字体单行省略，title 悬停看全文
+								(c.safeUrl || c.host) ? React.createElement(
+									"div",
+									{ className: "dbt-conncard-sub", title: c.safeUrl || (c.host + ":" + (c.port || "")) },
+									c.safeUrl || (c.host + ":" + (c.port || "")),
+								) : null,
+								// 测试反馈三态：文字 + role=status 播报；配色与状态圆点同源（state）
+								info ? React.createElement("div", { role: "status", className: info.state === "ok" ? "dbt-msg" : info.state === "fail" ? "dbt-err" : "dbt-muted" }, info.text) : null,
+								// 动作行：测试（测试中禁用防重复）+ 编辑 + 删除；margin-top:auto 让窄卡动作行贴底
 								React.createElement(
 									"div",
-									{ className: "dbt-row", style: { flex: "none" } },
-									React.createElement("button", { className: "dbt-btn", disabled: busy === "test", ...focusRingProps(), onClick: () => testConn(c.id) }, t("test")),
+									{ className: "dbt-conncard-actions" },
+									React.createElement("button", { className: "dbt-btn", disabled: !!(info && info.state === "testing"), ...focusRingProps(), onClick: () => testConn(c.id) }, t("test")),
 									React.createElement("button", { className: "dbt-btn", ...focusRingProps(), onClick: () => setEditing(c) }, t("edit")),
 									React.createElement("button", { className: "dbt-btn danger", disabled: busy === "del", ...focusRingProps(), onClick: () => delConn(c) }, t("delete")),
 								),
-							),
-						),
+							);
+						}),
 					),
 				auditOpen
 					? React.createElement(
@@ -4233,6 +4300,7 @@ window.__ModuleLoader__.load({
 			Panel, TransferView, TransferLogView,
 			urlToFieldsPatch,
 			ConnForm, buildEditForm, EMPTY_FORM,
+			ManageView, GrantsView,
 			BrowseTree, BrowsePane, PreviewGrid,
 		};
 		return module.exports;

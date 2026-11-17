@@ -40,7 +40,7 @@
 ## 文件
 
 - `client.js` — 全部前端逻辑（单文件，约 3900 行），内含：
-  - 5 个面板视图：管理（连接 CRUD + 测试 + 审计查看）、授权（项目路径 → 连接 ro/rw/撤销）、浏览（树选库/表 → 点表打开 Navicat 式弹窗：左树 + 结构/数据 Tabs + 分页；portal 挂 body，Esc/遮罩/✕ 关闭）、SQL 控制台（连接/库选择、query/execute/script、危险确认对话框 → challengeId 重发）、传输（库表级数据迁移、写入模式、进度与传输日志）
+  - 5 个面板视图：管理（连接 CRUD + 卡片式自适应列表 + 单连接/一键测试 + 审计查看）、授权（项目路径 → 连接 ro/rw/撤销）、浏览（树选库/表 → 点表打开 Navicat 式弹窗：左树 + 结构/数据 Tabs + 分页；portal 挂 body，Esc/遮罩/✕ 关闭）、SQL 控制台（连接/库选择、query/execute/script、危险确认对话框 → challengeId 重发）、传输（库表级数据迁移、写入模式、进度与传输日志）
   - zh/en 双语词典（zh 默认），经 `ctx.locale.register(NS, ...)` 注册，`useSyncExternalStore` 订阅语言切换；文案一律走 thunk（`title()` / `description()` 每次调用现读），语言变化不需要重注册
   - 危险确认：`runGuarded()` 先发请求，收到 `code:"NEEDS_CONFIRMATION"` 且有 `challengeId` 时弹 `DangerDialog`，用户确认后携 challengeId 重发（challenge 一次性、绑语句、5 分钟有效）
   - REST API 调用走同源前缀 **`/dsh-db-tool/api`**（须与 host 端 `webServer.register` 的 prefix 一致）

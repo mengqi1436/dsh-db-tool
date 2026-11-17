@@ -27,6 +27,7 @@
 import db from 'dmdb';
 import { sqlHead, SQL_READ_HEADS } from '../../guard/index.js';
 import { validPort } from '../sql-shared/common.js';
+import { conciseServerInfo } from '../connect-feedback.js';
 import type {
   AccessMode,
   AdapterFactory,
@@ -436,7 +437,7 @@ export async function createDmAdapter(
         const r = await withConn((c) => c.execute('SELECT BANNER FROM V$VERSION WHERE ROWNUM = 1', [], execOpts));
         const row = r.rows?.[0];
         const banner = row ? String(Object.values(row)[0] ?? '') : '';
-        return { ok: true, serverInfo: `${banner}${fallbackNote()}` };
+        return { ok: true, serverInfo: `${conciseServerInfo('dmdb', banner)}${fallbackNote()}` };
       } catch {
         // V$VERSION 为推断兼容项（部分 DM 版本/驱动可能不可读）：
         // 版本信息尽力而为，连通性本身用 dual 兜底判定，避免误报连接失败

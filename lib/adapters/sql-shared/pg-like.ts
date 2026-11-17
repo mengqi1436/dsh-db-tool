@@ -16,6 +16,7 @@ import type {
   TableSearchHit,
 } from '../types.js';
 import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent, validPort } from './common.js';
+import { conciseServerInfo } from '../connect-feedback.js';
 
 /** 与 pg / gaussdb vendor 驱动结构兼容的最小接口 */
 export interface PgLikeResult {
@@ -433,7 +434,8 @@ export async function createPgLikeAdapter(
       humanize(`${kind} 连接测试`, async () => {
         const res = await pool.query('SELECT version() AS v');
         const v = res.rows[0]?.v;
-        return { ok: true, serverInfo: v == null ? kind : String(v) };
+        // version() 是完整编译信息（110+ 字符），一键测试提示里只展示「产品 + 短版本」
+        return { ok: true, serverInfo: v == null ? kind : conciseServerInfo(kind, String(v)) };
       }),
 
     query: (sql, params, database) =>
