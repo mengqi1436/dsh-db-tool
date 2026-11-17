@@ -319,8 +319,8 @@ export function createMongoTransferWriter(raw: MongoRaw, writeMode: WriteMode = 
       await db.dropCollection(name).catch(() => false);
     },
     // truncate 模式前置清空：deleteMany({}) 全集合删除（mongo 无 TRUNCATE 等价物）
-    beforeLoad: async (t) => {
-      await db.collection(t.name).deleteMany({});
+    beforeLoad: async (name) => {
+      await db.collection(name).deleteMany({});
     },
 
     createTable: async (t) => {

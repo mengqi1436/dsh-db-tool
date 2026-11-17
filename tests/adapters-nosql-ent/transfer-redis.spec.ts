@@ -496,7 +496,7 @@ describe('Redis 写端 DUMP/RESTORE 与 payload 重建', () => {
   it('writeMode truncate：beforeLoad 清掉登记键后正常写入', async () => {
     const c = makeClient();
     const w = writer(c, 'truncate');
-    await w.beforeLoad!(table());
+    await w.beforeLoad!(table().name);
     expect(await w.writeBatch(table(), [row('k', 'string', 0n, '{"v":"x"}')])).toBe(1);
     await w.close();
   });

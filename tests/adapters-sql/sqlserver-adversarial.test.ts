@@ -443,7 +443,7 @@ describe('transfer：beforeLoad 清空降级', () => {
       return { recordset: [], rowsAffected: [0] };
     });
     const w = createSqlserverTransferWriter(new FakePool({}), () => tx, 'dbo', 'truncate');
-    await w.beforeLoad!({ name: 't' } as never);
+    await w.beforeLoad!('t');
     expect(executed).toEqual(['SET LOCK_TIMEOUT 15000', 'DELETE FROM [dbo].[t]', 'SET LOCK_TIMEOUT -1']);
   });
 
@@ -457,7 +457,7 @@ describe('transfer：beforeLoad 清空降级', () => {
         return { recordset: [], rowsAffected: [0] };
       });
       const w = createSqlserverTransferWriter(new FakePool({}), () => tx, 'dbo', 'truncate');
-      const outcome = await probe(() => w.beforeLoad!({ name: 't' } as never));
+      const outcome = await probe(() => w.beforeLoad!('t'));
       console.log(`[证据] ${label}: ${outcome} executed=${JSON.stringify(executed)}`);
       expect(outcome, label).toMatch(/^REJ/);
     }
