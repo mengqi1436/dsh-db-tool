@@ -636,7 +636,7 @@ describe('sqlserver 写端（mock pool + mock 事务）', () => {
     });
     const { pool } = makePool();
     const w = createSqlserverTransferWriter(pool as never, okTx, 'dbo', 'truncate');
-    await w.beforeLoad!({ name: 't', columns: cols3 });
+    await w.beforeLoad!('t');
     // 成功路径必须复位 -1（会话级设置随连接回池，否则 15s 上限残留给后续请求）
     expect(ok.map((c) => c.sql)).toEqual(['SET LOCK_TIMEOUT 15000', 'TRUNCATE TABLE [dbo].[t]', 'SET LOCK_TIMEOUT -1']);
 
@@ -649,7 +649,7 @@ describe('sqlserver 写端（mock pool + mock 事务）', () => {
       }),
     });
     const w2 = createSqlserverTransferWriter(pool as never, badTx, 'dbo', 'truncate');
-    await w2.beforeLoad!({ name: 't', columns: cols3 });
+    await w2.beforeLoad!('t');
     expect(bad.map((c) => c.sql)).toEqual(['SET LOCK_TIMEOUT 15000', 'TRUNCATE TABLE [dbo].[t]', 'DELETE FROM [dbo].[t]', 'SET LOCK_TIMEOUT -1']);
   });
 
@@ -666,7 +666,7 @@ describe('sqlserver 写端（mock pool + mock 事务）', () => {
       const { pool } = makePool();
       const w = createSqlserverTransferWriter(pool as never, tx, 'dbo', 'truncate');
       try {
-        await w.beforeLoad!({ name: 't', columns: cols3 });
+        await w.beforeLoad!('t');
         return { rejected: false, sqls: recs.map((c) => c.sql) };
       } catch {
         return { rejected: true, sqls: recs.map((c) => c.sql) };
@@ -752,5 +752,83 @@ describe('model.ts 分派接入 sqlserver', () => {
     const w = await createTransferWriter(rc, 'insert');
     expect(w.kind).toBe('sqlserver');
     expect(rawMock.openSqlserverRaw).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('sqlserver 结构随迁（IDENTITY / 索引 / 外键）', () => {
+  it('createTable：自增列生成 IDENTITY(1,1) NOT NULL（仅整数/大整数控）', async () => {
+    const { pool, recs, openTx } = makePool();
+    const w = createSqlserverTransferWriter(pool as never, openTx, 'dbo', 'insert');
+    await w.createTable({
+      name: 't',
+      columns: [
+        col({ name: 'id', midType: 'bigint', nullable: false, primaryKey: true, autoIncrement: true }),
+        col({ name: 'v', midType: 'string', length: 10 }),
+      ],
+    });
+    const sql = recs.at(-1)!.sql;
+    expect(sql).toContain('[id] BIGINT IDENTITY(1,1) NOT NULL');
+    expect(sql).toContain('PRIMARY KEY ([id])');
+    // 非整数自增（ pathological midType）不生成 IDENTITY
+    await w.createTable({
+      name: 't2',
+      columns: [col({ name: 'id', midType: 'string', nullable: false, primaryKey: true, autoIncrement: true })],
+    });
+    expect(recs.at(-1)!.sql).not.toContain('IDENTITY');
+  });
+
+  it('writeBatch：含自增列时以 SET IDENTITY_INSERT ON/OFF 包裹（同事务、commit 前 OFF）', async () => {
+    const { pool, recs, openTx } = makePool((sql) => {
+      if (sql.startsWith('INSERT')) return { rowsAffected: [1] };
+      return { recordset: [], rowsAffected: [0] };
+    });
+    const w = createSqlserverTransferWriter(pool as never, openTx, 'dbo', 'insert');
+    await w.writeBatch(
+      {
+        name: 't',
+        columns: [
+          col({ name: 'id', midType: 'bigint', nullable: false, primaryKey: true, autoIncrement: true }),
+          col({ name: 'v', midType: 'string', length: 10 }),
+        ],
+      },
+      [[1, 'a']],
+    );
+    const sqls = recs.map((r) => r.sql);
+    expect(sqls[0]).toBe('SET IDENTITY_INSERT [dbo].[t] ON');
+    expect(sqls[sqls.length - 1]).toBe('SET IDENTITY_INSERT [dbo].[t] OFF');
+    expect(sqls.some((s) => s.startsWith('INSERT INTO'))).toBe(true);
+  });
+
+  it('writeBatch：无自增列不注入 IDENTITY_INSERT', async () => {
+    const { pool, recs, openTx } = makePool((sql) => {
+      if (sql.startsWith('INSERT')) return { rowsAffected: [1] };
+      return { recordset: [], rowsAffected: [0] };
+    });
+    const w = createSqlserverTransferWriter(pool as never, openTx, 'dbo', 'insert');
+    await w.writeBatch({ name: 't', columns: cols3 }, [[1, 'a', null]]);
+    expect(recs.map((r) => r.sql).some((s) => s.includes('IDENTITY_INSERT'))).toBe(false);
+  });
+
+  it('createIndex / createForeignKey / listIndexes：官方形态与去重键', async () => {
+    const { pool, recs, openTx } = makePool(() => ({ recordset: [], rowsAffected: [0] }));
+    const w = createSqlserverTransferWriter(pool as never, openTx, 'dbo', 'insert');
+    await w.createIndex!('t', { name: 'idx_t_v', columns: ['v'], unique: true });
+    await w.createForeignKey!('t', {
+      name: 'fk_t_p',
+      columns: ['pid'],
+      referencedTable: 'p',
+      referencedColumns: ['id'],
+      onDelete: 'CASCADE',
+      onUpdate: 'NO ACTION',
+    });
+    const sqls = recs.map((r) => r.sql);
+    expect(sqls).toContain('CREATE UNIQUE NONCLUSTERED INDEX [idx_t_v] ON [dbo].[t] ([v])');
+    expect(
+      sqls.some((s) =>
+        s.includes('ADD CONSTRAINT [fk_t_p] FOREIGN KEY ([pid]) REFERENCES [dbo].[p] ([id]) ON DELETE CASCADE'),
+      ),
+    ).toBe(true);
+    await w.listIndexes!();
+    expect(recs.at(-1)!.sql).toContain('FROM sys.indexes');
   });
 });

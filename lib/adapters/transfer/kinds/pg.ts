@@ -11,12 +11,15 @@ import type { PgLikeDriver, PgLikePool } from '../../sql-shared/pg-like.js';
 import { pgCfgWithDatabase, pgLikePoolCfg } from '../../sql-shared/pg-like.js';
 import { assertIdent, quoteIdent } from '../../sql-shared/common.js';
 import { safeDefaultExpr } from '../model.js';
+import type { ForeignKeyEdge } from '../deps.js';
 import type {
   MidType,
   ShardKeyType,
   TransferCell,
   TransferColumn,
   TransferCursor,
+  TransferForeignKey,
+  TransferIndex,
   TransferLocator,
   TransferReader,
   TransferRow,
@@ -77,8 +80,43 @@ function materialize(v: unknown): TransferCell {
   return v as TransferCell;
 }
 
+/** 字符串字面量转义（COMMENT ON 等 DDL 内联用） */
+export function pgQuoteLit(s: string): string {
+  return `'${s.replaceAll("'", "''")}'`;
+}
+
+/** 外键参照动作 → SQL 后缀（NO ACTION 省略，与省缺一致） */
+function fkConstraintActions(fk: TransferForeignKey): string {
+  let sql = '';
+  if (fk.onDelete != null && fk.onDelete !== 'NO ACTION') sql += ` ON DELETE ${fk.onDelete}`;
+  if (fk.onUpdate != null && fk.onUpdate !== 'NO ACTION') sql += ` ON UPDATE ${fk.onUpdate}`;
+  return sql;
+}
+
+/** 参照动作码（pg_constraint confdeltype/confupdtype）→ SQL 形态 */
+function fkActionOf(code: string): string {
+  switch (code) {
+    case 'r': return 'RESTRICT';
+    case 'c': return 'CASCADE';
+    case 'n': return 'SET NULL';
+    case 'd': return 'SET DEFAULT';
+    default: return 'NO ACTION';
+  }
+}
+
 export function createPgTransferReader(kind: 'postgresql' | 'gaussdb', pool: PgLikePool, schema: string): TransferReader {
   const q = async (sql: string, params?: unknown[]) => (await pool.query(sql, params ?? [])).rows;
+
+  /** 表 oid（comments/identity 查询共用）；表不存在返回 null */
+  const tableOid = async (table: string): Promise<string | null> => {
+    const rows = await q(
+      `SELECT c.oid AS oid FROM pg_catalog.pg_class c
+       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+       WHERE c.relname = $1 AND n.nspname = $2 AND c.relkind = 'r'`,
+      [table, schema],
+    );
+    return rows[0]?.oid != null ? String(rows[0].oid) : null;
+  };
 
   const describe = async (table: string): Promise<TransferTable> => {
     const tbl = table;
@@ -100,18 +138,54 @@ export function createPgTransferReader(kind: 'postgresql' | 'gaussdb', pool: PgL
       [schema, tbl],
     );
     const pkSet = new Set(pks.map((r) => String(r.column_name)));
-    const columns: TransferColumn[] = rows.map((r) => ({
-      name: String(r.column_name),
-      midType: pgTypeToMid(String(r.data_type)),
-      sourceType: String(r.data_type),
-      nullable: r.is_nullable === 'YES',
-      primaryKey: pkSet.has(String(r.column_name)),
-      length: r.character_maximum_length == null ? undefined : Number(r.character_maximum_length),
-      precision: r.numeric_precision == null ? undefined : Number(r.numeric_precision),
-      scale: r.numeric_scale == null ? undefined : Number(r.numeric_scale),
-      default: r.column_default == null ? null : String(r.column_default),
-    }));
-    return { name: tbl, columns };
+    // 自增列检测：serial 家族的 nextval 默认值 + PG10+ IDENTITY 列（attidentity）
+    const [autoRows, oid] = await Promise.all([
+      q(
+        `SELECT a.attname FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = $1 AND c.relname = $2 AND a.attidentity IS NOT NULL`,
+        [schema, tbl],
+      ),
+      tableOid(tbl),
+    ]);
+    const autoSet = new Set<string>(autoRows.map((r) => String(r.attname)));
+    const tableCommentRows = oid === null ? [] : await q(
+      `SELECT d.description FROM pg_catalog.pg_description d WHERE d.objoid = $1::oid AND d.objsubid = 0`,
+      [oid],
+    );
+    const columnCommentRows = oid === null ? [] : await q(
+      `SELECT a.attname, d.description FROM pg_catalog.pg_description d
+       JOIN pg_catalog.pg_attribute a ON a.attrelid = d.objoid AND a.attnum = d.objsubid
+       WHERE d.objoid = $1::oid AND d.objsubid > 0`,
+      [oid],
+    );
+    const colComments = new Map<string, string>(
+      columnCommentRows.map((r) => [String(r.attname), String(r.description)] as const),
+    );
+    const tableComment = tableCommentRows[0]?.description;
+    const columns: TransferColumn[] = rows.map((r) => {
+      const name = String(r.column_name);
+      const autoByDefault = typeof r.column_default === 'string' && /nextval\(/i.test(r.column_default);
+      return {
+        name,
+        midType: pgTypeToMid(String(r.data_type)),
+        sourceType: String(r.data_type),
+        nullable: r.is_nullable === 'YES',
+        primaryKey: pkSet.has(name),
+        autoIncrement: autoByDefault || autoSet.has(name),
+        length: r.character_maximum_length == null ? undefined : Number(r.character_maximum_length),
+        precision: r.numeric_precision == null ? undefined : Number(r.numeric_precision),
+        scale: r.numeric_scale == null ? undefined : Number(r.numeric_scale),
+        default: r.column_default == null ? null : String(r.column_default),
+        comment: colComments.get(name),
+      };
+    });
+    return {
+      name: tbl,
+      columns,
+      comment: tableComment == null || tableComment === '' ? undefined : String(tableComment),
+    };
   };
 
   return {
@@ -185,6 +259,88 @@ export function createPgTransferReader(kind: 'postgresql' | 'gaussdb', pool: PgL
       return materialize(rows[0]?.k ?? null);
     },
 
+    // 结构随迁：二级索引（排除主键约束索引；表达式/部分索引与非 btree 特型不进清单——
+    // 无法无损映射到目标方言，宁缺毋滥）
+    describeIndexes: async (table) => {
+      const tbl = assertIdent(table, '表名');
+      const rows = await q(
+        `SELECT i.relname AS index_name, ix.indisunique, am.amname, a.attname, k.ord
+         FROM pg_catalog.pg_index ix
+         JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
+         JOIN pg_catalog.pg_class t ON t.oid = ix.indrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+         JOIN pg_catalog.pg_am am ON am.oid = i.relam
+         CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS kk(attnum, ord)
+         LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = kk.attnum
+         WHERE n.nspname = $1 AND t.relname = $2 AND NOT ix.indisprimary
+         ORDER BY i.relname, kk.ord`,
+        [schema, tbl],
+      );
+      const byName = new Map<string, TransferIndex>();
+      for (const r of rows) {
+        const name = String(r.index_name);
+        const col = r.attname == null ? null : String(r.attname);
+        const idx = byName.get(name);
+        if (idx === undefined) {
+          // 首列即为空说明含表达式成分：整只索引不进清单
+          if (col === null) continue;
+          byName.set(name, {
+            name,
+            columns: [col],
+            unique: r.indisunique === true,
+            sourceType: String(r.amname ?? ''),
+          });
+          continue;
+        }
+        if (col === null) {
+          byName.delete(name); // 组成列混有表达式：放弃该索引
+          continue;
+        }
+        idx.columns.push(col);
+      }
+      return [...byName.values()].filter((idx) => idx.sourceType === 'btree');
+    },
+
+    // 结构随迁：出向外键（含参照动作与被引用列；限定同模式内）
+    describeForeignKeys: async (table) => {
+      const tbl = assertIdent(table, '表名');
+      const rows = await q(
+        `SELECT x.conname, ka.attname AS col, ra.attname AS refcol,
+                rt.relname AS ref_table, x.confdeltype, x.confupdtype, ko.ord
+         FROM pg_catalog.pg_constraint x
+         JOIN pg_catalog.pg_class ct ON ct.oid = x.conrelid
+         JOIN pg_catalog.pg_namespace cn ON cn.oid = ct.relnamespace
+         CROSS JOIN LATERAL unnest(x.conkey) WITH ORDINALITY AS ko(attnum, ord)
+         JOIN LATERAL unnest(x.confkey) WITH ORDINALITY AS ro(attnum, rord) ON ro.rord = ko.ord
+         JOIN pg_catalog.pg_attribute ka ON ka.attrelid = x.conrelid AND ka.attnum = ko.attnum
+         JOIN pg_catalog.pg_class rt ON rt.oid = x.confrelid
+         JOIN pg_catalog.pg_namespace rn ON rn.oid = rt.relnamespace
+         JOIN pg_catalog.pg_attribute ra ON ra.attrelid = x.confrelid AND ra.attnum = ro.attnum
+         WHERE x.contype = 'f' AND cn.nspname = $1 AND ct.relname = $2 AND rn.nspname = $1
+         ORDER BY x.conname, ko.ord`,
+        [schema, tbl],
+      );
+      const byName = new Map<string, TransferForeignKey>();
+      for (const r of rows) {
+        const name = String(r.conname);
+        let fk = byName.get(name);
+        if (fk === undefined) {
+          fk = {
+            name,
+            columns: [],
+            referencedTable: String(r.ref_table),
+            referencedColumns: [],
+            onDelete: fkActionOf(String(r.confdeltype ?? 'a')),
+            onUpdate: fkActionOf(String(r.confupdtype ?? 'a')),
+          };
+          byName.set(name, fk);
+        }
+        fk.columns.push(String(r.col));
+        fk.referencedColumns.push(String(r.refcol));
+      }
+      return [...byName.values()];
+    },
+
     close: async () => {
       await pool.end();
     },
@@ -207,17 +363,25 @@ export function createPgTransferWriter(
     dropTable: async (name) => {
       await pool.query(`DROP TABLE ${quoteIdent(schema)}.${quoteIdent(name)}`);
     },
+    // 循环外键表组整组删除：PG 官方单语句多表 DROP 可删除相互外键引用的表组
+    // （https://www.postgresql.org/docs/current/sql-droptable.html，单表删除会被
+    // SQLSTATE 2BP01「other objects depend on it」拦截）
+    dropTables: async (names) => {
+      const list = names.map((n) => `${quoteIdent(schema)}.${quoteIdent(assertIdent(n, '表名'))}`).join(', ');
+      await pool.query(`DROP TABLE ${list}`);
+    },
     // truncate 模式前置清空：TRUNCATE 重置表而无行级日志开销（PG 官方文档 TRUNCATE 节）
     // 同连接先设 lock_timeout（管 MDL 与行锁）：TRUNCATE 被长事务持有时 MDL 等待默认无限；
-    // TRUNCATE 拿不到锁（15s）降级 DELETE（行级锁，同一 lock_timeout 有限等待）
-    beforeLoad: async (table) => {
+    // TRUNCATE 拿不到锁（15s）或被外键引用（官方限制：引用它的表必须同语句一并清空）
+    // 降级 DELETE（行级锁，同一 lock_timeout 有限等待）
+    beforeLoad: async (name) => {
       const client = await pool.connect();
       try {
         await client.query("SET lock_timeout = '15s'");
         try {
-          await client.query(`TRUNCATE TABLE ${quoteIdent(schema)}.${quoteIdent(table.name)}`);
+          await client.query(`TRUNCATE TABLE ${quoteIdent(schema)}.${quoteIdent(name)}`);
         } catch {
-          await client.query(`DELETE FROM ${quoteIdent(schema)}.${quoteIdent(table.name)}`);
+          await client.query(`DELETE FROM ${quoteIdent(schema)}.${quoteIdent(name)}`);
         }
       } finally {
         client.release();
@@ -226,9 +390,12 @@ export function createPgTransferWriter(
 
     createTable: async (table) => {
       const defs = table.columns.map((c) => {
-        let d = `${quoteIdent(c.name)} ${midToPgType(c)}`;
+        // 自增列用 serial 家族（目标端自增继续工作；数据装载后由 afterLoad 校准序列起点）
+        const isAutoInt = c.autoIncrement === true && (c.midType === 'int' || c.midType === 'bigint');
+        const type = isAutoInt ? (c.midType === 'bigint' ? 'BIGSERIAL' : 'SERIAL') : midToPgType(c);
+        let d = `${quoteIdent(c.name)} ${type}`;
         if (!c.nullable) d += ' NOT NULL';
-        if (c.default != null) {
+        if (c.default != null && !isAutoInt) {
           const expr = safeDefaultExpr(c.default);
           if (expr != null) d += ` DEFAULT ${expr}`;
         }
@@ -236,7 +403,113 @@ export function createPgTransferWriter(
       });
       const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => quoteIdent(c.name));
       const pk = pkCols.length > 0 ? `, PRIMARY KEY (${pkCols.join(', ')})` : '';
-      await pool.query(`CREATE TABLE ${quoteIdent(schema)}.${quoteIdent(table.name)} (${defs.join(', ')}${pk})`);
+      const qualified = `${quoteIdent(schema)}.${quoteIdent(table.name)}`;
+      await pool.query(`CREATE TABLE ${qualified} (${defs.join(', ')}${pk})`);
+      // 注释随迁：pg 官方 COMMENT ON 形态（失败仅影响注释本身，由调用方隔离）
+      if (table.comment != null && table.comment !== '') {
+        await pool.query(`COMMENT ON TABLE ${qualified} IS ${pgQuoteLit(table.comment)}`);
+      }
+      for (const c of table.columns) {
+        if (c.comment == null || c.comment === '') continue;
+        await pool.query(
+          `COMMENT ON COLUMN ${qualified}.${quoteIdent(c.name)} IS ${pgQuoteLit(c.comment)}`,
+        );
+      }
+    },
+
+    // 自增序列起点校准：显式插入原值不会推进 serial 序列，不校准则目标端后续插入冲突。
+    // pg_get_serial_sequence 官方接口按列取所属序列，setval 设为 max+1
+    afterLoad: async (table) => {
+      const autos = table.columns.filter(
+        (c) => c.autoIncrement === true && (c.midType === 'int' || c.midType === 'bigint'),
+      );
+      for (const c of autos) {
+        const seqName = assertIdent(c.name, '自增列');
+        const qualified = `${quoteIdent(schema)}.${quoteIdent(table.name)}`;
+        await pool.query(
+          `SELECT setval(pg_get_serial_sequence($1, $2),
+                         GREATEST((SELECT COALESCE(MAX(${quoteIdent(seqName)}), 0) FROM ${qualified}), 0) + 1, false)`,
+          [`${schema}.${table.name}`, c.name],
+        );
+      }
+    },
+
+    // 结构随迁：数据装载完成后建索引（先装数据后建索引为官方批量装载实践）
+    createIndex: async (table, index) => {
+      const idxName = assertIdent(index.name, '索引名');
+      const cols = index.columns.map((c) => quoteIdent(assertIdent(c, '索引列')));
+      const unique = index.unique ? 'UNIQUE ' : '';
+      await pool.query(
+        `CREATE ${unique}INDEX ${quoteIdent(idxName)} ON ${quoteIdent(schema)}.${quoteIdent(assertIdent(table, '表名'))} (${cols.join(', ')})`,
+      );
+    },
+
+    // 结构随迁：全部表数据装载完成后加外键约束（数据齐备后校验才能通过）
+    createForeignKey: async (table, fk) => {
+      const actions = fkConstraintActions(fk);
+      await pool.query(
+        `ALTER TABLE ${quoteIdent(schema)}.${quoteIdent(assertIdent(table, '表名'))} ADD CONSTRAINT ${quoteIdent(assertIdent(fk.name, '约束名'))} `
+        + `FOREIGN KEY (${fk.columns.map((c) => quoteIdent(assertIdent(c, '外键列'))).join(', ')}) `
+        + `REFERENCES ${quoteIdent(schema)}.${quoteIdent(assertIdent(fk.referencedTable, '被引用表'))} `
+        + `(${fk.referencedColumns.map((c) => quoteIdent(assertIdent(c, '被引用列'))).join(', ')})${actions}`,
+      );
+    },
+
+    // 结构随迁：目标端已有索引名清单（统一「表名.索引名」形态，编排层同名去重用；
+    // PG 索引名模式内唯一）
+    listIndexes: async () => {
+      const res = await pool.query(
+        `SELECT t.relname AS table_name, i.relname AS index_name
+         FROM pg_catalog.pg_index ix
+         JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
+         JOIN pg_catalog.pg_class t ON t.oid = ix.indrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+         WHERE n.nspname = $1`,
+        [schema],
+      );
+      return res.rows
+        .map((r: Record<string, unknown>) =>
+          r.table_name == null || r.index_name == null ? '' : `${String(r.table_name)}.${String(r.index_name)}`)
+        .filter((n) => n !== '');
+    },
+
+    // 目标端外键依赖边：pg_constraint 官方目录（conrelid 引用方 / confrelid 被引用方），
+    // 限定本模式内（跨模式引用与选择集排序无关）；name/列清单供结构随迁同名去重
+    listForeignKeys: async () => {
+      const res = await pool.query(
+        `SELECT x.conname, c.relname AS table_name, r.relname AS referenced_table,
+                ka.attname AS col, ra.attname AS refcol, ko.ord
+         FROM pg_catalog.pg_constraint x
+         JOIN pg_catalog.pg_class c ON c.oid = x.conrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         JOIN pg_catalog.pg_class r ON r.oid = x.confrelid
+         JOIN pg_catalog.pg_namespace rn ON rn.oid = r.relnamespace
+         CROSS JOIN LATERAL unnest(x.conkey) WITH ORDINALITY AS ko(attnum, ord)
+         JOIN LATERAL unnest(x.confkey) WITH ORDINALITY AS ro(attnum, rord) ON ro.rord = ko.ord
+         JOIN pg_catalog.pg_attribute ka ON ka.attrelid = x.conrelid AND ka.attnum = ko.attnum
+         JOIN pg_catalog.pg_attribute ra ON ra.attrelid = x.confrelid AND ra.attnum = ro.attnum
+         WHERE x.contype = 'f' AND n.nspname = $1 AND rn.nspname = $1
+         ORDER BY x.conname, ko.ord`,
+        [schema],
+      );
+      const byKey = new Map<string, ForeignKeyEdge & { columns: string[]; referencedColumns: string[] }>();
+      for (const r of res.rows as Record<string, unknown>[]) {
+        const key = String(r.conname);
+        let edge = byKey.get(key);
+        if (edge === undefined) {
+          edge = {
+            name: key,
+            table: String(r.table_name),
+            referencedTable: String(r.referenced_table),
+            columns: [],
+            referencedColumns: [],
+          };
+          byKey.set(key, edge);
+        }
+        edge.columns.push(String(r.col));
+        edge.referencedColumns.push(String(r.refcol));
+      }
+      return [...byKey.values()];
     },
 
     writeBatch: async (table, rows: TransferRow[]) => {

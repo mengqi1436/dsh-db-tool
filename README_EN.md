@@ -96,6 +96,7 @@ Moving table data between databases of the same or different kinds:
 
 - **Write modes**: `insert` (append), `ignore` (skip conflicts), `replace` (overwrite), `truncate` (clear first)
 - **Automatic table creation**: generates DDL from the source table structure when the target table is absent
+- **Dependency ordering**: when the target schema already has foreign keys, operations are ordered automatically — child tables are dropped/cleared first, parent tables are loaded first; mutually referencing table groups are dropped as a group via each database's official mechanism (their load order is not guaranteed and foreign key conflicts fail as-is); target tables referenced by tables outside the selection fail fast with a clear message on overwrite
 - **Paged reads**: ordered cursor (keyset), range, or offset strategies
 - **Progress and history**: live progress push plus per-project transfer history
 - **Transfer configuration**: saved per project, auto-saved, restored after restart, cleared when a connection becomes invalid
@@ -127,7 +128,7 @@ Registers one tab through the official DSH right sidebar (`@deepseek-ai/dsh-clie
 
 | Panel | Purpose |
 | --- | --- |
-| Connections | Create / edit / delete connections, test connectivity, export and import |
+| Connections | Create / edit / delete connections, adaptive card layout, per-connection or one-click connectivity test, export and import |
 | Project grants | Tick ro / rw per connection for the current project |
 | Data browsing | Tree browsing, search, data preview |
 | SQL console | Multi-tab editor, transactions, history, result grid |

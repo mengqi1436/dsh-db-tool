@@ -1,0 +1,862 @@
+{
+  "after-dark-500-initial": {
+    "container": "grid",
+    "gridStyle": "230px 230px",
+    "cards": [
+      {
+        "geo": {
+          "x": 16,
+          "y": 156,
+          "w": 230,
+          "h": 101
+        },
+        "name": "样本 PG 库",
+        "kind": "postgresql",
+        "sub": "postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 254,
+          "y": 156,
+          "w": 230,
+          "h": 101
+        },
+        "name": "本地 SQLite",
+        "kind": "sqlite",
+        "sub": "file:///home/home/conn-card-shots/data/sample.db",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 16,
+          "y": 265,
+          "w": 230,
+          "h": 101
+        },
+        "name": "订单 MySQL",
+        "kind": "mysql",
+        "sub": "mysql://root:***@127.0.0.1:3306/app",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 254,
+          "y": 265,
+          "w": 230,
+          "h": 101
+        },
+        "name": "缓存 Redis",
+        "kind": "redis",
+        "sub": "redis://127.0.0.1:6399/0",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      }
+    ],
+    "rows": [
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "postgresql样本 PG 库未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "sqlite本地 SQLite未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "mysql订单 MySQL未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "redis缓存 Redis未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "数据库对象已选 0 项"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "每批行数"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "表级并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "分片并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "覆盖已有表结构（删除重建，危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": ""
+      }
+    ],
+    "hostWidth": 500
+  },
+  "after-dark-500-tested": {
+    "summary": "一键测试完成：2 个成功，2 个失败",
+    "summaryClass": "dbt-err",
+    "dots": [
+      {
+        "name": "样本 PG 库",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
+      },
+      {
+        "name": "本地 SQLite",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · SQLite 3.54.0 (node:sqlite)"
+      },
+      {
+        "name": "订单 MySQL",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      },
+      {
+        "name": "缓存 Redis",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      }
+    ]
+  },
+  "after-dark-760-initial": {
+    "container": "grid",
+    "gridStyle": "237.328px 237.328px 237.328px",
+    "cards": [
+      {
+        "geo": {
+          "x": 16,
+          "y": 156,
+          "w": 237,
+          "h": 101
+        },
+        "name": "样本 PG 库",
+        "kind": "postgresql",
+        "sub": "postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 261,
+          "y": 156,
+          "w": 237,
+          "h": 101
+        },
+        "name": "本地 SQLite",
+        "kind": "sqlite",
+        "sub": "file:///home/home/conn-card-shots/data/sample.db",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 507,
+          "y": 156,
+          "w": 237,
+          "h": 101
+        },
+        "name": "订单 MySQL",
+        "kind": "mysql",
+        "sub": "mysql://root:***@127.0.0.1:3306/app",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 16,
+          "y": 265,
+          "w": 237,
+          "h": 101
+        },
+        "name": "缓存 Redis",
+        "kind": "redis",
+        "sub": "redis://127.0.0.1:6399/0",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      }
+    ],
+    "rows": [
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "postgresql样本 PG 库未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "sqlite本地 SQLite未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "mysql订单 MySQL未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "redis缓存 Redis未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "数据库对象已选 0 项"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "每批行数"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "表级并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "分片并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "覆盖已有表结构（删除重建，危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": ""
+      }
+    ],
+    "hostWidth": 760
+  },
+  "after-dark-760-tested": {
+    "summary": "一键测试完成：2 个成功，2 个失败",
+    "summaryClass": "dbt-err",
+    "dots": [
+      {
+        "name": "样本 PG 库",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
+      },
+      {
+        "name": "本地 SQLite",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · SQLite 3.54.0 (node:sqlite)"
+      },
+      {
+        "name": "订单 MySQL",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      },
+      {
+        "name": "缓存 Redis",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      }
+    ]
+  },
+  "after-light-500-initial": {
+    "container": "grid",
+    "gridStyle": "230px 230px",
+    "cards": [
+      {
+        "geo": {
+          "x": 16,
+          "y": 156,
+          "w": 230,
+          "h": 101
+        },
+        "name": "样本 PG 库",
+        "kind": "postgresql",
+        "sub": "postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 254,
+          "y": 156,
+          "w": 230,
+          "h": 101
+        },
+        "name": "本地 SQLite",
+        "kind": "sqlite",
+        "sub": "file:///home/home/conn-card-shots/data/sample.db",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 16,
+          "y": 265,
+          "w": 230,
+          "h": 101
+        },
+        "name": "订单 MySQL",
+        "kind": "mysql",
+        "sub": "mysql://root:***@127.0.0.1:3306/app",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 254,
+          "y": 265,
+          "w": 230,
+          "h": 101
+        },
+        "name": "缓存 Redis",
+        "kind": "redis",
+        "sub": "redis://127.0.0.1:6399/0",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      }
+    ],
+    "rows": [
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "postgresql样本 PG 库未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "sqlite本地 SQLite未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "mysql订单 MySQL未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "redis缓存 Redis未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "数据库对象已选 0 项"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "每批行数"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "表级并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "分片并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "覆盖已有表结构（删除重建，危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": ""
+      }
+    ],
+    "hostWidth": 500
+  },
+  "after-light-500-tested": {
+    "summary": "一键测试完成：2 个成功，2 个失败",
+    "summaryClass": "dbt-err",
+    "dots": [
+      {
+        "name": "样本 PG 库",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
+      },
+      {
+        "name": "本地 SQLite",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · SQLite 3.54.0 (node:sqlite)"
+      },
+      {
+        "name": "订单 MySQL",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      },
+      {
+        "name": "缓存 Redis",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      }
+    ]
+  },
+  "after-light-760-initial": {
+    "container": "grid",
+    "gridStyle": "237.328px 237.328px 237.328px",
+    "cards": [
+      {
+        "geo": {
+          "x": 16,
+          "y": 156,
+          "w": 237,
+          "h": 101
+        },
+        "name": "样本 PG 库",
+        "kind": "postgresql",
+        "sub": "postgresql://dbt_shot:***@127.0.0.1:5433/dbt_shot",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 261,
+          "y": 156,
+          "w": 237,
+          "h": 101
+        },
+        "name": "本地 SQLite",
+        "kind": "sqlite",
+        "sub": "file:///home/home/conn-card-shots/data/sample.db",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 507,
+          "y": 156,
+          "w": 237,
+          "h": 101
+        },
+        "name": "订单 MySQL",
+        "kind": "mysql",
+        "sub": "mysql://root:***@127.0.0.1:3306/app",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      },
+      {
+        "geo": {
+          "x": 16,
+          "y": 265,
+          "w": 237,
+          "h": 101
+        },
+        "name": "缓存 Redis",
+        "kind": "redis",
+        "sub": "redis://127.0.0.1:6399/0",
+        "dot": "dbt-statusdot",
+        "statusText": null,
+        "actions": [
+          "测试",
+          "编辑",
+          "删除"
+        ]
+      }
+    ],
+    "rows": [
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "postgresql样本 PG 库未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "sqlite本地 SQLite未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "mysql订单 MySQL未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "redis缓存 Redis未授权只读读写"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "选择连接…样本 PG 库 (postgresql)本地 SQLite (sqlite)订单 MySQL (mysql)缓存 Redis (redis)"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "数据库对象已选 0 项"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "写入模式插入（冲突报错）跳过重复覆盖（按主键）清空后写入（危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "每批行数"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "表级并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "分片并行"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": "覆盖已有表结构（删除重建，危险）"
+      },
+      {
+        "geo": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "text": ""
+      }
+    ],
+    "hostWidth": 760
+  },
+  "after-light-760-tested": {
+    "summary": "一键测试完成：2 个成功，2 个失败",
+    "summaryClass": "dbt-err",
+    "dots": [
+      {
+        "name": "样本 PG 库",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · PostgreSQL 17.11"
+      },
+      {
+        "name": "本地 SQLite",
+        "dot": "dbt-statusdot ok",
+        "statusText": "✓ 连接成功 · SQLite 3.54.0 (node:sqlite)"
+      },
+      {
+        "name": "订单 MySQL",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:3306 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      },
+      {
+        "name": "缓存 Redis",
+        "dot": "dbt-statusdot fail",
+        "statusText": "✗ 连接被拒绝：127.0.0.1:6399 无服务在监听，请确认数据库已启动、主机与端口正确（ECONNREFUSED）"
+      }
+    ]
+  }
+}
