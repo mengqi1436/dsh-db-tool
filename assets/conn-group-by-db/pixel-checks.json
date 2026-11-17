@@ -1,0 +1,106 @@
+[
+  {
+    "file": "after-light-1-w500.png",
+    "size": "1000x1548",
+    "corners": [
+      "255,255,255",
+      "255,255,255",
+      "255,255,255",
+      "255,255,255"
+    ],
+    "bgOk": true,
+    "textRatio": "3.69%",
+    "ok": true
+  },
+  {
+    "file": "after-light-2-w760.png",
+    "size": "1520x1548",
+    "corners": [
+      "255,255,255",
+      "255,255,255",
+      "255,255,255",
+      "255,255,255"
+    ],
+    "bgOk": true,
+    "textRatio": "2.44%",
+    "ok": true
+  },
+  {
+    "file": "before-light-1-w500.png",
+    "size": "1000x1548",
+    "corners": [
+      "255,255,255",
+      "255,255,255",
+      "255,255,255",
+      "255,255,255"
+    ],
+    "bgOk": true,
+    "textRatio": "3.60%",
+    "ok": true
+  },
+  {
+    "file": "before-light-2-w760.png",
+    "size": "1520x1548",
+    "corners": [
+      "255,255,255",
+      "255,255,255",
+      "255,255,255",
+      "255,255,255"
+    ],
+    "bgOk": true,
+    "textRatio": "2.38%",
+    "ok": true
+  },
+  {
+    "file": "after-dark-1-w500.png",
+    "size": "1000x1548",
+    "corners": [
+      "21,21,23",
+      "21,21,23",
+      "21,21,23",
+      "21,21,23"
+    ],
+    "bgOk": true,
+    "textRatio": "3.86%",
+    "ok": true
+  },
+  {
+    "file": "after-dark-2-w760.png",
+    "size": "1520x1548",
+    "corners": [
+      "21,21,23",
+      "21,21,23",
+      "21,21,23",
+      "21,21,23"
+    ],
+    "bgOk": true,
+    "textRatio": "2.55%",
+    "ok": true
+  },
+  {
+    "file": "before-dark-1-w500.png",
+    "size": "1000x1548",
+    "corners": [
+      "21,21,23",
+      "21,21,23",
+      "21,21,23",
+      "21,21,23"
+    ],
+    "bgOk": true,
+    "textRatio": "3.76%",
+    "ok": true
+  },
+  {
+    "file": "before-dark-2-w760.png",
+    "size": "1520x1548",
+    "corners": [
+      "21,21,23",
+      "21,21,23",
+      "21,21,23",
+      "21,21,23"
+    ],
+    "bgOk": true,
+    "textRatio": "2.48%",
+    "ok": true
+  }
+]
