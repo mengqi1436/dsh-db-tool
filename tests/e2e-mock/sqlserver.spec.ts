@@ -441,7 +441,7 @@ describe('1 建连接（面板表单契约 → HTTP → store 脱敏）', () => 
   });
 
   it('编辑 URL 连接：只改端口（密码留空）时保留真实密码，*** 不落盘、连接仍可连', async () => {
-    // 前端 ConnForm 编辑 URL 连接时表单里就是脱敏值（client.js:1255 url: c.safeUrl），
+    // 前端 ConnDialog 编辑 URL 连接时表单里就是脱敏值（client.js:1255 url: c.safeUrl），
     // 用户只改端口 → draftBody 判定 url !== 回填值 → PUT 发含 *** 的 URL（client.js:1315）。
     // 服务端 mergeUrlCredentials 在无 urlUser/urlPassword 时原样返回该串（connections.ts:112），
     // update 随后把它写进 secrets.url（connections.ts:293-296）→ 真密码被 *** 覆盖。

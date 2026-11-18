@@ -1,5 +1,5 @@
 /**
- * Oracle 前端连接参数接线测试（离线；浅渲染 ConnForm）。
+ * Oracle 前端连接参数接线测试（离线；浅渲染 ConnDialog）。
  *
  * 背景：Oracle 连老服务器报 NJS-138（oracledb Thin 模式不支持其 TNS 协议版本），Navicat
  * 因走 OCI（Instant Client / Thick 模式）能连。本工具此前既没有 OCI 库路径入口，第三格
@@ -118,7 +118,7 @@ beforeAll(() => {
 /** 上一次挂载的表单 props：供 rerenderForm 复用（模拟 React 的重新渲染） */
 let lastProps: any = null;
 
-/** 渲染 oracle 的 ConnForm（分字段模式），返回树 */
+/** 渲染 oracle 的 ConnDialog（Navicat 式弹窗，分字段模式），返回树 */
 function renderForm(initial?: any): El {
 	reactStub.reset();
 	// 不传 initial 时 freshForm() 的 kind 默认是 mysql，故必须显式给 oracle 才会渲染专有控件
@@ -128,17 +128,30 @@ function renderForm(initial?: any): El {
 		onSubmit: () => {},
 		onCancel: () => {},
 	};
-	return reactStub.render(T.ConnForm, lastProps);
+	return reactStub.render(T.ConnDialog, lastProps);
 }
 
 /** 保留 React 状态槽重渲染：用于「点击/切换后再断言」（stub 的 setState 只改槽不自动渲染） */
 function rerenderForm(): El {
-	return reactStub.render(T.ConnForm, lastProps);
+	return reactStub.render(T.ConnDialog, lastProps);
 }
 
 /** 按 aria-label 找控件 */
 function byLabel(tree: El, label: string): El | undefined {
 	return collect(tree).find((n) => n.props && n.props['aria-label'] === label);
+}
+
+/** 点击左导航页签（按页签文字），返回切换后的树 */
+function openTab(tree: El, label: string): El {
+	const tab = collect(tree).find((n) => n.props && n.props.role === 'tab' && flatText(n) === label);
+	if (!tab) throw new Error('未找到页签: ' + label);
+	tab.props.onClick();
+	return rerenderForm();
+}
+
+/** 底部操作条的「测试连接」按钮（测试进行中文案会变，两种都识别） */
+function testButton(tree: El): El | undefined {
+	return collect(tree).find((n) => n.type === 'button' && (flatText(n) === probe.t('testConnection') || flatText(n) === probe.t('testing')));
 }
 
 describe('1 服务名 / SID 选择（对齐 Navicat 的连接标识）', () => {
@@ -174,61 +187,63 @@ describe('1 服务名 / SID 选择（对齐 Navicat 的连接标识）', () => {
 	});
 });
 
-describe('2 高级选项（OCI 库路径）折叠区', () => {
-	it('默认收起：只留「高级选项」入口，OCI 输入与提示不渲染', () => {
+describe('2 OCI 库路径（「高级」页，Navicat 式页签分区）', () => {
+	it('默认落「常规」页：OCI 输入与提示不渲染，也不再有旧版「高级选项」折叠按钮', () => {
 		const tree = renderForm();
-		const toggle = byLabel(tree, probe.t('advancedOra'));
-		expect(toggle, '缺 oracle「高级选项」入口').toBeDefined();
-		expect(toggle!.props['aria-expanded']).toBe(false);
-		expect(byLabel(tree, probe.t('fieldsOciLibDir')), '收起时不应渲染 OCI 输入').toBeUndefined();
+		expect(byLabel(tree, probe.t('fieldsOciLibDir')), '常规页不应渲染 OCI 输入').toBeUndefined();
 		expect(collect(tree).map((n) => flatText(n)).join('|')).not.toContain(probe.t('ociHint'));
+		// 旧版折叠入口（aria-expanded 开合）已被左导航页签取代
+		expect(collect(tree).some((n) => n.props && n.props['aria-expanded'] !== undefined)).toBe(false);
+		// oracle 的页签集合 = 常规 + 高级（oracle 无 SSL 页：ssl 开关对其不生效）
+		const tabs = collect(tree).filter((n) => n.props && n.props.role === 'tab').map((n) => flatText(n));
+		expect(tabs).toEqual([probe.t('connTabGeneral'), probe.t('connTabAdvanced')]);
+		expect(collect(tree).find((n) => n.props && n.props.role === 'tab' && flatText(n) === probe.t('connTabGeneral'))!.props['aria-selected']).toBe(true);
 	});
 
-	it('展开后：OCI 输入 + 行动指引出现；可再收起（双向折叠）', () => {
-		const tree = renderForm();
-		byLabel(tree, probe.t('advancedOra'))!.props.onClick();
-		const expanded = rerenderForm();
-		expect(byLabel(expanded, probe.t('advancedOra'))!.props['aria-expanded']).toBe(true);
+	it('点击「高级」页签：OCI 输入 + 行动指引出现；切回「常规」再隐藏（页签双向切换）', () => {
+		const expanded = openTab(renderForm(), probe.t('connTabAdvanced'));
 		expect(byLabel(expanded, probe.t('fieldsOciLibDir')), '缺 OCI 库路径输入').toBeDefined();
 		expect(collect(expanded).map((n) => flatText(n)).join('|')).toContain(probe.t('ociHint'));
-		byLabel(expanded, probe.t('advancedOra'))!.props.onClick();
-		const collapsed = rerenderForm();
+		const collapsed = openTab(expanded, probe.t('connTabGeneral'));
 		expect(byLabel(collapsed, probe.t('fieldsOciLibDir'))).toBeUndefined();
 	});
 
-	it('编辑已有连接且存过 ociLibDir → 默认展开（让用户看到自己存过什么）', () => {
+	it('编辑已有连接且存过 ociLibDir → 默认落「高级」页（让用户看到自己存过什么）', () => {
 		const tree = renderForm({ ...T.EMPTY_FORM, kind: 'oracle', mode: 'fields', ociLibDir: '/opt/ic' });
-		expect(byLabel(tree, probe.t('advancedOra'))!.props['aria-expanded']).toBe(true);
 		expect(byLabel(tree, probe.t('fieldsOciLibDir'))!.props.value).toBe('/opt/ic');
 	});
 
-	it('kind 切走再切回：oracle 高级项「值」重置（不残留旧值误导；折叠开合态与 sqlserver 同口径，不随 kind 重置）', () => {
+	it('kind 切走再切回：oracle 高级项「值」重置（不残留旧值误导；所在页签与 sqlserver 同口径，不随 kind 重置）', () => {
 		const tree = renderForm({ ...T.EMPTY_FORM, kind: 'oracle', mode: 'fields', serviceType: 'sid', ociLibDir: '/opt/ic' });
-		const kindSel = byLabel(tree, probe.t('fieldKind'))!;
+		// kind 下拉在「常规」页：先切过去再操作
+		const general = openTab(tree, probe.t('connTabGeneral'));
+		const kindSel = byLabel(general, probe.t('fieldKind'))!;
 		kindSel.props.onChange({ target: { value: 'mysql' } });
 		const asMysql = rerenderForm();
 		expect(byLabel(asMysql, probe.t('fieldsServiceType'))).toBeUndefined();
 		kindSel.props.onChange({ target: { value: 'oracle' } });
 		const backToOra = rerenderForm();
 		expect(byLabel(backToOra, probe.t('fieldsServiceType'))!.props.value).toBe('service');
-		expect(byLabel(backToOra, probe.t('fieldsOciLibDir'))!.props.value).toBe(''); // 值已重置（空=Thin 模式）
+		// OCI 路径在「高级」页：值已重置（空=Thin 模式）
+		const advanced = openTab(backToOra, probe.t('connTabAdvanced'));
+		expect(byLabel(advanced, probe.t('fieldsOciLibDir'))!.props.value).toBe('');
 	});
 });
 
 describe('3 提交：draftBody 必须带出这些参数', () => {
-	/** 通过点击「测试」按钮触发 testDraft → draftBody → fetch，从请求体反查提交内容 */
+	/** 通过点击底部「测试连接」按钮触发 testDraft → draftBody → fetch，从请求体反查提交内容 */
 	async function submittedOf(initial: any): Promise<any> {
 		reactStub.reset();
 		fetchCalls.length = 0;
-		const tree = reactStub.render(T.ConnForm, {
+		const tree = reactStub.render(T.ConnDialog, {
 			initial,
 			busy: false,
 			onSubmit: () => {},
 			onCancel: () => {},
 		});
-		const testBtn = collect(tree).find((n) => n.type === 'button' && flatText(n) === probe.t('test'));
-		if (!testBtn) throw new Error('未找到「测试」按钮');
-		await testBtn.props.onClick();
+		const btn = testButton(tree);
+		if (!btn) throw new Error('未找到「测试连接」按钮');
+		await btn.props.onClick();
 		const call = fetchCalls.find((c) => String(c.url).includes('test-draft'));
 		if (!call) throw new Error('未发出 test-draft 请求');
 		return call.body;
@@ -284,11 +299,11 @@ describe('4 URL 方式切回分字段：oracle 专有参数反解不丢', () => 
 		expect(byLabel(fields, probe.t('fieldsServiceType'))!.props.value).toBe('sid');
 		expect(byLabel(fields, probe.t('fieldsSid') + probe.t('requiredMark'))!.props.value).toBe('XE');
 
-		// 提交带出（同一状态槽里点「测试」，走真实 draftBody 路径）
+		// 提交带出（同一状态槽里点「测试连接」，走真实 draftBody 路径）
 		fetchCalls.length = 0;
-		const testBtn = collect(fields).find((n) => n.type === 'button' && flatText(n) === probe.t('test'));
-		expect(testBtn, '未找到「测试」按钮').toBeDefined();
-		await testBtn!.props.onClick();
+		const btn = testButton(fields);
+		expect(btn, '未找到「测试连接」按钮').toBeDefined();
+		await btn!.props.onClick();
 		const call = fetchCalls.find((c) => String(c.url).includes('test-draft'));
 		expect(call, '未发出 test-draft 请求').toBeDefined();
 		expect(call!.body.fields.serviceType).toBe('sid');

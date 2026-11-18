@@ -1,5 +1,21 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+本版是「连接弹窗对齐 Navicat」：连接配置从替换列表的内联表单卡重构为 Navicat 连接窗口形态的覆盖层弹窗，弹窗浮在连接卡片列表之上。
+
+### 新增(连接管理)
+
+- **Navicat 式连接配置弹窗**：标题栏（新建连接/编辑连接 + 关闭）+ 左导航页签「常规 / SSL / 高级」+ 底部操作条（测试连接靠左，保存/取消靠右），结构与 Navicat 连接窗口一致。页签按库显隐与 Navicat 对齐：「SSL」页签只在 ssl 真实生效的库出现（MySQL / PostgreSQL / GaussDB / MongoDB / Redis，与 Navicat SSL 页签库集合一致；SQL Server / Oracle / 达梦 / SQLite 的加密出口在「高级」页或连接 URL，不放不生效的开关）。页签切换不丢任何页的已填值（表单状态跨页共享，隐藏页照样回填与提交）。
+- **SQL Server TLS 族与 Oracle OCI 库路径迁入「高级」页**：原先的「高级选项」折叠区（加密模式/最低 TLS 版本/信任服务器证书/证书校验名/受信 CA；OCI 库路径）整体改为页签分区，对齐 Navicat 把 Use encryption / Trust Server Certificate 放在高级页的习惯；连接 ID（授权与审计的稳定键）也收进「高级」页，编辑态只读不变。
+- **术语对齐 Navicat**：PostgreSQL / GaussDB 的库名输入改称「初始数据库」（Navicat Initial Database）；底部「测试连接」按钮与既有连接成功/失败文案同源，测试结果在操作条内联展示（读屏 role=status/alert 保留）。
+- **弹窗浮层**：打开弹窗不再替换连接列表，卡片列表保持在弹窗背后（与删除确认、口令弹窗同一挂载惯用法）；Escape / 标题栏 × / 取消三路退出，Tab 焦点在弹窗内循环锁定，点击遮罩空白不关闭（防误触丢配置）。
+
+### 测试
+
+- `tests/client/conn-dialog.spec.ts` 新增 11 条弹窗契约：覆盖层 + role=dialog + aria-modal、退出三路（×/取消/Escape，遮罩空白不关闭）、SSL 页签按库显隐集合、页签切换不丢值、连接 ID 高级页只读语义、存过高级字段默认落「高级」页、底部操作条按钮序与 busy 态、pg 系「初始数据库」术语、键盘契约源码存在。
+- `tests/client/sqlserver-tls-form.spec.ts`、`tests/client/oracle-oci-form.spec.ts` 适配页签结构（折叠区断言改为页签断言，draftBody 提交与回填契约原样保留）。
+
 ## 1.9.18
 
 本版是仓库清理小版本：移除仓库内已迁移的技能文档副本，代码与依赖零改动。
