@@ -411,3 +411,23 @@ describe('previewRows（offset 翻页）', () => {
     expect(findSkip(coll)).toHaveBeenCalledWith(0);
   });
 });
+
+describe('describeTable（视图跳过索引）', () => {
+  it('视图（type=view）不再调 indexes（listIndexes 对视图报 CommandNotSupportedOnView，浏览树点开视图不再整页报错）', async () => {
+    const { client, dbObj, coll } = makeClient([{ _id: 'x', n: 1 }]);
+    dbObj.listCollections.mockReturnValue({
+      toArray: vi.fn(async () => [{ name: 'v_users', type: 'view' }]),
+    });
+    const a = await createMongoAdapter(conn, { client });
+    const cols = await a.describeTable('v_users');
+    expect(coll.indexes).not.toHaveBeenCalled();
+    // 字段推断照常（视图可 find）
+    expect(cols.map((c) => c.name)).toEqual(['_id', 'n']);
+  });
+  it('集合仍调 indexes 注入索引注释（行为不变）', async () => {
+    const { client, coll } = makeClient([{ _id: 'x', n: 1 }]);
+    const a = await createMongoAdapter(conn, { client });
+    await a.describeTable('users');
+    expect(coll.indexes).toHaveBeenCalled();
+  });
+});

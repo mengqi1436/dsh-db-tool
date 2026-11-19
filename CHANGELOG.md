@@ -1,5 +1,18 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+### 新增(数据浏览)
+
+- **数据浏览支持视图**：目录树在表之外同时列出视图，点开即可查看视图结构与预览视图数据（视图与表共用同一 describeTable / previewRows 路径）。此前 MySQL / PostgreSQL / GaussDB / SQLite / SQL Server 的视图已在树中（含 `· VIEW` 标注），本次补齐缺口：
+  - **Oracle / 达梦**：`listTables` 由只查 `all_tables` / `ALL_TABLES` 改为表 + 视图一次取全（UNION ALL 派生表统一排序与 500 行截断），视图标 `VIEW` 类型并带注释（`all_tab_comments` / `ALL_TAB_COMMENTS` 同源）；`listDatabases` 的 schema 清单改为 `all_tables` ∪ `all_views`，只有视图没有表的 schema 此前整层不可见。
+  - **MongoDB**：`describeTable` 对视图跳过 `listIndexes`（视图无索引，此前点开视图结构页整体报 CommandNotSupportedOnView 错误），字段抽样推断照常。
+
+### 测试
+
+- `tests/adapters-nosql-ent/oracle-dmdb.spec.ts`：Oracle / 达梦 `listTables`、`listDatabases` 契约改为表 + 视图取全断言（SQL 含 `all_views` / `ALL_VIEWS`、视图行类型 `VIEW`、UNION 双分支绑定 owner 两次）。
+- `tests/adapters-nosql-ent/mongodb.spec.ts` 新增 2 条：视图 describeTable 不调 `indexes`、集合 describeTable 索引注入行为不变。
+
 ## 1.9.19
 
 本版是「连接弹窗对齐 Navicat」：连接配置从替换列表的内联表单卡重构为 Navicat 连接窗口形态的覆盖层弹窗，弹窗浮在连接卡片列表之上。

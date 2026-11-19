@@ -73,9 +73,9 @@ DDL、`FLUSHALL`、`dropDatabase` 等语句先返回 `NEEDS_CONFIRMATION`，不�
 
 ### 数据浏览
 
-- 连接 → 库 → schema → 表四级树形展开
+- 连接 → 库 → schema → 表/视图树形展开
 - 库筛选 + 跨库表名模糊搜索（MySQL / PostgreSQL / GaussDB 走 `information_schema` 原生查询，其余库回退内存过滤）
-- 表结构查看与数据预览，结果网格支持排序、分页、单元格复制
+- 表/视图结构查看与数据预览，结果网格支持排序、分页、单元格复制
 
 ### SQL 控制台
 
