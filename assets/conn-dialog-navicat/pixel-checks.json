@@ -1,0 +1,326 @@
+[
+  {
+    "file": "after-edit-sqlserver-advanced-dark-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0286,
+    "textVisible": true
+  },
+  {
+    "file": "after-edit-sqlserver-advanced-dark-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0257,
+    "textVisible": true
+  },
+  {
+    "file": "after-edit-sqlserver-advanced-light-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.4071,
+    "textVisible": true
+  },
+  {
+    "file": "after-edit-sqlserver-advanced-light-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.3499,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-advanced-dark-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0264,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-advanced-dark-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0234,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-advanced-light-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.2439,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-advanced-light-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.2206,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-general-dark-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0119,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-general-dark-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0082,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-general-light-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.3014,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-general-light-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.2705,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-ssl-dark-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0105,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-ssl-dark-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "12,12,13",
+      "12,12,13",
+      "12,12,13",
+      "12,12,13"
+    ],
+    "expectedCorners": "12,12,13",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.0068,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-ssl-light-w500.png",
+    "size": [
+      1000,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.246,
+    "textVisible": true
+  },
+  {
+    "file": "after-newconn-ssl-light-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "153,153,153",
+      "153,153,153",
+      "153,153,153",
+      "153,153,153"
+    ],
+    "expectedCorners": "153,153,153",
+    "overlayScene": true,
+    "cornerOk": true,
+    "textRatio": 0.2226,
+    "textVisible": true
+  },
+  {
+    "file": "before-newconn-form-dark-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "21,21,23",
+      "21,21,23",
+      "21,21,23",
+      "21,21,23"
+    ],
+    "expectedCorners": "21,21,23",
+    "overlayScene": false,
+    "cornerOk": true,
+    "textRatio": 0.009,
+    "textVisible": true
+  },
+  {
+    "file": "before-newconn-form-light-w760.png",
+    "size": [
+      1520,
+      1548
+    ],
+    "corners": [
+      "255,255,255",
+      "255,255,255",
+      "255,255,255",
+      "255,255,255"
+    ],
+    "expectedCorners": "255,255,255",
+    "overlayScene": false,
+    "cornerOk": true,
+    "textRatio": 0.0143,
+    "textVisible": true
+  }
+]

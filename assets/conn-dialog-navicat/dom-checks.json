@@ -1,0 +1,70 @@
+{
+  "dark-w760-newconn": {
+    "tabs": [
+      "常规",
+      "SSL",
+      "高级"
+    ],
+    "footerButtons": [
+      "测试连接",
+      "保存",
+      "取消"
+    ],
+    "hasOverlayDialog": true,
+    "roleDialog": true,
+    "ariaModal": "true",
+    "panelVisible": true,
+    "cardsStillThere": 4
+  },
+  "dark-w500-newconn": {
+    "tabs": [
+      "常规",
+      "SSL",
+      "高级"
+    ],
+    "footerButtons": [
+      "测试连接",
+      "保存",
+      "取消"
+    ],
+    "hasOverlayDialog": true,
+    "roleDialog": true,
+    "ariaModal": "true",
+    "panelVisible": true,
+    "cardsStillThere": 4
+  },
+  "light-w760-newconn": {
+    "tabs": [
+      "常规",
+      "SSL",
+      "高级"
+    ],
+    "footerButtons": [
+      "测试连接",
+      "保存",
+      "取消"
+    ],
+    "hasOverlayDialog": true,
+    "roleDialog": true,
+    "ariaModal": "true",
+    "panelVisible": true,
+    "cardsStillThere": 4
+  },
+  "light-w500-newconn": {
+    "tabs": [
+      "常规",
+      "SSL",
+      "高级"
+    ],
+    "footerButtons": [
+      "测试连接",
+      "保存",
+      "取消"
+    ],
+    "hasOverlayDialog": true,
+    "roleDialog": true,
+    "ariaModal": "true",
+    "panelVisible": true,
+    "cardsStillThere": 4
+  }
+}

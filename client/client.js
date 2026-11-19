@@ -116,10 +116,10 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "密码",
 			passwordSaved: "已保存（留空保持不变）",
 			fieldsDatabase: "数据库名",
+			fieldsInitialDatabase: "初始数据库",
 			fieldsService: "服务名",
 			fieldsSid: "SID",
 			fieldsServiceType: "连接标识类型（服务名/SID）",
-			advancedOra: "高级选项",
 			fieldsOciLibDir: "OCI 库路径（Oracle Instant Client 目录，如 /opt/oracle/instantclient_19_19 或 C:\\oracle\\instantclient_19_19）",
 			ociHint: "服务器报 NJS-138（Thin 模式不支持该服务器版本，Navicat 走 OCI 可连）时填写本机 Oracle Instant Client 目录启用 Thick 模式；库位数须与宿主一致，客户端版本需兼容服务器版本。",
 			fieldsTlsMinVersion: "最低 TLS 版本（连老实例报协议族错误时才需要下探）",
@@ -134,7 +134,15 @@ window.__ModuleLoader__.load({
 			fieldsServerName: "证书校验用名称（用 IP 连接但证书签给域名时填）",
 			fieldsCaCert: "受信 CA（PEM 文件路径或证书文本，推荐）",
 			tlsHint: "证书类错误请装 CA（推荐）或勾选信任证书；协议版本类错误请下探最低 TLS 版本。两者解法不同，不能互相替代。",
-			advancedTls: "高级选项",
+			// 连接配置弹窗（Navicat 式：标题栏 + 左导航页签「常规/SSL/高级」+ 底部「测试连接」操作条）
+			connTabGeneral: "常规",
+			connTabSsl: "SSL",
+			connTabAdvanced: "高级",
+			connFormSections: "连接配置分区",
+			testConnection: "测试连接",
+			dialogClose: "关闭",
+			sslHintGeneric: "开启加密传输；握手与证书校验策略沿用该库适配器默认值，细粒度参数可通过连接 URL 配置。",
+			advancedIdHint: "连接 ID 是项目授权与审计引用的稳定键：编辑态不可修改，新建留空自动生成。",
 			ssl: "启用 SSL",
 			test: "测试",
 			testing: "测试中…",
@@ -373,10 +381,10 @@ window.__ModuleLoader__.load({
 			fieldsPassword: "Password",
 			passwordSaved: "Saved (leave blank to keep)",
 			fieldsDatabase: "Database",
+			fieldsInitialDatabase: "Initial database",
 			fieldsService: "Service Name",
 			fieldsSid: "SID",
 			fieldsServiceType: "Connect identifier type (service name/SID)",
-			advancedOra: "Advanced options",
 			fieldsOciLibDir: "OCI library path (Oracle Instant Client directory, e.g. /opt/oracle/instantclient_19_19 or C:\\oracle\\instantclient_19_19)",
 			ociHint: "Fill this in when the server reports NJS-138 (Thin mode does not support that server version; Navicat connects via OCI) to enable Thick mode with a local Oracle Instant Client directory. The library bitness must match the host, and the client version must be compatible with the server.",
 			fieldsTlsMinVersion: "Minimum TLS version (lower it only when an old instance reports a protocol error)",
@@ -390,7 +398,15 @@ window.__ModuleLoader__.load({
 			fieldsServerName: "Name to validate (set when connecting by IP but the certificate names a host)",
 			fieldsCaCert: "Trusted CA (PEM file path or certificate text, recommended)",
 			tlsHint: "Certificate errors: install the CA (recommended) or trust the certificate. Protocol-version errors: lower the minimum TLS version. These are different fixes and cannot substitute for each other.",
-			advancedTls: "Advanced options",
+			// Connection dialog (Navicat-style: title bar + left nav tabs General/SSL/Advanced + footer Test Connection)
+			connTabGeneral: "General",
+			connTabSsl: "SSL",
+			connTabAdvanced: "Advanced",
+			connFormSections: "Connection sections",
+			testConnection: "Test Connection",
+			dialogClose: "Close",
+			sslHintGeneric: "Enables encrypted transport; handshake and certificate policy follow this adapter's defaults, fine-grained parameters can be set via the connection URL.",
+			advancedIdHint: "The connection ID is the stable key referenced by project grants and audit: it cannot change when editing; leave blank to auto-generate when creating.",
 			ssl: "Enable SSL",
 			test: "Test",
 			testing: "Testing…",
@@ -722,6 +738,18 @@ window.__ModuleLoader__.load({
 				".dbt-dialog{background:var(--dbt-dialog-bg);color:inherit;border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:16px;max-width:460px;width:90%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;font-size:13px;-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);box-shadow:var(--dbt-shadow);}",
 				".dbt-dialog pre{background:var(--dbt-surface-strong);border-radius:var(--dbt-radius-pill);padding:8px;font-family:var(--dbt-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto;}",
 				".dbt-dialog .dbt-row{justify-content:flex-end;}",
+				/* ===== 连接配置弹窗（Navicat 式：标题栏 + 左导航页签 + 内容区 + 底部操作条） ===== */
+				".dbt-conndialog{max-width:640px;width:94%;padding:0;gap:0;overflow:hidden;}",
+				".dbt-connhead{flex:none;display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--dbt-separator);}",
+				".dbt-connclose{flex:none;margin-left:auto;width:24px;height:24px;box-sizing:border-box;border:none;background:transparent;color:inherit;border-radius:var(--dbt-radius-pill);font-size:14px;line-height:1;cursor:pointer;transition:background .18s var(--dbt-ease);}",
+				".dbt-connmain{flex:1;min-height:0;display:flex;}",
+				".dbt-connnav{flex:none;width:100px;display:flex;flex-direction:column;gap:2px;padding:10px;border-right:1px solid var(--dbt-separator);}",
+				".dbt-connnav button{display:flex;align-items:center;height:30px;box-sizing:border-box;border:none;background:transparent;color:inherit;font-size:12px;line-height:1;padding:0 10px;border-radius:var(--dbt-radius-pill);cursor:pointer;text-align:left;font-family:inherit;transition:background .18s var(--dbt-ease);}",
+				".dbt-connnav button.active{background:var(--dbt-seg-active);font-weight:600;}",
+				".dbt-connbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;padding:12px;overflow:auto;max-height:420px;}",
+				".dbt-connfoot{flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--dbt-separator);}",
+				".dbt-connfoot .dbt-footmsg{flex:1;min-width:0;font-size:12px;white-space:pre-wrap;}",
+				"@media (hover:hover) and (pointer:fine){.dbt-connnav button:hover,.dbt-connclose:hover{background:var(--dbt-surface-strong);}}",
 				"/* ===== 授权/连接列表：inset grouped（一张卡多行 hairline） ===== */",
 				".dbt-group{background:var(--dbt-surface);border-radius:var(--dbt-radius-card);overflow:hidden;display:flex;flex-direction:column;}",
 				".dbt-listrow{display:flex;gap:8px;align-items:center;min-height:var(--dbt-row-h,32px);box-sizing:border-box;padding:6px 12px;border-bottom:1px solid var(--dbt-separator);transition:background .18s var(--dbt-ease);}",
@@ -945,7 +973,7 @@ window.__ModuleLoader__.load({
 		// oracle.serviceType 默认 'service'（服务名）；'sid' 时服务端拼完整 TNS 描述符。
 		const EMPTY_FORM = { id: "", kind: "mysql", name: "", mode: "url", url: "", urlUser: "", urlPassword: "", host: "", port: "", user: "", password: "", database: "", serviceType: "service", ociLibDir: "", tlsMinVersion: "", encrypt: "auto", trustServerCertificate: false, serverName: "", caCert: "", ssl: false };
 
-		/** 是否有任一高级选项字段被存过（编辑时据此默认展开高级区，避免用户看不到自己存过的配置）：
+		/** 是否有任一高级选项字段被存过（编辑时据此默认落在「高级」页，避免用户看不到自己存过的配置）：
 		 *  sqlserver 的 TLS 族 + oracle 的 OCI 库目录族 */
 		function hasAdvancedTls(meta) {
 			if (!meta) return false;
@@ -953,10 +981,10 @@ window.__ModuleLoader__.load({
 				|| (meta.encrypt !== undefined && meta.encrypt !== null && meta.encrypt !== "" && meta.encrypt !== "auto"));
 		}
 
-		// 高级 TLS 折叠区容器 id（aria-controls 指过来；单表单实例，固定值足够）
-		const TLS_ADVANCED_ID = "dbt-tls-advanced";
-		// oracle 高级选项（OCI 库路径）折叠区容器 id
-		const ORA_ADVANCED_ID = "dbt-ora-advanced";
+		// ssl 开关真实生效的库（适配器侧消费 conn.ssl 的全部种类）。连接弹窗的「SSL」页签只对这些库出现——
+		// 与 Navicat 的 SSL 页签库集合一致（Navicat 18 手册：SSL 仅 MySQL/PostgreSQL/MariaDB/MongoDB/Redis）；
+		// 其余库（sqlserver/oracle/dmdb/sqlite）的加密出口在「高级」页或连接 URL，不放一个不生效的开关。
+		const SSL_TAB_KINDS = ["mysql", "postgresql", "gaussdb", "mongodb", "redis"];
 
 		// 口令弹窗（ManageView 局部复用，导出/导入共用）：键盘契约对齐 DangerDialog
 		// （Escape=取消、Tab 在对话框内循环锁定）；差异：初始焦点在口令输入框，确认按钮主色。
@@ -1507,7 +1535,7 @@ window.__ModuleLoader__.load({
 
 	// UI 组件渲染层无单元断言（纯函数层止于此），禁用至文件尾
 	// Stryker disable all
-	// 键盘焦点环（单一事实源，ConnForm/ManageView/treerow/preview tr 共用）：样式块本轮冻结、
+	// 键盘焦点环（单一事实源，ConnDialog/ManageView/treerow/preview tr 共用）：样式块本轮冻结、
 	// :focus-visible 无内联 style 通道，focus 事件中探测键盘聚焦后直写 accent 内缩描边，blur 还原。
 	// selfCheck=true 用于行容器（tr）：子元素聚焦冒泡（React onFocus 走 focusin）时忽略，仅行自身生效。
 	function focusRingProps(selfCheck) {
@@ -1523,17 +1551,22 @@ window.__ModuleLoader__.load({
 			onBlur: (e) => { e.currentTarget.style.outline = ""; e.currentTarget.style.outlineOffset = ""; },
 		};
 	}
-	function ConnForm(props) {
+	// 连接配置弹窗（Navicat 式连接窗口）：覆盖层 + 标题栏 + 左导航页签（常规/SSL/高级）+ 底部操作条。
+	// 与 DangerDialog/PassphraseDialog 同一 overlay 材质与键盘契约；差异：不响应点击空白关闭
+	// （表单输入多，误触丢配置代价高），退出 = Escape / 标题栏 × / 取消，三路都走 onCancel。
+	function ConnDialog(props) {
 			// 新建（无 initial）默认分字段模式并预填官方默认值；编辑保持用户数据原样
 			const [form, setForm] = React.useState(() => props.initial || freshForm());
 			const [dirty, setDirty] = React.useState(() => new Set()); // 用户手改过的字段（切 kind 时保留）
 			const [draftTest, setDraftTest] = React.useState(null); // null | {ok, msg}
-			// 高级 TLS 区折叠态：默认收起（对齐 Navicat 的简洁界面）；编辑已有连接且存过任一高级字段时默认展开。
-			// 折叠只影响「是否渲染」，form 里的值不受影响 —— 收起状态照样回填与提交，绝不因隐藏丢配置。
-			const [advancedOpen, setAdvancedOpen] = React.useState(() => hasAdvancedTls(props.initial));
-			// 无障碍：URL/分字段切换（及表单挂载）后焦点引导进该模式首个输入，避免键盘/SR 用户滞留切换按钮
+			// 左导航页签态：默认「常规」；编辑已有连接且存过任一高级字段时默认落「高级」页，
+			// 让用户一眼看到自己存过的加密/证书/OCI 配置。页签只决定「渲染哪一页」，form 状态跨页共享
+			// —— 未显示的页照样回填与提交，绝不因切换丢配置。
+			const [page, setPage] = React.useState(() => (hasAdvancedTls(props.initial) ? "advanced" : "general"));
+			// 无障碍：页签切换/URL-分字段切换（及弹窗挂载）后焦点引导进该页首个输入，避免键盘/SR 用户滞留页签
 			const firstInputRef = React.useRef(null);
-			React.useEffect(() => { if (firstInputRef.current) firstInputRef.current.focus(); }, [form.mode]);
+			const dialogRef = React.useRef(null);
+			React.useEffect(() => { if (firstInputRef.current) firstInputRef.current.focus(); }, [form.mode, page]);
 			// 按钮焦点环：统一走模块级 focusRingProps()（语义同前）
 			function patch(p) {
 				setForm((prev) => Object.assign({}, prev, p));
@@ -1632,136 +1665,181 @@ window.__ModuleLoader__.load({
 			// aria-label 局部文案：与 placeholder 同源，避免表达式重复
 			const pwLabel = props.initial && props.initial.hasPassword ? t("passwordSaved") : t("fieldsPassword");
 			const idLabel = t("connId") + "（" + t("idAutoHint") + "）";
+			// 页签集合随 kind 收敛：SSL 页只对 ssl 真实生效的库出现；切到无 SSL 页的库时回落「常规」
+			const pages = ["general", ...(SSL_TAB_KINDS.includes(form.kind) ? ["ssl"] : []), "advanced"];
+			const activePage = pages.includes(page) ? page : "general";
+			// 键盘契约（对齐 DangerDialog）：Escape=取消；Tab/Shift+Tab 在弹窗内可见控件间循环锁定
+			function onKeyDown(e) {
+				if (e.key === "Escape") { e.preventDefault(); props.onCancel(); return; }
+				if (e.key !== "Tab") return;
+				const dialog = dialogRef.current;
+				if (!dialog) return;
+				const focusables = Array.from(dialog.querySelectorAll("button,input,select")).filter((el) => el.offsetParent !== null && !el.disabled);
+				if (focusables.length === 0) return;
+				const first = focusables[0];
+				const last = focusables[focusables.length - 1];
+				const doc = dialog.ownerDocument || document;
+				if (!dialog.contains(doc.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); return; }
+				if (!e.shiftKey && doc.activeElement === last) { e.preventDefault(); first.focus(); }
+				else if (e.shiftKey && doc.activeElement === first) { e.preventDefault(); last.focus(); }
+			}
+			/* 常规页：类型 + 连接名 + 连接方式（分字段/URL，对齐 Navicat 18 同窗的 URI 入口）+ 目标与凭据 */
+			function renderGeneral() {
+				return [
+					// 基本属性：类型 + 连接名（id 在「高级」页、ssl 在「SSL」页 —— 对齐 Navicat 的分区习惯）
+					React.createElement("div", { className: "dbt-row", key: "base" },
+						React.createElement("select", { value: form.kind, "aria-label": t("fieldKind"), onChange: (e) => switchKind(e.target.value) },
+							DB_KINDS.map((k) => React.createElement("option", { key: k, value: k }, kindLabel(k)))),
+						React.createElement("input", { placeholder: t("connName"), "aria-label": t("connName"), value: form.name, onChange: (e) => patch({ name: e.target.value }) })),
+					React.createElement("div", { className: "dbt-seg", key: "mode" },
+						React.createElement("button", { className: form.mode === "url" ? "active" : "", "aria-pressed": form.mode === "url", onClick: () => patch({ mode: "url" }), ...focusRingProps() }, t("urlMode")),
+						React.createElement("button", { className: form.mode === "fields" ? "active" : "", "aria-pressed": form.mode === "fields", onClick: reenterFields, ...focusRingProps() }, t("fieldsMode"))),
+					form.mode === "url"
+						? React.createElement(
+							"div",
+							{ key: "target", style: { display: "flex", flexDirection: "column", gap: 6 } },
+							React.createElement("input", { placeholder: t("url"), "aria-label": t("url") + t("requiredMark"), "aria-required": "true", ref: firstInputRef, value: form.url, onChange: (e) => patch({ url: e.target.value }) }),
+							React.createElement("div", { className: "dbt-row" },
+								React.createElement("input", { placeholder: t("urlUser"), "aria-label": t("urlUser"), value: form.urlUser, onChange: (e) => patch({ urlUser: e.target.value }) }),
+								React.createElement("input", { type: "password", placeholder: t("urlPassword"), "aria-label": t("urlPassword"), value: form.urlPassword, onChange: (e) => patch({ urlPassword: e.target.value }) })),
+						)
+						: React.createElement(
+							"div",
+							{ key: "target", style: { display: "flex", flexDirection: "column", gap: 6 } },
+							React.createElement("div", { className: "dbt-row" },
+								// sqlserver：官方模型 port 可选（默认 1433）且与命名实例互斥——host 直接填 主机\实例名，端口留空
+								React.createElement("input", { placeholder: form.kind === "sqlserver" ? t("fieldsHostInstance") : t("fieldsHost"), "aria-label": t("fieldsHost") + t("requiredMark"), "aria-required": "true", ref: firstInputRef, value: form.host, onChange: (e) => patch({ host: e.target.value }) }),
+								React.createElement("input", { placeholder: t("fieldsPort"), "aria-label": t("fieldsPort"), value: form.port, onChange: (e) => patch({ port: e.target.value }) }),
+								// oracle：第三格是「服务名 / SID」选择（对齐 Navicat 的连接标识下拉），输入框占位随类型切换；
+								// pg 系对齐 Navicat 叫「初始数据库」，其余库维持通用「数据库名」
+								...(form.kind === "oracle"
+									? [
+										React.createElement("select", { key: "svcType", "aria-label": t("fieldsServiceType"), value: form.serviceType, style: { flex: "none" }, onChange: (e) => patch({ serviceType: e.target.value }) },
+											React.createElement("option", { value: "service" }, t("fieldsService")),
+											React.createElement("option", { value: "sid" }, t("fieldsSid"))),
+										React.createElement("input", { key: "svcIdent", placeholder: form.serviceType === "sid" ? t("fieldsSid") : t("fieldsService"), "aria-label": (form.serviceType === "sid" ? t("fieldsSid") : t("fieldsService")) + t("requiredMark"), "aria-required": "true", value: form.database, onChange: (e) => patch({ database: e.target.value }) }),
+									]
+									: [React.createElement("input", { key: "db", placeholder: form.kind === "postgresql" || form.kind === "gaussdb" ? t("fieldsInitialDatabase") : t("fieldsDatabase"), "aria-label": form.kind === "postgresql" || form.kind === "gaussdb" ? t("fieldsInitialDatabase") : t("fieldsDatabase"), value: form.database, onChange: (e) => patch({ database: e.target.value }) })])),
+							React.createElement("div", { className: "dbt-row" },
+								React.createElement("input", { placeholder: t("fieldsUser"), "aria-label": t("fieldsUser") + t("requiredMark"), "aria-required": "true", value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
+								React.createElement("input", { type: "password", placeholder: pwLabel, "aria-label": pwLabel, value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
+						),
+				];
+			}
+			/* SSL 页（仅 mysql/pg 系/mongo/redis 这些 ssl 真实生效的库）：加密开关 + 边界说明 */
+			function renderSsl() {
+				return [
+					React.createElement("label", { className: "dbt-row", style: { flex: "none" }, key: "sslon" },
+						React.createElement("input", { type: "checkbox", checked: !!form.ssl, "aria-label": t("ssl"), onChange: (e) => patch({ ssl: e.target.checked }) }), t("ssl")),
+					React.createElement("span", { className: "dbt-muted", key: "hint" }, t("sslHintGeneric")),
+				];
+			}
+			/* sqlserver 分字段模式的 TLS 族（「高级」页）。设计原则：默认留空 = 沿用适配器默认
+			 * （encrypt='auto' 交适配器协商 + 校验证书 + Node 默认 TLS 下限），即「默认安全」；
+			 * 只有连老实例/自签证书失败时才需要动这些开关。常见误配：报 self signed certificate
+			 * 是「证书族」，改 TLS 版本无效；报 UNSUPPORTED_PROTOCOL 是「协议族」，开关闭证书
+			 * 校验无效——两族解法正交。对齐 Navicat：Use encryption / Trust Server Certificate
+			 * 就在「高级」页，页签本身就是分层，不再二次折叠；隐藏不影响回填与提交。 */
+			function renderTlsAdvanced() {
+				return React.createElement(
+					"div",
+					{ key: "tlsadv", style: { display: "flex", flexDirection: "column", gap: 6 } },
+					React.createElement("div", { className: "dbt-row" },
+						// 加密模式：auto=交适配器协商（推荐，对齐 Navicat）/
+						// true=强制加密（握手失败即报错）/ false=不主动要求加密（登录包仍加密）/
+						// strict=TDS 8.0 严格加密（仅 SQL Server 2022+ 开启 Force Strict Encryption 的实例）
+						React.createElement("label", { className: "dbt-row", style: { flex: "none" } }, t("fieldsEncrypt"),
+							React.createElement("select", { "aria-label": t("fieldsEncrypt"), value: form.encrypt, onChange: (e) => patch({ encrypt: e.target.value }) },
+								React.createElement("option", { value: "auto" }, t("encryptAuto")),
+								React.createElement("option", { value: "true" }, t("encryptDefault")),
+								React.createElement("option", { value: "false" }, t("encryptOff")),
+								React.createElement("option", { value: "strict" }, t("encryptStrict")))),
+						// 最低 TLS 版本：仅老实例（2005/2008/未打补丁的 2012·2014）报协议族错误时才需要下探
+						React.createElement("label", { className: "dbt-row", style: { flex: "none" } }, t("fieldsTlsMinVersion"),
+							React.createElement("select", { "aria-label": t("fieldsTlsMinVersion"), value: form.tlsMinVersion, onChange: (e) => patch({ tlsMinVersion: e.target.value }) },
+								React.createElement("option", { value: "" }, t("tlsMinDefault")),
+								["TLSv1", "TLSv1.1", "TLSv1.2"].map((v) => React.createElement("option", { key: v, value: v }, v))))),
+					React.createElement("label", { className: "dbt-row", style: { flex: "none" } },
+						React.createElement("input", { type: "checkbox", checked: !!form.trustServerCertificate, "aria-label": t("fieldsTrustCert"), onChange: (e) => patch({ trustServerCertificate: e.target.checked }) }),
+						t("fieldsTrustCert")),
+					React.createElement("div", { className: "dbt-row" },
+						React.createElement("input", { placeholder: t("fieldsServerName"), "aria-label": t("fieldsServerName"), value: form.serverName, onChange: (e) => patch({ serverName: e.target.value }) }),
+						React.createElement("input", { placeholder: t("fieldsCaCert"), "aria-label": t("fieldsCaCert"), value: form.caCert, onChange: (e) => patch({ caCert: e.target.value }) })),
+					React.createElement("span", { style: { fontSize: 12, opacity: 0.75 } }, t("tlsHint")),
+				);
+			}
+			/* oracle 高级项：OCI 库路径（Thick 模式）——服务器报 NJS-138（Thin 不支持该服务器版本）
+			 * 时的出口，对齐 Navicat 走 OCI 连老服务器的能力。放「高级」页，不再二次折叠。 */
+			function renderOciAdvanced() {
+				return React.createElement(
+					"div",
+					{ key: "ociadv", style: { display: "flex", flexDirection: "column", gap: 6 } },
+					React.createElement("input", { placeholder: t("fieldsOciLibDir"), "aria-label": t("fieldsOciLibDir"), value: form.ociLibDir, onChange: (e) => patch({ ociLibDir: e.target.value }) }),
+					React.createElement("span", { style: { fontSize: 12, opacity: 0.75 } }, t("ociHint")),
+				);
+			}
+			/* 高级页：连接 ID（授权与审计的稳定键）+ 按库的加密/驱动高级项 */
+			function renderAdvanced() {
+				return [
+					React.createElement("input", { key: "id", placeholder: idLabel, "aria-label": idLabel, value: form.id, disabled: !!props.initial, onChange: (e) => patch({ id: e.target.value }) }),
+					React.createElement("span", { className: "dbt-muted", key: "idhint" }, t("advancedIdHint")),
+					form.kind === "sqlserver" && form.mode === "fields" ? renderTlsAdvanced() : null,
+					form.kind === "oracle" ? renderOciAdvanced() : null,
+				];
+			}
 			return React.createElement(
 				"div",
-				{ className: "dbt-card" },
-				React.createElement("strong", null, props.initial ? t("editConn") : t("newConn")),
-				// 分组 1：基本属性（kind / name / id / ssl）
+				{ className: "dbt-overlay", onClick: (e) => e.stopPropagation(), onKeyDown },
 				React.createElement(
 					"div",
-					{ className: "dbt-row" },
-					React.createElement("select", { value: form.kind, "aria-label": t("fieldKind"), onChange: (e) => switchKind(e.target.value) },
-						DB_KINDS.map((k) => React.createElement("option", { key: k, value: k }, kindLabel(k)))),
-					React.createElement("input", { placeholder: t("connName"), "aria-label": t("connName"), value: form.name, onChange: (e) => patch({ name: e.target.value }) }),
-					React.createElement("input", { placeholder: idLabel, "aria-label": idLabel, value: form.id, disabled: !!props.initial, onChange: (e) => patch({ id: e.target.value }) }),
-					React.createElement("label", { className: "dbt-row", style: { flex: "none" } },
-						React.createElement("input", { type: "checkbox", checked: !!form.ssl, onChange: (e) => patch({ ssl: e.target.checked }) }), t("ssl")),
-				),
-				// 分组 2：连接目标 —— 模式切换用 .dbt-seg mini segmented
-				React.createElement(
-					"div",
-					{ className: "dbt-seg" },
-					React.createElement("button", { className: form.mode === "url" ? "active" : "", "aria-pressed": form.mode === "url", onClick: () => patch({ mode: "url" }), ...focusRingProps() }, t("urlMode")),
-					React.createElement("button", { className: form.mode === "fields" ? "active" : "", "aria-pressed": form.mode === "fields", onClick: reenterFields, ...focusRingProps() }, t("fieldsMode")),
-				),
-				form.mode === "url"
-					? React.createElement(
-						"div",
-						{ style: { display: "flex", flexDirection: "column", gap: 6 } },
-						React.createElement("input", { placeholder: t("url"), "aria-label": t("url") + t("requiredMark"), "aria-required": "true", ref: firstInputRef, value: form.url, onChange: (e) => patch({ url: e.target.value }) }),
-						React.createElement("div", { className: "dbt-row" },
-							React.createElement("input", { placeholder: t("urlUser"), "aria-label": t("urlUser"), value: form.urlUser, onChange: (e) => patch({ urlUser: e.target.value }) }),
-							React.createElement("input", { type: "password", placeholder: t("urlPassword"), "aria-label": t("urlPassword"), value: form.urlPassword, onChange: (e) => patch({ urlPassword: e.target.value }) })),
-					)
-					: React.createElement(
-						"div",
-						{ style: { display: "flex", flexDirection: "column", gap: 6 } },
-						React.createElement("div", { className: "dbt-row" },
-							// sqlserver：官方模型 port 可选（默认 1433）且与命名实例互斥——host 直接填 主机\实例名，端口留空
-							React.createElement("input", { placeholder: form.kind === "sqlserver" ? t("fieldsHostInstance") : t("fieldsHost"), "aria-label": t("fieldsHost") + t("requiredMark"), "aria-required": "true", ref: firstInputRef, value: form.host, onChange: (e) => patch({ host: e.target.value }) }),
-							React.createElement("input", { placeholder: t("fieldsPort"), "aria-label": t("fieldsPort"), value: form.port, onChange: (e) => patch({ port: e.target.value }) }),
-							// oracle：第三格是「服务名 / SID」选择（对齐 Navicat 的连接标识下拉），输入框占位随类型切换；
-							// 其余库维持通用「数据库名」
-							...(form.kind === "oracle"
-								? [
-									React.createElement("select", { key: "svcType", "aria-label": t("fieldsServiceType"), value: form.serviceType, style: { flex: "none" }, onChange: (e) => patch({ serviceType: e.target.value }) },
-										React.createElement("option", { value: "service" }, t("fieldsService")),
-										React.createElement("option", { value: "sid" }, t("fieldsSid"))),
-									React.createElement("input", { key: "svcIdent", placeholder: form.serviceType === "sid" ? t("fieldsSid") : t("fieldsService"), "aria-label": (form.serviceType === "sid" ? t("fieldsSid") : t("fieldsService")) + t("requiredMark"), "aria-required": "true", value: form.database, onChange: (e) => patch({ database: e.target.value }) }),
-								]
-								: [React.createElement("input", { key: "db", placeholder: t("fieldsDatabase"), "aria-label": t("fieldsDatabase"), value: form.database, onChange: (e) => patch({ database: e.target.value }) })])),
-						React.createElement("div", { className: "dbt-row" },
-							React.createElement("input", { placeholder: t("fieldsUser"), "aria-label": t("fieldsUser") + t("requiredMark"), "aria-required": "true", value: form.user, onChange: (e) => patch({ user: e.target.value }) }),
-							React.createElement("input", { type: "password", placeholder: pwLabel, "aria-label": pwLabel, value: form.password, onChange: (e) => patch({ password: e.target.value }) })),
-						// TLS 相关项（仅 sqlserver）。设计原则：默认留空 = 沿用适配器默认
-						// （encrypt='auto' 交适配器协商 + 校验证书 + Node 默认 TLS 下限），即「默认安全」；
-						// 只有连老实例/自签证书失败时才需要动下面这些开关。
-						// 常见误配：报 self signed certificate 是「证书族」，改 TLS 版本无效；
-						// 报 UNSUPPORTED_PROTOCOL 是「协议族」，开关闭证书校验无效——两族解法正交。
-						// 交互：这些项默认藏在「高级选项」折叠区内（对齐 Navicat 的简洁界面），
-						// 收起时只留入口按钮；折叠态不影响 form 值，收起也照样回填与提交。
-						form.kind === "sqlserver"
-							? React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-								React.createElement("div", { className: "dbt-row" },
-									React.createElement("button", {
-										className: "dbt-btn",
-										type: "button",
-										"aria-label": t("advancedTls"),
-										"aria-expanded": advancedOpen,
-										// 收起时容器不渲染 → 不下发 aria-controls，避免指向不存在的节点
-										"aria-controls": advancedOpen ? TLS_ADVANCED_ID : undefined,
-										onClick: () => setAdvancedOpen(!advancedOpen),
-										...focusRingProps(),
-									}, (advancedOpen ? "▾ " : "▸ ") + t("advancedTls"))),
-								advancedOpen
-									? React.createElement("div", { id: TLS_ADVANCED_ID, style: { display: "flex", flexDirection: "column", gap: 6 } },
-										React.createElement("div", { className: "dbt-row" },
-											// 加密模式：auto=交适配器协商（推荐，对齐 Navicat）/
-											// true=强制加密（握手失败即报错）/ false=不主动要求加密（登录包仍加密）/
-											// strict=TDS 8.0 严格加密（仅 SQL Server 2022+ 开启 Force Strict Encryption 的实例）
-											React.createElement("label", { className: "dbt-row", style: { flex: "none" } }, t("fieldsEncrypt"),
-												React.createElement("select", { "aria-label": t("fieldsEncrypt"), value: form.encrypt, onChange: (e) => patch({ encrypt: e.target.value }) },
-													React.createElement("option", { value: "auto" }, t("encryptAuto")),
-													React.createElement("option", { value: "true" }, t("encryptDefault")),
-													React.createElement("option", { value: "false" }, t("encryptOff")),
-													React.createElement("option", { value: "strict" }, t("encryptStrict")))),
-											// 最低 TLS 版本：仅老实例（2005/2008/未打补丁的 2012·2014）报协议族错误时才需要下探
-											React.createElement("label", { className: "dbt-row", style: { flex: "none" } }, t("fieldsTlsMinVersion"),
-												React.createElement("select", { "aria-label": t("fieldsTlsMinVersion"), value: form.tlsMinVersion, onChange: (e) => patch({ tlsMinVersion: e.target.value }) },
-													React.createElement("option", { value: "" }, t("tlsMinDefault")),
-													["TLSv1", "TLSv1.1", "TLSv1.2"].map((v) => React.createElement("option", { key: v, value: v }, v))))),
-										React.createElement("label", { className: "dbt-row", style: { flex: "none" } },
-											React.createElement("input", { type: "checkbox", checked: !!form.trustServerCertificate, "aria-label": t("fieldsTrustCert"), onChange: (e) => patch({ trustServerCertificate: e.target.checked }) }),
-											t("fieldsTrustCert")),
-										React.createElement("div", { className: "dbt-row" },
-											React.createElement("input", { placeholder: t("fieldsServerName"), "aria-label": t("fieldsServerName"), value: form.serverName, onChange: (e) => patch({ serverName: e.target.value }) }),
-											React.createElement("input", { placeholder: t("fieldsCaCert"), "aria-label": t("fieldsCaCert"), value: form.caCert, onChange: (e) => patch({ caCert: e.target.value }) })),
-										React.createElement("span", { style: { fontSize: 12, opacity: 0.75 } }, t("tlsHint")))
-									: null)
-							: null,
-						// oracle 高级项：OCI 库路径（Thick 模式）——服务器报 NJS-138（Thin 不支持该服务器
-						// 版本）时的出口，对齐 Navicat 走 OCI 连老服务器的能力。折叠交互与 sqlserver TLS
-						// 区一致：收起只留入口按钮，折叠态不影响 form 值，收起也照样回填与提交。
-						form.kind === "oracle"
-							? React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-								React.createElement("div", { className: "dbt-row" },
-									React.createElement("button", {
-										className: "dbt-btn",
-										type: "button",
-										"aria-label": t("advancedOra"),
-										"aria-expanded": advancedOpen,
-										"aria-controls": advancedOpen ? ORA_ADVANCED_ID : undefined,
-										onClick: () => setAdvancedOpen(!advancedOpen),
-										...focusRingProps(),
-									}, (advancedOpen ? "▾ " : "▸ ") + t("advancedOra"))),
-								advancedOpen
-									? React.createElement("div", { id: ORA_ADVANCED_ID, style: { display: "flex", flexDirection: "column", gap: 6 } },
-										React.createElement("input", { placeholder: t("fieldsOciLibDir"), "aria-label": t("fieldsOciLibDir"), value: form.ociLibDir, onChange: (e) => patch({ ociLibDir: e.target.value }) }),
-										React.createElement("span", { style: { fontSize: 12, opacity: 0.75 } }, t("ociHint")))
-									: null)
-							: null,
+					{
+						className: "dbt-dialog dbt-conndialog",
+						role: "dialog",
+						"aria-modal": "true",
+						"aria-label": props.initial ? t("editConn") : t("newConn"),
+						ref: dialogRef,
+					},
+					// 标题栏：新建/编辑连接 + 关闭（对齐 Navicat 连接窗口的窗口条；不在标题里拼 kind/名称，
+					// 表单里类型与名称就在首行，重复念两遍对读屏是噪音）
+					React.createElement("div", { className: "dbt-connhead" },
+						React.createElement("strong", null, props.initial ? t("editConn") : t("newConn")),
+						React.createElement("button", { className: "dbt-connclose", type: "button", "aria-label": t("dialogClose"), onClick: props.onCancel, ...focusRingProps() }, "×")),
+					// 左导航页签 + 内容区（Navicat 连接窗口形态；页签切换不丢任何页的已填值）
+					React.createElement("div", { className: "dbt-connmain" },
+						React.createElement("div", { className: "dbt-connnav", role: "tablist", "aria-label": t("connFormSections"), "aria-orientation": "vertical" },
+							pages.map((p) => React.createElement("button", {
+								key: p,
+								type: "button",
+								role: "tab",
+								"aria-selected": activePage === p,
+								className: activePage === p ? "active" : "",
+								"aria-controls": "dbt-conn-panel",
+								onClick: () => setPage(p),
+								...focusRingProps(),
+							}, t(p === "general" ? "connTabGeneral" : p === "ssl" ? "connTabSsl" : "connTabAdvanced")))),
+						React.createElement(
+							"div",
+							{ className: "dbt-connbody", role: "tabpanel", id: "dbt-conn-panel", "aria-label": t(activePage === "general" ? "connTabGeneral" : activePage === "ssl" ? "connTabSsl" : "connTabAdvanced") },
+							activePage === "general" ? renderGeneral() : activePage === "ssl" ? renderSsl() : renderAdvanced(),
+						),
 					),
-				// 分组 3：操作
-				React.createElement(
-					"div",
-					{ className: "dbt-row" },
-					React.createElement("button", { className: "dbt-btn primary", disabled: props.busy, onClick: submit, ...focusRingProps() }, props.busy ? t("saving") : t("save")),
-					React.createElement("button", { className: "dbt-btn", disabled: draftTest && draftTest.ok === null, onClick: testDraft, ...focusRingProps() },
-						draftTest && draftTest.ok === null ? t("testing") : t("test")),
-					React.createElement("button", { className: "dbt-btn", onClick: props.onCancel, ...focusRingProps() }, t("cancel")),
-					draftTest && draftTest.ok !== null
-						? React.createElement("span", { className: draftTest.ok ? "dbt-msg" : "dbt-err", role: draftTest.ok ? "status" : "alert" }, draftTest.msg)
-						: null,
+					// 底部操作条（Navicat 布局）：测试连接靠左，反馈占中，保存/取消靠右
+					React.createElement(
+						"div",
+						{ className: "dbt-connfoot" },
+						React.createElement("button", { className: "dbt-btn", disabled: draftTest && draftTest.ok === null, onClick: testDraft, ...focusRingProps() },
+							draftTest && draftTest.ok === null ? t("testing") : t("testConnection")),
+						React.createElement("div", { className: "dbt-footmsg" },
+							draftTest && draftTest.ok !== null
+								? React.createElement("span", { className: draftTest.ok ? "dbt-msg" : "dbt-err", role: draftTest.ok ? "status" : "alert" }, draftTest.msg)
+								: null),
+						React.createElement(
+							"div",
+							{ className: "dbt-row", style: { flex: "none" } },
+							React.createElement("button", { className: "dbt-btn primary", disabled: props.busy, onClick: submit, ...focusRingProps() }, props.busy ? t("saving") : t("save")),
+							React.createElement("button", { className: "dbt-btn", onClick: props.onCancel, ...focusRingProps() }, t("cancel")),
+						),
+					),
 				),
 			);
 		}
@@ -1924,14 +2002,16 @@ window.__ModuleLoader__.load({
 				reader.readAsText(file);
 			}
 
-			if (editing) {
-				return React.createElement(ConnForm, {
+			// 连接弹窗浮在列表之上（对齐 Navicat 连接窗口：主窗口保持可见，弹窗覆盖层置顶）；
+			// 与 DangerDialog/PassphraseDialog 同一挂载惯用法，编辑中列表仍在弹窗背后保持状态
+			const connDialog = editing
+				? React.createElement(ConnDialog, {
 					initial: editing === "new" ? null : buildEditForm(editing),
 					busy: busy === "save",
 					onSubmit: saveConn,
 					onCancel: () => setEditing(null),
-				});
-			}
+				})
+				: null;
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
@@ -2028,6 +2108,7 @@ window.__ModuleLoader__.load({
 					confirmLabel: passReq === "export" ? t("exportConns") : t("importConns"),
 					onClose: onPassphrase,
 				}) : null,
+				connDialog,
 			);
 		}
 
@@ -4393,7 +4474,7 @@ window.__ModuleLoader__.load({
 			classifyHead, ConsoleView,
 			Panel, TransferView, TransferLogView,
 			urlToFieldsPatch,
-			ConnForm, buildEditForm, EMPTY_FORM,
+			ConnDialog, buildEditForm, EMPTY_FORM, hasAdvancedTls, SSL_TAB_KINDS, ensureStyles,
 			kindLabel, groupByKind,
 			ManageView, GrantsView,
 			BrowseTree, BrowsePane, PreviewGrid,
