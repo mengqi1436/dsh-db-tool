@@ -2,7 +2,7 @@
  * task-6 · V1 真实驱动级验证（配置可接受性 + 真实 TLS/网络错误映射）。
  *
  * 与既有的 sqlserver-offline.test.ts 的关键差别：**不注入手写 Fake 驱动**，而是让
- * vendor/sqlserver-driver.cjs（真实 mssql 12.7.4 + tedious 20.3.3）参与：
+ * vendor/sqlserver-driver.cjs（真实 mssql + tedious，版本随依赖升级）参与：
  *  - 配置侧：适配器 poolConfig 产出的 config 交给真实 mssql.ConnectionPool._config()，
  *    再交给真实 `new tedious.Connection(...)` —— 参数名/取值写错会在这一步真实报错（Fake 掩盖不了）。
  *  - 错误侧：本机自建 TLS 假服务器（node:crypto 手写 DER 自签证书 + TDS 封装 TLS），

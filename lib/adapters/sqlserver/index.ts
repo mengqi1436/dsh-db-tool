@@ -6,7 +6,7 @@
  * 会触发宿主 @deepseek-ai/dsh-app-boot 的 require.resolve.paths bug 使插件整体加载失败
  * （约束由 tests/guard/deps-core-collision.spec.ts 守护）。故运行时经 createRequire 相对
  * 加载 vendor/sqlserver-driver.cjs（scripts/build-sqlserver.mjs 产物），失败不缓存并给中文
- * 修复指引。mssql 12.7.4 不随包发 .d.ts（package.json 无 types 字段），类型在本文件自声明
+ * 修复指引。mssql 不随包发 .d.ts（package.json 无 types 字段，对 12.7.x 逐版核实过），类型在本文件自声明
  * 最小接口——与 pg-like.ts 的 PgLikeDriver 同一手法。
  *
  * 占位符：对外只接受 `?`（客户端 dialectOf('sqlserver') 返回 'q'），内部经词法扫描顺序重写为
