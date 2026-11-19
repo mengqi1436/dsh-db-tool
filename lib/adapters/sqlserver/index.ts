@@ -1222,20 +1222,30 @@ function makePoolBox(Driver: SqlDriver, cfg: Record<string, unknown>): PoolBox {
 
 /* ============================ 适配器 ============================ */
 
-const LIST_DATABASES_SQL = `SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name`;
+// HAS_DBACCESS：当前账号无访问权的库不列出（无权限直接隐藏；仅查看权限即可见）
+const LIST_DATABASES_SQL = `SELECT name FROM sys.databases WHERE database_id > 4 AND HAS_DBACCESS(name) = 1 ORDER BY name`;
 
-// 系统 schema 过滤：guest/sys/INFORMATION_SCHEMA 与固定数据库角色 schema（schema_id >= 16384）
+// 系统 schema 过滤：guest/sys/INFORMATION_SCHEMA 与固定数据库角色 schema（schema_id >= 16384）。
+// 权限过滤：对 schema 有 SELECT（schema 级授权）或其中至少一张表/视图可 SELECT 才列出——
+// 无权限的模式直接隐藏；列级授权不含在内（HAS_PERMS_BY_NAME 对象级检查不聚合列授权）。
 const LIST_SCHEMAS_SQL = `SELECT s.name AS name FROM sys.schemas s
  WHERE s.name NOT IN ('guest', 'sys', 'INFORMATION_SCHEMA') AND s.schema_id < 16384
+   AND (HAS_PERMS_BY_NAME(QUOTENAME(s.name), 'SCHEMA', 'SELECT') = 1
+        OR EXISTS (SELECT 1 FROM sys.objects o
+                    WHERE o.schema_id = s.schema_id AND o.type IN ('U', 'V') AND o.is_ms_shipped = 0
+                      AND HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT') = 1))
  ORDER BY s.name`;
 
 // sys.objects 同时覆盖表(U)与视图(V)；is_ms_shipped 排除系统附带对象；
-// 表注释取对象级扩展属性 MS_Description（class=1 对象级、minor_id=0 表本体，与列注释同源）
+// 表注释取对象级扩展属性 MS_Description（class=1 对象级、minor_id=0 表本体，与列注释同源）。
+// 权限过滤：仅列出当前账号可 SELECT 的表/视图——不可预览的对象直接隐藏（与 pg 系
+// information_schema 的「有权限才显示」行为对齐）。
 const LIST_TABLES_SQL = `SELECT o.name AS table_name, o.type AS obj_type, ep.value AS table_comment
  FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id
  LEFT JOIN sys.extended_properties ep
    ON ep.class = 1 AND ep.major_id = o.object_id AND ep.minor_id = 0 AND ep.name = N'MS_Description'
  WHERE s.name = @p1 AND o.type IN ('U', 'V') AND o.is_ms_shipped = 0
+   AND HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT') = 1
  ORDER BY o.name`;
 
 // 元数据一律用 object_id/column_id 整数键关联（避免 collation/大小写差异）；

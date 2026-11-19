@@ -1,5 +1,20 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+### 新增(数据浏览)
+
+- **目录树按操作权限过滤**：数据预览（目录树）只列出当前数据库账号实际可读的对象——对模式有操作权限（含仅查看/只读权限）才可见，无权限的直接隐藏：
+  - **PostgreSQL / GaussDB**：库名清单按 CONNECT 权限过滤（`has_database_privilege`）；schema 清单要求对模式有 USAGE 且其中至少一张关系（表/视图/物化视图/分区表/外部表）可 SELECT（`has_table_privilege`）。
+  - **SQL Server**：库名清单按 `HAS_DBACCESS` 过滤；schema 清单要求 schema 级 SELECT 授权或其中至少一张表/视图可对象级 SELECT；表/视图清单只列出可 SELECT 的对象（列级授权不含在内，与不可预览即隐藏的原则一致）。
+  - MySQL / Oracle / 达梦 / MongoDB / Redis / SQLite 的服务端清单已按各自模型天然收敛到可读范围，不改动。
+
+### 测试
+
+- `tests/adapters-sql/pg-like.test.ts`：`listDatabases` 增加 CONNECT 权限谓词契约，`listSchemas` 增加 USAGE + 任一关系可 SELECT 谓词契约。
+- `tests/adapters-sql/sqlserver-offline.test.ts`：`listDatabases` 增加 `HAS_DBACCESS` 契约，`listSchemas` 增加 schema 级/对象级 SELECT 权限谓词契约，`listTables` 增加对象级 SELECT 过滤断言。
+- `tests/e2e-mock/sqlserver.spec.ts`：Fake 按分支判别顺序适配（`listSchemas` SQL 现含 `sys.objects` 权限子查询，先判 schema 级权限谓词再判 `sys.objects`）。
+
 ## 1.9.19
 
 本版是「连接弹窗对齐 Navicat」：连接配置从替换列表的内联表单卡重构为 Navicat 连接窗口形态的覆盖层弹窗，弹窗浮在连接卡片列表之上。

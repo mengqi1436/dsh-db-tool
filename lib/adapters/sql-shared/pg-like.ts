@@ -325,10 +325,17 @@ export async function createPgLikeAdapter(
     return f && typeof f.schema === 'string' && f.schema ? f.schema : 'public';
   };
 
-  /** 集群内可连接库名（listDatabases 与跨库 searchTables 共用） */
+  /**
+   * 集群内库名（listDatabases 与跨库 searchTables 共用）。带 CONNECT 权限过滤：
+   * 当前账号连不上的库在树中只会报错，按「无权限直接隐藏」原则不列出
+   * （库内更细的可见性由 listSchemas/listTables 各自的权限过滤兜住）。
+   */
   const listDbNames = async (): Promise<string[]> => {
     const res = await pool.query(
-      'SELECT datname FROM pg_database WHERE datistemplate = false AND datallowconn = true ORDER BY datname',
+      `SELECT datname FROM pg_database
+       WHERE datistemplate = false AND datallowconn = true
+         AND pg_catalog.has_database_privilege(current_user, datname, 'CONNECT')
+       ORDER BY datname`,
     );
     return res.rows.map((r) => String(r.datname));
   };
@@ -464,13 +471,21 @@ export async function createPgLikeAdapter(
 
     // 库内 schema 清单（Navicat 官方层级：数据库 → 模式 → 表）。
     // database 参数 = 库名（UI 树第一层）；pg_* 前缀覆盖 pg_catalog/pg_toast/pg_temp 系。
+    // 权限过滤：当前账号对模式有 USAGE 且至少能 SELECT 一张关系（表/视图/物化视图/
+    // 分区表/外部表）才列出——无权限的模式直接隐藏；仅查看权限也可见（查看权限即可见）。
     listSchemas: (database) =>
       humanize(`${kind} 列出模式`, async () => {
         const p = poolFor(database ? assertIdent(database, '数据库') : null);
         const res = await p.query(
-          `SELECT nspname FROM pg_catalog.pg_namespace
-           WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'
-           ORDER BY nspname`,
+          `SELECT n.nspname FROM pg_catalog.pg_namespace n
+           WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+             AND pg_catalog.has_schema_privilege(current_user, n.oid, 'USAGE')
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.pg_class c
+               WHERE c.relnamespace = n.oid AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
+                 AND pg_catalog.has_table_privilege(current_user, c.oid, 'SELECT')
+             )
+           ORDER BY n.nspname`,
         );
         return res.rows.map((r) => String(r.nspname));
       }),

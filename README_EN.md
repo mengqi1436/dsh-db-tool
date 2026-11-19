@@ -74,6 +74,7 @@ Every execution (including rejected requests) appends one line to `audit.jsonl`:
 ### Data browsing
 
 - Four-level tree: connection → database → schema → table
+- The tree is filtered by the connected database account's privileges: databases, schemas and tables/views are listed only when at least `SELECT`-able (view-only access still counts); entries without permission are hidden. MySQL / PostgreSQL / GaussDB / SQL Server filter inside the server-side dictionary queries; Oracle / Dameng / MongoDB / Redis / SQLite keep their original visibility scope due to different permission models
 - Database filter plus cross-database table-name search (MySQL / PostgreSQL / GaussDB query `information_schema` natively; other kinds fall back to in-memory filtering)
 - Table structure viewing and data preview; the result grid supports sorting, paging and cell copying
 
