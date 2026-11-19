@@ -1,5 +1,17 @@
 name: Publish to npm
 
+# ─── trusted publisher 绑定约束：改动这里会直接让发布认证失败 ───
+# npm 侧绑定（npmjs.com/package/dsh-db-tool/access）记录的是：
+#   repository        = mengqi1436/dsh-db-tool
+#   workflow filename = publish.yml   ← 本文件名不可改，也不可挪进子目录
+#   environment name  = （空）        ← 不能给 job 加 environment:，subject 会不匹配
+# 另有三条硬约束：
+#   1) 不要改成被 workflow_call 复用——校验的是调用方 workflow 名，不是含 npm publish 的那个
+#   2) 只支持云端 runner；换成 self-hosted 即失效
+#   3) 发布 job 必须保留 id-token: write，否则换不到 OIDC token
+# 绑定本身没有有效期：首次发布成功即验证完成并长期有效，不会像 granular token 那样到期。
+# ──────────────────────────────────────────────────────────
+
 on:
   push:
     branches: [master]
@@ -16,17 +28,23 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      # 不传 registry-url：setup-node 会写出 //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}，
+      # 不传 registry-url：旧版 setup-node 会写出 //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}，
       # 空凭证会被优先于 OIDC 使用，trusted publisher 直接失效。
-      - uses: actions/setup-node@v4
+      # 用 Node 24 而非 22：Node 22 自带 npm 10.x，不满足 trusted publishing 的 npm >= 11.5.1。
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
 
-      # trusted publishing 要求 npm >= 11.5.1（Node 22 自带 npm 10 不支持 OIDC）
-      - name: Upgrade npm for OIDC support
-        run: npm install -g npm@^11.5.1
+      # 前置断言：npm 低于 11.5.1 时 OIDC 换不到凭证，报错会伪装成
+      # 「Access token expired or revoked」，这里提前给出准确原因。
+      - name: Assert npm supports OIDC
+        run: |
+          V=$(npm --version)
+          echo "npm $V"
+          node -e "const [a,b]=process.argv[1].split('.').map(Number);process.exit(a>11||(a===11&&b>=5)?0:1)" "$V" \
+            || { echo "::error::npm $V 低于 11.5.1，trusted publishing 不可用"; exit 1; }
 
       - name: Check version changed
         id: ver

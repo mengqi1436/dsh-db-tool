@@ -30,6 +30,19 @@
 
 version: 2
 updates:
+  # GitHub Actions 自身的版本跟踪。
+  #
+  # 为什么必须有这一段：Actions 的 action 用 Node 运行时，GitHub 会按计划弃用旧运行时
+  # （2026-09-23 已移除 Node 20，checkout/setup-node v4 从此只能靠强制升级兜底并持续告警）。
+  # 不跟踪就只能等告警出现再人工排查，期间发布链路随时可能因运行时被拔掉而中断。
+  # 这一条让 action 大版本升级以 PR 形式出现，评审后再合并。
+  #
+  # 与 npm 那段分开：action 升级与依赖升级节奏不同，混在一组会产生无关 coupling。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
   - package-ecosystem: "npm"
     directory: "/"
     schedule:

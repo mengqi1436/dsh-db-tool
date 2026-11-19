@@ -1,5 +1,15 @@
 # Changelog — dsh-db-tool
 
+## 1.9.21
+
+本版是发布链路加固小版本：把 OIDC 发布从「一次能用」做成「长期不坏」，代码零改动。
+
+### 杂项
+
+- **发布运行时升到 actions/checkout@v7 + actions/setup-node@v7 + Node 24**：原先的 v4 系列跑在 Node 20 上，GitHub 已于 2026-09-23 移除 runner 的 Node 20，v4 只能靠强制升级兜底并持续告警。Node 24 自带 npm 11.x，直接满足 trusted publishing 的 npm 版本要求，因此删掉原来手动 `npm install -g npm@^11.5.1` 这一步（v7 也不再导出占位 `NODE_AUTH_TOKEN`）。
+- **新增 npm 版本前置断言**：npm < 11.5.1 时 OIDC 换不到凭证，而 npm 的报错是误导性的「Access token expired or revoked」。现在在发布前显式检查并用 `::error::` 给出准确原因，避免把版本问题误判成凭据过期、又回头去造 token。
+- **在 `publish.yml` 顶部固化 trusted publisher 绑定约束**：写明 npm 侧记录的是仓库名 + 文件名 + 空 Environment，因此该文件不可改名、不可挪目录、不可被 `workflow_call` 复用（校验的是调用方名）、不支持 self-hosted runner、发布 job 必须保留 `id-token: write`。绑定本身无有效期——首次发布成功即验证完成并长期有效，与 granular token 的到期机制不同。
+
 ## 1.9.20
 
 本版是发布链路改造小版本：npm 发包从长期 granular token 改为 OIDC trusted publisher，代码零改动。
