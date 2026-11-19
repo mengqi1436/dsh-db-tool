@@ -1,5 +1,14 @@
 # Changelog — dsh-db-tool
 
+## 1.9.20
+
+本版是发布链路改造小版本：npm 发包从长期 granular token 改为 OIDC trusted publisher，代码零改动。
+
+### 杂项
+
+- **发布认证改为 npm trusted publisher（OIDC）**：`publish.yml` 不再注入 `NODE_AUTH_TOKEN`（删除 `secrets.NPM_TOKEN` 引用），改由 npm 侧绑定的 GitHub Actions trusted publisher 通过 `id-token: write` 换取短期凭证发布，同时保留 `--provenance` 签名。同步移除 `setup-node` 的 `registry-url`——它会写出 `_authToken=${NODE_AUTH_TOKEN}` 空占位，在 OIDC 之前被优先匹配，导致 trusted publisher 失效。Node 22 自带 npm 10 不具备 OIDC 能力，发布前置一步 `npm install -g npm@^11.5.1`。
+- **删除 `github-actions-dbtool-ci3` 长期 token**：该 granular token（all packages 读写 + bypass 2FA，2026-12-24 到期）原先只服务 CI 发布，OIDC 生效后即作废并从 npm 删除，仓库 secret `NPM_TOKEN` 一并清除。npm 自 2027-01 起将限制 bypass 2FA token 用于直接发布，长期凭证路线不再可持续。
+
 ## 1.9.19
 
 本版是「连接弹窗对齐 Navicat」：连接配置从替换列表的内联表单卡重构为 Navicat 连接窗口形态的覆盖层弹窗，弹窗浮在连接卡片列表之上。
