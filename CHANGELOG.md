@@ -1,6 +1,8 @@
 # Changelog — dsh-db-tool
 
-## 未发布
+## 1.9.22
+
+本版把数据浏览的三块补齐：目录树支持视图（Oracle / 达梦表 + 视图一次取全，MongoDB 视图结构页跳过索引）、目录树按当前账号的操作权限过滤，以及数据预览的分页快跳 / 总行数与 Navicat 式字段内容搜索。
 
 ### 新增(数据浏览)
 
@@ -8,29 +10,24 @@
   - **Oracle / 达梦**：`listTables` 由只查 `all_tables` / `ALL_TABLES` 改为表 + 视图一次取全（UNION ALL 派生表统一排序与 500 行截断），视图标 `VIEW` 类型并带注释（`all_tab_comments` / `ALL_TAB_COMMENTS` 同源）；`listDatabases` 的 schema 清单改为 `all_tables` ∪ `all_views`，只有视图没有表的 schema 此前整层不可见。
   - **MongoDB**：`describeTable` 对视图跳过 `listIndexes`（视图无索引，此前点开视图结构页整体报 CommandNotSupportedOnView 错误），字段抽样推断照常。
 
-### 测试
-
-- `tests/adapters-nosql-ent/oracle-dmdb.spec.ts`：Oracle / 达梦 `listTables`、`listDatabases` 契约改为表 + 视图取全断言（SQL 含 `all_views` / `ALL_VIEWS`、视图行类型 `VIEW`、UNION 双分支绑定 owner 两次）。
-- `tests/adapters-nosql-ent/mongodb.spec.ts` 新增 2 条：视图 describeTable 不调 `indexes`、集合 describeTable 索引注入行为不变。
 
 - **目录树按操作权限过滤**：数据预览（目录树）只列出当前数据库账号实际可读的对象——对模式有操作权限（含仅查看/只读权限）才可见，无权限的直接隐藏：
   - **PostgreSQL / GaussDB**：库名清单按 CONNECT 权限过滤（`has_database_privilege`）；schema 清单要求对模式有 USAGE 且其中至少一张关系（表/视图/物化视图/分区表/外部表）可 SELECT（`has_table_privilege`）。
   - **SQL Server**：库名清单按 `HAS_DBACCESS` 过滤；schema 清单要求 schema 级 SELECT 授权或其中至少一张表/视图可对象级 SELECT；表/视图清单只列出可 SELECT 的对象（列级授权不含在内，与不可预览即隐藏的原则一致）。
   - MySQL / Oracle / 达梦 / MongoDB / Redis / SQLite 的服务端清单已按各自模型天然收敛到可读范围，不改动。
 
-### 测试
-
-- `tests/adapters-sql/pg-like.test.ts`：`listDatabases` 增加 CONNECT 权限谓词契约，`listSchemas` 增加 USAGE + 任一关系可 SELECT 谓词契约。
-- `tests/adapters-sql/sqlserver-offline.test.ts`：`listDatabases` 增加 `HAS_DBACCESS` 契约，`listSchemas` 增加 schema 级/对象级 SELECT 权限谓词契约，`listTables` 增加对象级 SELECT 过滤断言。
-- `tests/e2e-mock/sqlserver.spec.ts`：Fake 按分支判别顺序适配（`listSchemas` SQL 现含 `sys.objects` 权限子查询，先判 schema 级权限谓词再判 `sys.objects`）。
-
-本版修复数据预览分页只能逐页点击的问题（新增总行数、首页/末页直达与页码快跳），并给数据预览加上 Navicat 式的字段内容搜索。
-
-### 新增(数据浏览)
 
 - **分页快跳与总行数**：数据预览分页条新增「首页 / 末页」直达按钮与页码输入快跳（回车提交，越界钳制到 [1, 总页数]），并展示表格总行数。总行数走服务端新增的 `countRows` 适配器方法（`SELECT COUNT(*)` / `countDocuments`），仅在打开表或变更搜索时请求一次，翻页沿用已存值不再重复计数；计数失败不拖垮预览主路径（退化为无总页数模式，仅保留上一页/下一页）。
 - **字段内容搜索（Navicat 式跨列包含匹配）**：数据预览分页条新增搜索框，关键字对表格全部列做大小写不敏感包含匹配：SQL 系走 `LIKE`/`ILIKE` + 显式 `ESCAPE '#'`（`%`/`_`/`#` 字面化，关键字本体一律绑定参数），列名清单由 `SELECT * … LIMIT 0` / `WHERE 1=0` 的元数据一次往返取得；Oracle/达梦用 `UPPER(TO_CHAR(col)) LIKE` 统一转文本；MongoDB 抽样字段集逐字段 `$regex`（非字符串值天然不匹配）；搜索态下分页与「匹配 N 行」计数走同一谓词。Redis 为 KV 型无行级语义，搜索框与总页数按连接类型隐藏（服务层同样对未实现的适配器报 `INVALID_ARGUMENT` 防御）。
 - **`GET /api/preview` 契约扩展**：新增 `search` 参数（有值走内容搜索路径，新增服务方法 `previewSearch`，审计语句携带 `SEARCH` 与关键字）与 `total=1` 参数（响应附带 `total` 全量行数）；`QueryResult` 契约新增可选 `total` 字段。
+
+### 测试
+
+- `tests/adapters-nosql-ent/oracle-dmdb.spec.ts`：Oracle / 达梦 `listTables`、`listDatabases` 契约改为表 + 视图取全断言（SQL 含 `all_views` / `ALL_VIEWS`、视图行类型 `VIEW`、UNION 双分支绑定 owner 两次）。
+- `tests/adapters-nosql-ent/mongodb.spec.ts` 新增 2 条：视图 describeTable 不调 `indexes`、集合 describeTable 索引注入行为不变。
+- `tests/adapters-sql/pg-like.test.ts`：`listDatabases` 增加 CONNECT 权限谓词契约，`listSchemas` 增加 USAGE + 任一关系可 SELECT 谓词契约。
+- `tests/adapters-sql/sqlserver-offline.test.ts`：`listDatabases` 增加 `HAS_DBACCESS` 契约，`listSchemas` 增加 schema 级/对象级 SELECT 权限谓词契约，`listTables` 增加对象级 SELECT 过滤断言。
+- `tests/e2e-mock/sqlserver.spec.ts`：Fake 按分支判别顺序适配（`listSchemas` SQL 现含 `sys.objects` 权限子查询，先判 schema 级权限谓词再判 `sys.objects`）。
 
 ## 1.9.21
 
