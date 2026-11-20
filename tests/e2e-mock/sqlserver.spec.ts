@@ -238,8 +238,16 @@ class FakeTds {
       const ids = this.pkByRef[String(binds['p1'] ?? '')] ?? [];
       return rec(ids.map((column_id) => ({ column_id })), cols('column_id'));
     }
+    // 数据浏览计数（含搜索谓词版）：先于通用 ROW_NUMBER/preview 判定
+    if (sql.includes('COUNT(*) AS [n]')) return rec([{ n: 123 }], cols('n'));
+    // 内容搜索列探测（SELECT TOP 0 *）：0 行但带列元数据
+    if (/SELECT TOP 0 \* FROM/.test(sql)) return rec([], cols('id', 'name'));
     // 预览/用户查询
     if (/OFFSET @p1 ROWS FETCH NEXT @p2 ROWS ONLY/.test(sql) || /ROW_NUMBER\(\)/.test(sql)) {
+      return rec(this.dataRows, cols('id', 'name'));
+    }
+    // 内容搜索（11+ 路径）：绑定 @pN 谓词 + @dsh_off/@dsh_lim 分页
+    if (/OFFSET @dsh_off ROWS FETCH NEXT @dsh_lim ROWS ONLY/.test(sql)) {
       return rec(this.dataRows, cols('id', 'name'));
     }
     return rec([{ answer: 1 }], cols('answer'));
@@ -596,6 +604,44 @@ describe('4 浏览：库 → schema → 表 → 表结构（PRI）→ 预览分�
     await seed(env, 'ss1', 'ro');
     await env.call('GET', 'preview', undefined, { project: env.project, connId: 'ss1', table: 'users', limit: 999, offset: -5 });
     expect(env.tds.lastSql('OFFSET @p1 ROWS FETCH NEXT @p2 ROWS ONLY').binds).toMatchObject({ p1: 0, p2: 50 });
+  });
+
+  it('浏览计数与内容搜索：COUNT/列探测/搜索 SQL 与绑定契约（total=1 与 search=）', async () => {
+    await seed(env, 'ss1', 'ro');
+    const P = { project: env.project, connId: 'ss1' };
+    const B = { database: 'appdb.dbo', table: 'users' };
+
+    // total=1 → COUNT(*) AS [n]，manager 把计数挂到 total
+    const withTotal = await env.call('GET', 'preview', undefined, { ...P, ...B, limit: 50, total: 1 });
+    expect(withTotal.json.ok, JSON.stringify(withTotal.json)).toBe(true);
+    expect(withTotal.json.data).toMatchObject({ rowCount: 2, total: 123 });
+    expect(env.tds.lastSql('COUNT(*) AS [n]').sql).toBe('SELECT COUNT(*) AS [n] FROM [dbo].[users]');
+
+    // search → 列探测 + 全列 CAST NVARCHAR(MAX) LIKE ESCAPE '#'，通配符字面化
+    const searched = await env.call('GET', 'preview', undefined, { ...P, ...B, limit: 50, search: 'a%b_c' });
+    expect(searched.json.ok, JSON.stringify(searched.json)).toBe(true);
+    expect(searched.json.data).toMatchObject({ columns: ['id', 'name'], rowCount: 2, total: 123 });
+    const probe = env.tds.lastSql('SELECT TOP 0 * FROM [dbo].[users]');
+    expect(probe.binds).toEqual({});
+    const search = env.tds.lastSql('OFFSET @dsh_off ROWS FETCH NEXT @dsh_lim ROWS ONLY');
+    expect(search.sql).toBe(
+      "SELECT * FROM [dbo].[users] WHERE (CAST([id] AS NVARCHAR(MAX)) LIKE @p1 ESCAPE '#' OR CAST([name] AS NVARCHAR(MAX)) LIKE @p2 ESCAPE '#') ORDER BY (SELECT NULL) OFFSET @dsh_off ROWS FETCH NEXT @dsh_lim ROWS ONLY",
+    );
+    expect(search.binds).toMatchObject({ p1: '%a#%b#_c%', p2: '%a#%b#_c%', dsh_off: 0, dsh_lim: 50 });
+    // 搜索计数走同一谓词（匹配行数口径）
+    const searchCount = env.tds.lastSql('SELECT COUNT(*) AS [n] FROM [dbo].[users] WHERE (CAST(');
+    expect(searchCount.binds).toMatchObject({ p1: '%a#%b#_c%', p2: '%a#%b#_c%' });
+  });
+
+  it('2008（major<11）降级：搜索谓词下推 ROW_NUMBER 子查询，偏移上界 off+lim', async () => {
+    await seed(env, 'ss1', 'ro');
+    env.tds.version = { version: '10.50.6000.34', major: 10, engine: 3 };
+    await env.call('GET', 'preview', undefined, { project: env.project, connId: 'ss1', database: 'appdb.dbo', table: 'users', limit: 50, search: 'bob' });
+    const search = env.tds.lastSql('ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS [__dsh_rn] FROM [dbo].[users] WHERE (CAST(');
+    expect(search.sql).toContain(
+      "SELECT t.* FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS [__dsh_rn] FROM [dbo].[users] WHERE (CAST([id] AS NVARCHAR(MAX)) LIKE @p1 ESCAPE '#' OR CAST([name] AS NVARCHAR(MAX)) LIKE @p2 ESCAPE '#')) AS t WHERE t.[__dsh_rn] > @dsh_off AND t.[__dsh_rn] <= @dsh_end",
+    );
+    expect(search.binds).toMatchObject({ p1: '%bob%', p2: '%bob%', dsh_off: 0, dsh_end: 50 });
   });
 
   it('表不存在：适配器中文错误经 HTTP 透传（不返回空表结构）', async () => {
