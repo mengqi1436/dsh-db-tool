@@ -703,3 +703,74 @@ describe('/api/transfer-config 传输页配置', () => {
     expect(del.status).toBe(404);
   });
 });
+
+describe('GET /api/preview filters=（字段筛选，Navicat「Filter & Sort」对齐）', () => {
+  it('适配器无 filterRows（KV 型）报 INVALID_ARGUMENT', async () => {
+    const { fx } = await ensureStarted();
+    const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
+    const filters = encodeURIComponent(JSON.stringify([{ column: 'id', op: 'eq', value: '1' }]));
+    const r = await get(`/api/preview?${q}&table=users&filters=${filters}`);
+    expect(r.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+    expect(r.json.error).toContain('不支持数据浏览字段筛选');
+  });
+
+  it('filters 非法 JSON → INVALID_ARGUMENT', async () => {
+    const { fx } = await ensureStarted();
+    const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
+    const r = await get(`/api/preview?${q}&table=users&filters=%5Bbroken`);
+    expect(r.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+    expect(r.json.error).toContain('filters 必须是合法 JSON');
+  });
+
+  it('空条件数组 → INVALID_ARGUMENT；未知操作符 → INVALID_ARGUMENT', async () => {
+    const { fx } = await ensureStarted();
+    const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
+    const empty = await get(`/api/preview?${q}&table=users&filters=${encodeURIComponent('[]')}`);
+    expect(empty.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+    expect(empty.json.error).toContain('筛选条件不能为空');
+    const badOp = await get(`/api/preview?${q}&table=users&filters=${encodeURIComponent(JSON.stringify([{ column: 'id', op: 'drop', value: 'x' }]))}`);
+    expect(badOp.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+    expect(badOp.json.error).toContain('未知筛选操作符');
+  });
+
+  it('支持筛选的适配器：filterRows 收到解析后条件与 logic，total 来自 countRows 筛选计数', async () => {
+    const seen: { filters?: unknown; logic?: string; limit?: number; offset?: number } = {};
+    const localFx = await makeFixture('rw', {
+      filterRows: async (_t, filters, logic, limit, _db, offset) => {
+        seen.filters = filters;
+        seen.logic = logic;
+        seen.limit = limit;
+        seen.offset = offset;
+        return { columns: ['id'], rows: [[7]], rowCount: 1, total: 3 };
+      },
+      countRows: async (_t, _db, _search, filters, logic) => {
+        expect(filters).toEqual([{ column: 'name', op: 'contains', value: 'ali' }, { column: 'age', op: 'ge', value: '18' }]);
+        expect(logic).toBe('or');
+        return 3;
+      },
+    });
+    const localServer = new DbToolHttpServer(localFx.service);
+    const addr = await localServer.start();
+    try {
+      const q = `project=${encodeURIComponent(localFx.projectA)}&connId=${CONN_ID}`;
+      const filters = encodeURIComponent(JSON.stringify([
+        { column: 'name', op: 'contains', value: 'ali' },
+        { column: 'age', op: 'ge', value: '18' },
+      ]));
+      const r = await fetch(`${addr.url}/api/preview?${q}&table=users&filters=${filters}&logic=or&limit=20&offset=20`);
+      const json = (await r.json()) as any;
+      expect(json.ok).toBe(true);
+      expect(json.data).toMatchObject({ rowCount: 1, total: 3 });
+      expect(seen.filters).toEqual([
+        { column: 'name', op: 'contains', value: 'ali' },
+        { column: 'age', op: 'ge', value: '18' },
+      ]);
+      expect(seen.logic).toBe('or');
+      expect(seen.limit).toBe(20);
+      expect(seen.offset).toBe(20);
+    } finally {
+      await localServer.stop();
+      await localFx.dispose();
+    }
+  });
+});

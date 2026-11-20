@@ -16,6 +16,7 @@ import type {
   TableSearchHit,
 } from '../types.js';
 import { assertIdent, clampLimit, clampOffset, escapeLikePattern, humanize, normalizeCell, quoteIdent, validPort } from './common.js';
+import { buildFilterWhereSql, parseBrowseFilters, pgLikeDialect } from './filters.js';
 import { conciseServerInfo } from '../connect-feedback.js';
 
 /** 与 pg / gaussdb vendor 驱动结构兼容的最小接口 */
@@ -415,6 +416,9 @@ export async function createPgLikeAdapter(
     return { where: '(' + preds.join(' OR ') + ')', params };
   }
 
+  /** 字段筛选方言（filterRows/countRows 共用）：::text 文本化 + ILIKE + $n 占位 */
+  const filterDialect = pgLikeDialect((c) => quoteIdent(c), (i) => `$${i}`);
+
   const tx: TxHandle = {
     begin: () =>
       humanize(`${kind} 事务开启`, async () => {
@@ -615,14 +619,21 @@ export async function createPgLikeAdapter(
         return toQueryResult(res);
       }),
 
-    countRows: (table, database, search) =>
+    countRows: (table, database, search, filters, logic) =>
       humanize(`${kind} 数据浏览计数`, async () => {
         const { db, schema } = parseBrowseTarget(database, 'schema');
         const tbl = assertIdent(table, '表名');
         const target = `${quoteIdent(schema)}.${quoteIdent(tbl)}`;
         let where = '';
         let params: string[] = [];
-        if (search != null && search !== '') {
+        if (filters != null) {
+          // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
+          const conds = parseBrowseFilters(filters);
+          if (conds.length === 0) return 0;
+          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect);
+          where = ' WHERE ' + built.where;
+          params = built.params as string[];
+        } else if (search != null && search !== '') {
           const w = await buildSearchWhere(search, db, schema, tbl);
           if (!w.where) return 0; // 无列（空探测）恒无匹配
           where = ' WHERE ' + w.where;
@@ -645,6 +656,22 @@ export async function createPgLikeAdapter(
         const sql = `SELECT * FROM ${quoteIdent(schema)}.${quoteIdent(tbl)} WHERE ${w.where} LIMIT $${w.params.length + 1} OFFSET $${w.params.length + 2}`;
         const params = [...w.params, lim, off];
         const res = db ? await poolFor(db).query(sql, params) : await run(sql, params);
+        return toQueryResult(res);
+      }),
+
+    filterRows: (table, filters, logic, limit, database, offset) =>
+      humanize(`${kind} 字段筛选`, async () => {
+        const { db, schema } = parseBrowseTarget(database, 'schema');
+        const tbl = assertIdent(table, '表名');
+        const lim = clampLimit(limit);
+        const off = clampOffset(offset);
+        const conds = parseBrowseFilters(filters);
+        if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
+        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect);
+        const sql = `SELECT * FROM ${quoteIdent(schema)}.${quoteIdent(tbl)} WHERE ${where} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        const all = [...params, lim, off];
+        // 当前库保持事务路由（run）；跨库必须用该库自己的池（与 searchRows 同路由）
+        const res = db ? await poolFor(db).query(sql, all) : await run(sql, all);
         return toQueryResult(res);
       }),
 

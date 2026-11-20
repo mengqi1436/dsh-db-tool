@@ -161,7 +161,8 @@ describe('1 分页纯函数（lastPageOf / clampJumpPage）', () => {
 /* ---------- 2. 请求契约：search/total 参数与状态联动 ---------- */
 
 // BrowsePane useState 声明序（client.js 同步维护）：sel, view, schema, preview, page,
-// total, search, searchInput, jumpInput, busy, loadErr —— 注入即得「已选表 + 数据预览」形态
+// total, search, searchInput, jumpInput, busy, loadErr, filters, appliedFilters,
+// filterLogic, appliedLogic, filtersOpen —— 注入即得「已选表 + 数据预览」形态
 const SEL = { connId: 'c-ok', db: 'app', schemaName: null, table: { name: 'users', type: 'TABLE' } };
 
 function renderPaneWithState(opts: { total?: any; search?: string; kind?: string } = {}) {
@@ -195,8 +196,8 @@ function paneProps(kind?: string) {
 }
 
 describe('2 openTable 请求契约（search/total 参数）', () => {
-	it('源码：preview 请求携带 search 与 total 参数，翻页沿用已存 total 不重复 COUNT', () => {
-		expect(src).toContain('search: kw || undefined, total: withTotal ? 1 : undefined');
+	it('源码：preview 请求携带 search/filters 与 total 参数，翻页沿用已存 total 不重复 COUNT', () => {
+		expect(src).toContain('search: kw || undefined, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, total: withTotal ? 1 : undefined');
 		// 响应处理：仅在本次请求了计数时才更新 total（翻页响应无 total，不得清空已存值）
 		expect(src).toContain('if (withTotal) setTotal(prev && prev.total != null ? prev.total : null)');
 	});

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Binary, Decimal128, Long, ObjectId, Timestamp } from 'mongodb';
 import {
   assertExplicitFilter,
+  browseFilterDoc,
   buildUri,
   createMongoAdapter,
   DANGEROUS_OPS,
@@ -444,5 +445,49 @@ describe('countRows/searchRows（浏览计数与内容搜索）', () => {
     expect(await ae.searchRows!('users', 'ali', 20)).toMatchObject({ columns: [], rows: [], rowCount: 0 });
     expect(await ae.countRows!('users', undefined, 'ali')).toBe(0); // 空集合无字段可搜 → 0
     expect((empty.coll.countDocuments as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+});
+
+describe('字段筛选（Navicat「Filter & Sort」对齐）', () => {
+  it('browseFilterDoc：and/or 联合与各操作符形状（$regex 转义/列表去空白）', () => {
+    expect(browseFilterDoc([{ column: 'name', op: 'contains', value: 'a.b' }], 'and'))
+      .toEqual({ name: { $regex: 'a\\.b', $options: 'i' } });
+    expect(browseFilterDoc([{ column: 'age', op: 'ge', value: '18' }], 'and'))
+      .toEqual({ age: { $gte: '18' } });
+    expect(browseFilterDoc([{ column: 'note', op: 'is_null' }, { column: 'tag', op: 'in', value: 'a, b ,,c' }], 'and'))
+      .toEqual({ $and: [{ note: null }, { tag: { $in: ['a', 'b', 'c'] } }] });
+    expect(browseFilterDoc([{ column: 'a', op: 'begin_with', value: 'x' }, { column: 'b', op: 'end_with', value: 'y$' }], 'or'))
+      .toEqual({ $or: [{ a: { $regex: '^x', $options: 'i' } }, { b: { $regex: 'y\\$$', $options: 'i' } }] });
+    expect(browseFilterDoc([{ column: 'n', op: 'between', value: '1', value2: '9' }], 'and'))
+      .toEqual({ n: { $gte: '1', $lte: '9' } });
+    expect(browseFilterDoc([{ column: 'n', op: 'not_between', value: '1', value2: '9' }], 'and'))
+      .toEqual({ $nor: [{ n: { $gte: '1', $lte: '9' } }] });
+    expect(browseFilterDoc([{ column: 'n', op: 'not_contains', value: 'x' }], 'and'))
+      .toEqual({ n: { $not: { $regex: 'x', $options: 'i' } } });
+    expect(browseFilterDoc([{ column: 'n', op: 'is_empty' }], 'and')).toEqual({ n: '' });
+    expect(browseFilterDoc([], 'and')).toEqual({});
+  });
+
+  it('filterRows：$and filter + 与 previewRows 同 sort/skip/limit；countRows 走同一 filter', async () => {
+    const { client, coll } = makeClient([{ _id: 'x', name: 'alice', age: 30 }]);
+    const a = await createMongoAdapter(conn, { client });
+    const filters = [{ column: 'name', op: 'contains', value: 'ali' }, { column: 'age', op: 'lt', value: '40' }];
+    const r = await a.filterRows!('users', filters, 'and', 20, undefined, 20);
+    expect(r).toMatchObject({ columns: ['_id', 'name', 'age'], rowCount: 1 });
+    expect((coll.find as ReturnType<typeof vi.fn>).mock.lastCall![0]).toEqual({
+      $and: [{ name: { $regex: 'ali', $options: 'i' } }, { age: { $lt: '40' } }],
+    });
+    const c = await a.countRows!('users', undefined, undefined, filters, 'and');
+    expect(c).toBe(7);
+    expect((coll.countDocuments as ReturnType<typeof vi.fn>).mock.lastCall![0]).toEqual({
+      $and: [{ name: { $regex: 'ali', $options: 'i' } }, { age: { $lt: '40' } }],
+    });
+  });
+
+  it('filterRows 非法条件（未知操作符/超长字段名）→ 适配器侧抛错', async () => {
+    const { client } = makeClient();
+    const a = await createMongoAdapter(conn, { client });
+    await expect(a.filterRows!('users', [{ column: 'name', op: 'drop', value: 'x' }], 'and', 20)).rejects.toThrow(/未知筛选操作符/);
+    await expect(a.filterRows!('users', [{ column: '', op: 'eq', value: '1' }], 'and', 20)).rejects.toThrow(/非法筛选字段名/);
   });
 });

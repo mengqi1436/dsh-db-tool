@@ -301,12 +301,24 @@ async function route(
   }
   if (path === '/api/preview' && req.method === 'GET') {
     const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
-    // search 有值 → 内容搜索（跨列包含）；total=1 → 附带全量行数（表格行数或匹配行数）
+    const offset = q.get('offset') ? Number(q.get('offset')) : undefined;
+    // filters 有值 → 字段筛选（Navicat 式逐字段条件，logic=and|or 条件间联合）；
+    // search 有值 → 内容搜索（跨列包含）；total=1 → 附带全量行数（表格行数/匹配行数）
+    const filtersRaw = q.get('filters');
+    if (filtersRaw != null && filtersRaw !== '') {
+      let filters: unknown;
+      try {
+        filters = JSON.parse(filtersRaw);
+      } catch {
+        throw new DbToolError('INVALID_ARGUMENT', 'filters 必须是合法 JSON');
+      }
+      return sendOk(res, await service.previewFilters(projectOf(q), required(q, 'connId'), required(q, 'table'), filters, q.get('logic') ?? undefined, limit, q.get('database') ?? undefined, offset));
+    }
     const search = q.get('search') ?? '';
     if (search !== '') {
-      return sendOk(res, await service.previewSearch(projectOf(q), required(q, 'connId'), required(q, 'table'), search, limit, q.get('database') ?? undefined, q.get('offset') ? Number(q.get('offset')) : undefined));
+      return sendOk(res, await service.previewSearch(projectOf(q), required(q, 'connId'), required(q, 'table'), search, limit, q.get('database') ?? undefined, offset));
     }
-    return sendOk(res, await service.preview(projectOf(q), required(q, 'connId'), required(q, 'table'), limit, q.get('database') ?? undefined, q.get('offset') ? Number(q.get('offset')) : undefined, q.get('total') === '1'));
+    return sendOk(res, await service.preview(projectOf(q), required(q, 'connId'), required(q, 'table'), limit, q.get('database') ?? undefined, offset, q.get('total') === '1'));
   }
 
   if (path === '/api/query' && req.method === 'POST') {

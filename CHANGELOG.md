@@ -4,6 +4,9 @@
 
 ### 新增(数据浏览)
 
+- **字段筛选（对齐 Navicat「Filter & Sort」，逐字段 + 多字段联合）**：数据预览新增按字段筛选——对每个字段分别设置条件后多字段联合生效，条件间支持 AND / OR（Navicat 构建器的行间连接语义）。操作符对齐 Navicat 构建器全集（PG 专属大小写变体并入 contains，MongoDB 专属 exists/字段类型不提供）：`=` `!=` `<` `<=` `>` `>=`、包含 / 不包含、开头为 / 开头不是、结尾为 / 结尾不是、为 NULL / 不为 NULL、为空字符串 / 不为空字符串、介于 / 不介于、在列表中 / 不在列表中（列表以英文逗号分隔）。入口两处：分页条「筛选」按钮展开条件窗格（字段下拉 + 操作符下拉 + 值输入 + AND/OR 切换 + 添加/删除条件），列头漏斗对当前列快速添加包含条件（已生效列高亮）。筛选与内容搜索互斥提交（服务端两种谓词不叠加），筛选态下分页与「匹配 N 行」计数走同一谓词；切表自动复位筛选。
+  - 服务端：`GET /api/preview` 新增 `filters`（JSON 数组）与 `logic`（`and`/`or`，缺省 and）参数，走新增服务方法 `previewFilters`，审计语句携带 `FILTER` 与条件摘要；适配器契约新增可选 `filterRows`，`countRows` 扩展筛选计数参数；SQL 系谓词由 `lib/adapters/sql-shared/filters.ts` 统一构造（mysql/sqlite/mssql 裸列或 CAST 文本 LIKE、PG `::text ILIKE`、Oracle/达梦 `UPPER(TO_CHAR(col))`，值一律绑定参数、列名过标识符校验 + 方言转义），MongoDB 构造 `$and`/`$or` 文档（`$regex` 转义，锚点在转义后拼接）；Redis 为 KV 型无行级语义，筛选入口与搜索框一样按连接类型隐藏（服务层对未实现适配器报 `INVALID_ARGUMENT`）。
+  - 已知边界：MongoDB 比较类操作符按绑定字符串匹配（BSON 类型敏感），数值/日期列请用包含或同型字面值；SQL 系比较类依赖各库隐式类型转换（与 Navicat 手输值的语义一致）。
 - **目录树按操作权限过滤**：数据预览（目录树）只列出当前数据库账号实际可读的对象——对模式有操作权限（含仅查看/只读权限）才可见，无权限的直接隐藏：
   - **PostgreSQL / GaussDB**：库名清单按 CONNECT 权限过滤（`has_database_privilege`）；schema 清单要求对模式有 USAGE 且其中至少一张关系（表/视图/物化视图/分区表/外部表）可 SELECT（`has_table_privilege`）。
   - **SQL Server**：库名清单按 `HAS_DBACCESS` 过滤；schema 清单要求 schema 级 SELECT 授权或其中至少一张表/视图可对象级 SELECT；表/视图清单只列出可 SELECT 的对象（列级授权不含在内，与不可预览即隐藏的原则一致）。
@@ -11,6 +14,11 @@
 
 ### 测试
 
+- `tests/adapters-sql/filters.test.ts`（新增）：筛选条件解析边界（非数组/未知操作符/缺值/上限）、各方言 WHERE 与参数契约（mysql/pg/sqlite/mssql/oracle、AND/OR、in 列表去空白、通配符字面化）、sqlite 真机 filterRows/countRows 筛选语义（单字段、多字段 AND/OR 联合、between/in/is_null/is_empty、not 取反、通配符字面匹配、分页、适配器侧二次校验）。
+- `tests/adapters-nosql-ent/mongodb.spec.ts`：`browseFilterDoc` 操作符形状契约（$regex 转义、锚点后拼、列表去空白、单条件不包 $and）与 `filterRows`/`countRows` mock 链路、非法条件二次校验。
+- `tests/http/api.spec.ts`：`GET /api/preview filters=` 路由契约（未实现适配器报 INVALID_ARGUMENT、非法 JSON、空条件、未知操作符、filterRows/countRows 透传 filters+logic+limit+offset 与 total）。
+- `tests/client/browse-filters.spec.ts`（新增）：筛选窗格结构（字段/操作符下拉、between 双值输入、is_null 无值输入）、表头漏斗入口与已生效列高亮、应用/清除/翻页请求契约（filters/logic/total 互斥提交）、Redis 能力面隐藏。
+- `tests/tool/fixture.ts`：FakeAdapterOptions 新增 `filterRows` 注入口。
 - `tests/adapters-sql/pg-like.test.ts`：`listDatabases` 增加 CONNECT 权限谓词契约，`listSchemas` 增加 USAGE + 任一关系可 SELECT 谓词契约。
 - `tests/adapters-sql/sqlserver-offline.test.ts`：`listDatabases` 增加 `HAS_DBACCESS` 契约，`listSchemas` 增加 schema 级/对象级 SELECT 权限谓词契约，`listTables` 增加对象级 SELECT 过滤断言。
 - `tests/e2e-mock/sqlserver.spec.ts`：Fake 按分支判别顺序适配（`listSchemas` SQL 现含 `sys.objects` 权限子查询，先判 schema 级权限谓词再判 `sys.objects`）。
