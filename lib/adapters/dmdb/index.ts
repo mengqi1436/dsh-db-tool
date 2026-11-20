@@ -529,14 +529,14 @@ export async function createDmAdapter(
     },
 
     async listDatabases(): Promise<string[]> {
-      // DM 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表者），
+      // DM 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表或有视图者），
       // 失败回退当前用户 schema，绝不用 host 等占位值（会污染 owner 参数）。
       // 系统安全 schema（SYSSSO=MAC 标记/SYSAUDITOR=审计/SYSSCO/CTISYS=全密/SYS）
       // 连 SYSDBA 也无 SELECT 权（DM 有意保护），列出只会让展开时报 [-5504]，
       // 故过滤（保留当前用户自身，支持直接以系统用户连接的场景）。
       try {
         const r = await withConn((c) => c.execute(
-          'SELECT DISTINCT OWNER FROM ALL_TABLES ORDER BY OWNER',
+          'SELECT OWNER FROM ALL_TABLES UNION SELECT OWNER FROM ALL_VIEWS ORDER BY OWNER',
           [],
           execOpts,
         ));
@@ -553,22 +553,33 @@ export async function createDmAdapter(
     async listTables(database?: string): Promise<TableInfo[]> {
       const owner = ownerOf(database);
       try {
-        // ⚠️ 推断：DM 兼容 Oracle 数据字典 ALL_TABLES / ALL_TAB_COMMENTS（未真机验证）；
-        // 表注释取 ALL_TAB_COMMENTS（对应 Oracle COMMENT ON TABLE），LEFT JOIN 不放大行数
+        // ⚠️ 推断：DM 兼容 Oracle 数据字典 ALL_TABLES / ALL_VIEWS / ALL_TAB_COMMENTS（未真机验证）；
+        // 表 + 视图一次取全（UNION ALL 派生表统一排序/截断）：视图与表共用 describeTable
+        // （ALL_TAB_COLUMNS）与 previewRows（SELECT *）路径，视图不列出即无法浏览视图数据；
+        // 纯视图 schema 由 listDatabases 的 ALL_TABLES/ALL_VIEWS 并集保证可见。
+        // 注释同源 ALL_TAB_COMMENTS（视图注释也存此表），LEFT JOIN 不放大行数
         const r = await withConn((c) => c.execute(
-          `SELECT T.TABLE_NAME, C.COMMENTS
-           FROM ALL_TABLES T
-           LEFT JOIN ALL_TAB_COMMENTS C ON C.OWNER = T.OWNER AND C.TABLE_NAME = T.TABLE_NAME
-           WHERE T.OWNER = :owner ORDER BY T.TABLE_NAME OFFSET 0 ROWS FETCH FIRST 500 ROWS ONLY`,
-          [owner],
+          `SELECT NAME, OBJ_TYPE, COMMENTS FROM (
+             SELECT T.TABLE_NAME AS NAME, 'TABLE' AS OBJ_TYPE, C.COMMENTS AS COMMENTS
+             FROM ALL_TABLES T
+             LEFT JOIN ALL_TAB_COMMENTS C ON C.OWNER = T.OWNER AND C.TABLE_NAME = T.TABLE_NAME
+             WHERE T.OWNER = :owner
+             UNION ALL
+             SELECT V.VIEW_NAME, 'VIEW', CV.COMMENTS
+             FROM ALL_VIEWS V
+             LEFT JOIN ALL_TAB_COMMENTS CV ON CV.OWNER = V.OWNER AND CV.TABLE_NAME = V.VIEW_NAME
+             WHERE V.OWNER = :owner
+           ) ORDER BY NAME OFFSET 0 ROWS FETCH FIRST 500 ROWS ONLY`,
+          [owner, owner],
           execOpts,
         ));
         const rows = r.rows ?? [];
         return rows.map((row) => {
           const comment = row.COMMENTS;
+          const objType = String(row.OBJ_TYPE ?? '');
           return {
-            name: String(row.TABLE_NAME ?? ''),
-            type: 'TABLE',
+            name: String(row.NAME ?? ''),
+            type: objType === 'VIEW' ? 'VIEW' : 'TABLE',
             comment: comment != null && comment !== '' ? String(comment) : undefined,
           };
         });
