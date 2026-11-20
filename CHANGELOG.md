@@ -2,6 +2,19 @@
 
 ## 未发布
 
+### 新增(数据浏览)
+
+- **目录树按操作权限过滤**：数据预览（目录树）只列出当前数据库账号实际可读的对象——对模式有操作权限（含仅查看/只读权限）才可见，无权限的直接隐藏：
+  - **PostgreSQL / GaussDB**：库名清单按 CONNECT 权限过滤（`has_database_privilege`）；schema 清单要求对模式有 USAGE 且其中至少一张关系（表/视图/物化视图/分区表/外部表）可 SELECT（`has_table_privilege`）。
+  - **SQL Server**：库名清单按 `HAS_DBACCESS` 过滤；schema 清单要求 schema 级 SELECT 授权或其中至少一张表/视图可对象级 SELECT；表/视图清单只列出可 SELECT 的对象（列级授权不含在内，与不可预览即隐藏的原则一致）。
+  - MySQL / Oracle / 达梦 / MongoDB / Redis / SQLite 的服务端清单已按各自模型天然收敛到可读范围，不改动。
+
+### 测试
+
+- `tests/adapters-sql/pg-like.test.ts`：`listDatabases` 增加 CONNECT 权限谓词契约，`listSchemas` 增加 USAGE + 任一关系可 SELECT 谓词契约。
+- `tests/adapters-sql/sqlserver-offline.test.ts`：`listDatabases` 增加 `HAS_DBACCESS` 契约，`listSchemas` 增加 schema 级/对象级 SELECT 权限谓词契约，`listTables` 增加对象级 SELECT 过滤断言。
+- `tests/e2e-mock/sqlserver.spec.ts`：Fake 按分支判别顺序适配（`listSchemas` SQL 现含 `sys.objects` 权限子查询，先判 schema 级权限谓词再判 `sys.objects`）。
+
 本版修复数据预览分页只能逐页点击的问题（新增总行数、首页/末页直达与页码快跳），并给数据预览加上 Navicat 式的字段内容搜索。
 
 ### 新增(数据浏览)
@@ -122,7 +135,6 @@
 - 新增 `tests/adapters-sql/transfer-deps.test.ts`（外键图收窄 / SCC 循环组 / 拓扑排序，15 条）、`tests/adapters-sql/transfer-gating.test.ts`（假读写端注入的门控编排，10 条：装载门控、删除趟顺序、循环组整组删除且照常装载、预检快速失败与传染、清空趟不重复清空、无边直通、规划失败退化、失败上游不阻塞下游、门控等待期取消收口）、`tests/adapters-sql/transfer-fk.test.ts`（sqlite 真机外键与结构随迁回归，20 条：node:sqlite 默认启用外键约束，覆盖被引用父表的删除/清空/装载与循环组场景、索引/外键/结构随迁还原与重复传输去重）；`tests/adapters-sql/transfer-sqlserver.test.ts` 新增结构随迁契约 4 条（IDENTITY DDL、IDENTITY_INSERT 包裹、索引/外键创建形态、去重键）；`tests/adapters-sql/sqlserver-adversarial.test.ts`、`tests/adapters-nosql-ent/transfer-redis.spec.ts` 的 `beforeLoad` 调用点随契约收窄同步。
 - 新增 `tests/client/conn-cards.spec.ts`（12 条）：卡片网格样式契约（auto-fill/minmax、token 复用、状态圆点四态）、卡片渲染结构（kind 胶囊/名称/副行/动作行、空状态一键测试禁用）、一键测试行为（逐连接各发一次测试请求、测试中中间态按钮禁用、成功/失败圆点与汇总行计数、单卡测试不波及他卡、服务端错误提示原样展示、无 error 兜底「连接失败」）、`dbt-group`/`dbt-kindchip` 既有使用点契约不变。
 - 新增 `tests/adapters-sql/connect-feedback.spec.ts`（19 条）：版本横幅压缩（PG/GaussDB/Oracle/DM 与已简短库的原样透传）、失败映射分层（网络层通用特征、mysql/postgresql/sqlserver/oracle/dm/mongo/redis/sqlite 各库错误码与消息、通用 TLS 兜底、无把握返回 null）、manager 两条失败路径（抛错与 `{ok:false,error}`）与 `testDraft` 整链路映射、成功路径 serverInfo 透传。
->>>>>>> origin/master
 
 ## 1.9.13
 

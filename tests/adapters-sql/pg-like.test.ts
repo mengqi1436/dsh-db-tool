@@ -153,15 +153,16 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(r.message).toContain('3');
   });
 
-  it('listDatabases 使用官方查询', async () => {
+  it('listDatabases 使用官方查询并带 CONNECT 权限过滤', async () => {
     const { a, pool } = await make('postgresql');
     pool.queue = [okRes([{ datname: 'postgres' }, { datname: 'demo' }])];
     const dbs = await a.listDatabases();
     expect(dbs).toEqual(['postgres', 'demo']);
     expect(pool.executed[0]?.sql).toContain('pg_database');
+    expect(pool.executed[0]?.sql).toContain("has_database_privilege(current_user, datname, 'CONNECT')");
   });
 
-  it('listSchemas 列 pg_namespace 用户模式，排除 pg_* 与 information_schema', async () => {
+  it('listSchemas 列 pg_namespace 用户模式，排除 pg_* 与 information_schema，并按权限过滤', async () => {
     const { a, pool } = await make('postgresql');
     pool.queue = [okRes([{ nspname: 'app' }, { nspname: 'public' }])];
     const schemas = await a.listSchemas!();
@@ -169,6 +170,9 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(pool.executed[0]?.sql).toContain('pg_namespace');
     expect(pool.executed[0]?.sql).toContain("NOT LIKE 'pg\\_%'");
     expect(pool.executed[0]?.sql).toContain("<> 'information_schema'");
+    // 无权限模式直接隐藏：USAGE + 至少一张可 SELECT 的关系（仅查看权限也可见）
+    expect(pool.executed[0]?.sql).toContain("has_schema_privilege(current_user, n.oid, 'USAGE')");
+    expect(pool.executed[0]?.sql).toContain("has_table_privilege(current_user, c.oid, 'SELECT')");
   });
 
   it('gaussdb 同样具备 listSchemas（官方三层层级）', async () => {

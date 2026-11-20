@@ -1323,7 +1323,7 @@ describe('sqlserver 元数据方法（手法 B）', () => {
     await a.close();
   });
 
-  it('listDatabases 排除系统库（database_id > 4）', async () => {
+  it('listDatabases 排除系统库（database_id > 4）并无访问权的库过滤', async () => {
     const { a, pool } = await make();
     pool.queue = [rec([{ name: 'appdb' }, { name: 'report' }], cols('name'))];
     const dbs = await a.listDatabases();
@@ -1331,10 +1331,11 @@ describe('sqlserver 元数据方法（手法 B）', () => {
     const sql = pool.last.executed[0]!.sql;
     expect(sql).toContain('sys.databases');
     expect(sql).toContain('database_id > 4');
+    expect(sql).toContain('HAS_DBACCESS(name) = 1');
     await a.close();
   });
 
-  it('listSchemas 排除系统 schema', async () => {
+  it('listSchemas 排除系统 schema 并按 SELECT 权限过滤', async () => {
     const { a, pool } = await make();
     pool.queue = [rec([{ name: 'dbo' }, { name: 'sales' }], cols('name'))];
     const schemas = await a.listSchemas!();
@@ -1342,6 +1343,9 @@ describe('sqlserver 元数据方法（手法 B）', () => {
     const sql = pool.last.executed[0]!.sql;
     expect(sql).toContain('sys.schemas');
     expect(sql).toContain('INFORMATION_SCHEMA');
+    // 无权限模式直接隐藏：schema 级 SELECT 授权或其中任一表/视图可 SELECT
+    expect(sql).toContain("HAS_PERMS_BY_NAME(QUOTENAME(s.name), 'SCHEMA', 'SELECT') = 1");
+    expect(sql).toContain("HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT') = 1");
     await a.close();
   });
 
@@ -1362,6 +1366,8 @@ describe('sqlserver 元数据方法（手法 B）', () => {
     // 表注释 = 对象级扩展属性 MS_Description（class=1 对象级、minor_id=0 表本体）
     expect(sql).toContain('MS_Description');
     expect(sql).toContain('minor_id = 0');
+    // 无权限对象直接隐藏：仅列出当前账号可 SELECT 的表/视图
+    expect(sql).toContain("HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), 'OBJECT', 'SELECT') = 1");
     expect(pool.last.executed[0]!.binds).toEqual([['p1', 'dbo']]);
     await a.close();
   });
