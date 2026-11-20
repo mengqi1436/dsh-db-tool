@@ -369,6 +369,22 @@ describe('业务路由与确认流程', () => {
     expect((await get(`/api/databases?project=${encodeURIComponent(fx.projectA)}`)).json.code).toBe('INVALID_ARGUMENT');
   });
 
+  it('GET /api/preview total=1：适配器无 countRows 时响应缺 total（前端退化为无总页数模式）', async () => {
+    const { fx } = await ensureStarted();
+    const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
+    const r = await get(`/api/preview?${q}&table=users&total=1`);
+    expect(r.json.ok).toBe(true);
+    expect(r.json.data.total).toBeUndefined();
+  });
+
+  it('GET /api/preview search=：适配器无 searchRows（KV 型）报 INVALID_ARGUMENT', async () => {
+    const { fx } = await ensureStarted();
+    const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
+    const r = await get(`/api/preview?${q}&table=users&search=abc`);
+    expect(r.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
+    expect(r.json.error).toContain('不支持数据浏览内容搜索');
+  });
+
   it('GET /api/search-tables：适配器无原生实现时走逐库回退过滤', async () => {
     const { fx } = await ensureStarted();
     const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;

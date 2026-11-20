@@ -301,7 +301,12 @@ async function route(
   }
   if (path === '/api/preview' && req.method === 'GET') {
     const limit = q.get('limit') !== null ? Number(q.get('limit')) : undefined;
-    return sendOk(res, await service.preview(projectOf(q), required(q, 'connId'), required(q, 'table'), limit, q.get('database') ?? undefined, q.get('offset') ? Number(q.get('offset')) : undefined));
+    // search 有值 → 内容搜索（跨列包含）；total=1 → 附带全量行数（表格行数或匹配行数）
+    const search = q.get('search') ?? '';
+    if (search !== '') {
+      return sendOk(res, await service.previewSearch(projectOf(q), required(q, 'connId'), required(q, 'table'), search, limit, q.get('database') ?? undefined, q.get('offset') ? Number(q.get('offset')) : undefined));
+    }
+    return sendOk(res, await service.preview(projectOf(q), required(q, 'connId'), required(q, 'table'), limit, q.get('database') ?? undefined, q.get('offset') ? Number(q.get('offset')) : undefined, q.get('total') === '1'));
   }
 
   if (path === '/api/query' && req.method === 'POST') {

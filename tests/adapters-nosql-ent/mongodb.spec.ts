@@ -41,6 +41,7 @@ function makeClient(docs: Record<string, unknown>[] = []) {
     })),
     countDocuments: vi.fn(async () => 7),
     estimatedDocumentCount: vi.fn(async () => 99),
+    findOne: vi.fn(async () => docs[0] ?? null),
     distinct: vi.fn(async () => ['a', 'b']),
     indexes: vi.fn(async () => [{ name: '_id_', key: { _id: 1 } }]),
     insertOne: vi.fn(async () => ({ insertedId: 'x' })),
@@ -409,5 +410,39 @@ describe('previewRows（offset 翻页）', () => {
     const a = await createMongoAdapter(conn, { client });
     await a.previewRows('users', 10, undefined, -5);
     expect(findSkip(coll)).toHaveBeenCalledWith(0);
+  });
+});
+
+describe('countRows/searchRows（浏览计数与内容搜索）', () => {
+  it('countRows：无关键字 → countDocuments({})；有关键字 → 抽样字段逐个 $regex（元字符转义）', async () => {
+    const { client, coll } = makeClient([{ _id: 'x', name: 'alice', score: 1 }]);
+    const a = await createMongoAdapter(conn, { client });
+    expect(await a.countRows!('users')).toBe(7);
+    expect(coll.countDocuments).toHaveBeenLastCalledWith({});
+    expect(await a.countRows!('users', undefined, 'a.b$')).toBe(7);
+    const filter = (coll.countDocuments as ReturnType<typeof vi.fn>).mock.lastCall![0] as { $or: unknown[] };
+    expect(filter.$or).toEqual([
+      { _id: { $regex: 'a\\.b\\$', $options: 'i' } },
+      { name: { $regex: 'a\\.b\\$', $options: 'i' } },
+      { score: { $regex: 'a\\.b\\$', $options: 'i' } },
+    ]);
+  });
+
+  it('searchRows：$or 过滤 + 与 previewRows 同 sort/skip/limit；空集合（无样本字段）短路空结果', async () => {
+    const { client, coll } = makeClient([{ _id: 'x', name: 'alice' }]);
+    const a = await createMongoAdapter(conn, { client });
+    const r = await a.searchRows!('users', 'ali', 20, undefined, 40);
+    const findFilter = (coll.find as ReturnType<typeof vi.fn>).mock.lastCall![0] as { $or: unknown[] };
+    expect(findFilter.$or).toEqual([
+      { _id: { $regex: 'ali', $options: 'i' } },
+      { name: { $regex: 'ali', $options: 'i' } },
+    ]);
+    expect(r).toMatchObject({ columns: ['_id', 'name'], rows: [['x', 'alice']], rowCount: 1 });
+
+    const empty = makeClient([]);
+    const ae = await createMongoAdapter(conn, { client: empty.client });
+    expect(await ae.searchRows!('users', 'ali', 20)).toMatchObject({ columns: [], rows: [], rowCount: 0 });
+    expect(await ae.countRows!('users', undefined, 'ali')).toBe(0); // 空集合无字段可搜 → 0
+    expect((empty.coll.countDocuments as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 });

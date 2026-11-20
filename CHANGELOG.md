@@ -15,6 +15,33 @@
 - `tests/adapters-sql/sqlserver-offline.test.ts`：`listDatabases` 增加 `HAS_DBACCESS` 契约，`listSchemas` 增加 schema 级/对象级 SELECT 权限谓词契约，`listTables` 增加对象级 SELECT 过滤断言。
 - `tests/e2e-mock/sqlserver.spec.ts`：Fake 按分支判别顺序适配（`listSchemas` SQL 现含 `sys.objects` 权限子查询，先判 schema 级权限谓词再判 `sys.objects`）。
 
+本版修复数据预览分页只能逐页点击的问题（新增总行数、首页/末页直达与页码快跳），并给数据预览加上 Navicat 式的字段内容搜索。
+
+### 新增(数据浏览)
+
+- **分页快跳与总行数**：数据预览分页条新增「首页 / 末页」直达按钮与页码输入快跳（回车提交，越界钳制到 [1, 总页数]），并展示表格总行数。总行数走服务端新增的 `countRows` 适配器方法（`SELECT COUNT(*)` / `countDocuments`），仅在打开表或变更搜索时请求一次，翻页沿用已存值不再重复计数；计数失败不拖垮预览主路径（退化为无总页数模式，仅保留上一页/下一页）。
+- **字段内容搜索（Navicat 式跨列包含匹配）**：数据预览分页条新增搜索框，关键字对表格全部列做大小写不敏感包含匹配：SQL 系走 `LIKE`/`ILIKE` + 显式 `ESCAPE '#'`（`%`/`_`/`#` 字面化，关键字本体一律绑定参数），列名清单由 `SELECT * … LIMIT 0` / `WHERE 1=0` 的元数据一次往返取得；Oracle/达梦用 `UPPER(TO_CHAR(col)) LIKE` 统一转文本；MongoDB 抽样字段集逐字段 `$regex`（非字符串值天然不匹配）；搜索态下分页与「匹配 N 行」计数走同一谓词。Redis 为 KV 型无行级语义，搜索框与总页数按连接类型隐藏（服务层同样对未实现的适配器报 `INVALID_ARGUMENT` 防御）。
+- **`GET /api/preview` 契约扩展**：新增 `search` 参数（有值走内容搜索路径，新增服务方法 `previewSearch`，审计语句携带 `SEARCH` 与关键字）与 `total=1` 参数（响应附带 `total` 全量行数）；`QueryResult` 契约新增可选 `total` 字段。
+
+## 1.9.21
+
+本版是发布链路加固小版本：把 OIDC 发布从「一次能用」做成「长期不坏」，代码零改动。
+
+### 杂项
+
+- **发布运行时升到 actions/checkout@v7 + actions/setup-node@v7 + Node 24**：原先的 v4 系列跑在 Node 20 上，GitHub 已于 2026-09-23 移除 runner 的 Node 20，v4 只能靠强制升级兜底并持续告警。Node 24 自带 npm 11.x，直接满足 trusted publishing 的 npm 版本要求，因此删掉原来手动 `npm install -g npm@^11.5.1` 这一步（v7 也不再导出占位 `NODE_AUTH_TOKEN`）。
+- **新增 npm 版本前置断言**：npm < 11.5.1 时 OIDC 换不到凭证，而 npm 的报错是误导性的「Access token expired or revoked」。现在在发布前显式检查并用 `::error::` 给出准确原因，避免把版本问题误判成凭据过期、又回头去造 token。
+- **在 `publish.yml` 顶部固化 trusted publisher 绑定约束**：写明 npm 侧记录的是仓库名 + 文件名 + 空 Environment，因此该文件不可改名、不可挪目录、不可被 `workflow_call` 复用（校验的是调用方名）、不支持 self-hosted runner、发布 job 必须保留 `id-token: write`。绑定本身无有效期——首次发布成功即验证完成并长期有效，与 granular token 的到期机制不同。
+
+## 1.9.20
+
+本版是发布链路改造小版本：npm 发包从长期 granular token 改为 OIDC trusted publisher，代码零改动。
+
+### 杂项
+
+- **发布认证改为 npm trusted publisher（OIDC）**：`publish.yml` 不再注入 `NODE_AUTH_TOKEN`（删除 `secrets.NPM_TOKEN` 引用），改由 npm 侧绑定的 GitHub Actions trusted publisher 通过 `id-token: write` 换取短期凭证发布，同时保留 `--provenance` 签名。同步移除 `setup-node` 的 `registry-url`——它会写出 `_authToken=${NODE_AUTH_TOKEN}` 空占位，在 OIDC 之前被优先匹配，导致 trusted publisher 失效。Node 22 自带 npm 10 不具备 OIDC 能力，发布前置一步 `npm install -g npm@^11.5.1`。
+- **删除 `github-actions-dbtool-ci3` 长期 token**：该 granular token（all packages 读写 + bypass 2FA，2026-12-24 到期）原先只服务 CI 发布，OIDC 生效后即作废并从 npm 删除，仓库 secret `NPM_TOKEN` 一并清除。npm 自 2027-01 起将限制 bypass 2FA token 用于直接发布，长期凭证路线不再可持续。
+
 ## 1.9.19
 
 本版是「连接弹窗对齐 Navicat」：连接配置从替换列表的内联表单卡重构为 Navicat 连接窗口形态的覆盖层弹窗，弹窗浮在连接卡片列表之上。
@@ -108,7 +135,6 @@
 - 新增 `tests/adapters-sql/transfer-deps.test.ts`（外键图收窄 / SCC 循环组 / 拓扑排序，15 条）、`tests/adapters-sql/transfer-gating.test.ts`（假读写端注入的门控编排，10 条：装载门控、删除趟顺序、循环组整组删除且照常装载、预检快速失败与传染、清空趟不重复清空、无边直通、规划失败退化、失败上游不阻塞下游、门控等待期取消收口）、`tests/adapters-sql/transfer-fk.test.ts`（sqlite 真机外键与结构随迁回归，20 条：node:sqlite 默认启用外键约束，覆盖被引用父表的删除/清空/装载与循环组场景、索引/外键/结构随迁还原与重复传输去重）；`tests/adapters-sql/transfer-sqlserver.test.ts` 新增结构随迁契约 4 条（IDENTITY DDL、IDENTITY_INSERT 包裹、索引/外键创建形态、去重键）；`tests/adapters-sql/sqlserver-adversarial.test.ts`、`tests/adapters-nosql-ent/transfer-redis.spec.ts` 的 `beforeLoad` 调用点随契约收窄同步。
 - 新增 `tests/client/conn-cards.spec.ts`（12 条）：卡片网格样式契约（auto-fill/minmax、token 复用、状态圆点四态）、卡片渲染结构（kind 胶囊/名称/副行/动作行、空状态一键测试禁用）、一键测试行为（逐连接各发一次测试请求、测试中中间态按钮禁用、成功/失败圆点与汇总行计数、单卡测试不波及他卡、服务端错误提示原样展示、无 error 兜底「连接失败」）、`dbt-group`/`dbt-kindchip` 既有使用点契约不变。
 - 新增 `tests/adapters-sql/connect-feedback.spec.ts`（19 条）：版本横幅压缩（PG/GaussDB/Oracle/DM 与已简短库的原样透传）、失败映射分层（网络层通用特征、mysql/postgresql/sqlserver/oracle/dm/mongo/redis/sqlite 各库错误码与消息、通用 TLS 兜底、无把握返回 null）、manager 两条失败路径（抛错与 `{ok:false,error}`）与 `testDraft` 整链路映射、成功路径 serverInfo 透传。
->>>>>>> origin/master
 
 ## 1.9.13
 

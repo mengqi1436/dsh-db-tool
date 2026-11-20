@@ -37,6 +37,14 @@ export function clampOffset(offset?: number): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/** LIKE 关键字转义：通配符（% _）与转义符（#）字面化，SQL 侧统一 ESCAPE '#'。
+ *  选 '#' 而非 '\' 是因为反斜杠在 MySQL 字符串字面量里还要二次转义，各库字面量
+ *  规则不一；'#' 不是任何库的特殊字符，ESCAPE 子句写法跨方言一致。
+ *  关键字本体一律走绑定参数，本函数只影响通配符语义，无注入面。 */
+export function escapeLikePattern(kw: string): string {
+  return kw.replace(/[%_#]/g, (m) => '#' + m);
+}
+
 /**
  * 端口校验（fail-closed，sqlserver validPort 同口径，各适配器 fields/URL 两路径共用）：
  * 仅「未提供」（undefined/null/''，表单留空的官方语义）回退该库默认端口；提供了但

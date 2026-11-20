@@ -423,3 +423,60 @@ describe('Oracle / DM 端口校验（fail-closed，sqlserver validPort 同口径
     );
   });
 });
+
+describe('Oracle/DM countRows/searchRows（浏览计数与内容搜索）', () => {
+  it('oracle countRows：COUNT(*) AS N；带 search 先 WHERE 1=0 探列再拼 UPPER(TO_CHAR) 谓词', async () => {
+    const pool = makeOraPool();
+    pool.connObj.execute
+      .mockResolvedValueOnce({ rows: [{ N: 123 }], metaData: [{ name: 'N' }], rowsAffected: 0 });
+    const a = await createOracleAdapter(oraConn, { pool });
+    expect(await a.countRows!('emp')).toBe(123);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toBe('SELECT COUNT(*) AS N FROM "SCOTT"."emp"');
+    expect(pool.connObj.execute.mock.calls[0]![1]).toEqual([]);
+
+    pool.connObj.execute
+      .mockClear()
+      .mockResolvedValueOnce({ rows: [], metaData: [{ name: 'ID' }, { name: 'NAME' }], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [{ N: '7' }], metaData: [{ name: 'N' }], rowsAffected: 0 });
+    expect(await a.countRows!('emp', undefined, 'a%b_c')).toBe(7);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('WHERE 1=0');
+    expect(pool.connObj.execute.mock.calls[1]![0] as string).toBe(
+      "SELECT COUNT(*) AS N FROM \"SCOTT\".\"emp\" WHERE (UPPER(TO_CHAR(\"ID\")) LIKE UPPER(:b1) ESCAPE '#' OR UPPER(TO_CHAR(\"NAME\")) LIKE UPPER(:b2) ESCAPE '#')",
+    );
+    expect(pool.connObj.execute.mock.calls[1]![1]).toEqual(['%a#%b#_c%', '%a#%b#_c%']);
+  });
+
+  it('oracle searchRows：谓词 + OFFSET :o/:n 绑定（模式绑定在前），走 rowsToQueryResult', async () => {
+    const pool = makeOraPool();
+    pool.connObj.execute
+      .mockResolvedValueOnce({ rows: [], metaData: [{ name: 'ID' }], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [{ ID: 1 }], metaData: [{ name: 'ID' }], rowsAffected: 0 });
+    const a = await createOracleAdapter(oraConn, { pool });
+    const r = await a.searchRows!('emp', 'bob', 10, undefined, 20);
+    expect(pool.connObj.execute.mock.calls[1]![0] as string).toBe(
+      "SELECT * FROM \"SCOTT\".\"emp\" WHERE (UPPER(TO_CHAR(\"ID\")) LIKE UPPER(:b1) ESCAPE '#') OFFSET :o ROWS FETCH NEXT :n ROWS ONLY",
+    );
+    expect(pool.connObj.execute.mock.calls[1]![1]).toEqual(['%bob%', 20, 10]);
+    expect(r.rows).toEqual([[1]]);
+  });
+
+  it('dm countRows/searchRows：COUNT(*) AS N；谓词绑定 + OFFSET/FETCH 内联整数（与 previewRows 同契约）', async () => {
+    const pool = makeDmPool();
+    pool.connObj.execute
+      .mockResolvedValueOnce({ rows: [{ N: 5 }], metaData: [{ name: 'N' }], rowsAffected: 0 });
+    const a = await createDmAdapter(dmConn, { pool });
+    expect(await a.countRows!('t1')).toBe(5);
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toBe('SELECT COUNT(*) AS N FROM "SYSDBA"."t1"');
+
+    pool.connObj.execute
+      .mockClear()
+      .mockResolvedValueOnce({ rows: [], metaData: [{ name: 'ID' }, { name: 'NAME' }], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [{ ID: 1, NAME: 'bob' }], metaData: [{ name: 'ID' }, { name: 'NAME' }], rowsAffected: 0 });
+    const r = await a.searchRows!('t1', 'a%b', 5, undefined, 15);
+    expect(pool.connObj.execute.mock.calls[1]![0] as string).toBe(
+      "SELECT * FROM \"SYSDBA\".\"t1\" WHERE (UPPER(TO_CHAR(\"ID\")) LIKE UPPER(:b1) ESCAPE '#' OR UPPER(TO_CHAR(\"NAME\")) LIKE UPPER(:b2) ESCAPE '#') OFFSET 15 ROWS FETCH FIRST 5 ROWS ONLY",
+    );
+    expect(pool.connObj.execute.mock.calls[1]![1]).toEqual(['%a#%b%', '%a#%b%']);
+    expect(r.rows).toEqual([[1, 'bob']]);
+  });
+});
