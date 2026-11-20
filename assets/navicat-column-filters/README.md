@@ -13,7 +13,7 @@
 - 两版均为各自提交/工作区真实构建 `dist/` + 各自真实 `client.js` + 真实插件 HTTP API
   （授权/审计链路全真实：临时 home 建 sqlite1 连接 + ro 授权），React 走真实渲染路径（react@18 UMD），
   数据源为真实 sqlite 示例库（node:sqlite，12 表 + 1 视图，orders 123 行）
-- DOM 机器校验（domcheck.log）：After scene1 分页条含「筛选」、列头漏斗 ×6、无窗格；展开后窗格
+- DOM 机器校验（domcheck.txt）：After scene1 分页条含「筛选」、列头漏斗 ×6、无窗格；展开后窗格
   三段（头/条件行/动作行）含全部 20 个操作符与 6 个字段；应用后「匹配 15 行」+「/ 1 页」+
   `.dbt-colfilter.active` 高亮 1 个，真实 preview 请求携带
   `filters=[{"column":"buyer","op":"contains","value":"ali"}]&logic=and&total=1`；
