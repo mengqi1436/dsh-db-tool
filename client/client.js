@@ -218,6 +218,16 @@ window.__ModuleLoader__.load({
 			nextPage: "下一页",
 			prevPage: "上一页",
 			pageInfo: "第 {page} 页（每页 50 行）",
+			jumpPrefix: "第",
+			jumpSuffix: "/ {last} 页",
+			firstPage: "首页",
+			lastPage: "末页",
+			pageTotal: "共 {n} 行",
+			pageMatch: "匹配 {n} 行",
+			pageJumpAria: "跳转到指定页",
+			cellSearchPlaceholder: "搜索字段内容，回车执行",
+			cellSearchClear: "清除",
+			searchNoMatch: "无匹配数据",
 			previewTruncated: "结果已截断",
 			browseDialogTitle: "{conn} / {db} / {table}",
 			close: "关闭",
@@ -478,6 +488,16 @@ window.__ModuleLoader__.load({
 			nextPage: "Next",
 			prevPage: "Prev",
 			pageInfo: "Page {page} (50 rows/page)",
+			jumpPrefix: "Page",
+			jumpSuffix: "/ {last}",
+			firstPage: "First",
+			lastPage: "Last",
+			pageTotal: "{n} rows",
+			pageMatch: "{n} matches",
+			pageJumpAria: "Jump to page",
+			cellSearchPlaceholder: "Search cell content, press Enter",
+			cellSearchClear: "Clear",
+			searchNoMatch: "No matching rows",
 			previewTruncated: "Result truncated",
 			browseDialogTitle: "{conn} / {db} / {table}",
 			close: "Close",
@@ -594,6 +614,20 @@ window.__ModuleLoader__.load({
 			return [...map.entries()].filter(([, list]) => list.length > 0);
 		}
 		const PAGE_SIZE = 50; // 契约：preview limit≤50 服务端强制
+
+		// --- 浏览分页纯函数（PreviewGrid/BrowsePane 共用，tests/client 契约断言） ---
+		/** 总行数 → 总页数（至少 1 页；非法输入按 0 行处理） */
+		function lastPageOf(total, size) {
+			const t = Math.max(0, Math.floor(Number(total) || 0));
+			const s = Math.max(1, Math.floor(Number(size) || 1));
+			return Math.max(1, Math.ceil(t / s));
+		}
+		/** 页码跳转输入钳制到 [1, lastPage]（非数字/越界回退边界） */
+		function clampJumpPage(raw, lastPage) {
+			const n = Math.floor(Number(raw));
+			if (!Number.isFinite(n) || n < 1) return 1;
+			return n > lastPage ? lastPage : n;
+		}
 
 		// --- HTTP 封装：保留 code / challengeId 供确认通道使用 ---
 		async function api(path, opts) {
@@ -813,7 +847,13 @@ window.__ModuleLoader__.load({
 				".dbt-browse-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}",
 				".dbt-browse-tablewrap{flex:1 1 auto;min-height:120px;overflow:auto;border:none;border-radius:var(--dbt-radius-card);background:var(--dbt-surface);}",
 				// 页脚：与工具栏同一控件高度体系，内部按钮/文字垂直居中对齐
-				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:8px;min-height:calc(var(--dbt-ctrl-h,28px) + 16px);box-sizing:border-box;padding:8px 12px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);}",
+				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:8px;min-height:calc(var(--dbt-ctrl-h,28px) + 16px);box-sizing:border-box;padding:8px 12px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);flex-wrap:wrap;}",
+				// 分页快跳与内容搜索输入：填充式等高控件（同 .dbt-row input 视觉），窄面板可换行
+				".dbt-browse-footer input{flex:none;height:var(--dbt-ctrl-h,28px);box-sizing:border-box;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:0 10px;font-size:12px;font-family:inherit;}",
+				".dbt-browse-footer input:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
+				".dbt-browse-jump{width:64px;text-align:center;appearance:textfield;-moz-appearance:textfield;}",
+				".dbt-browse-jump::-webkit-outer-spin-button,.dbt-browse-jump::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}",
+				".dbt-browse-search{width:180px;}",
 				".dbt-browse-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dbt-text-secondary);font-size:13px;padding:24px 12px;text-align:center;}",
 				".dbt-browse-errorbox{display:flex;flex-direction:column;gap:8px;align-items:flex-start;}",
 				".dbt-browse-skel{display:flex;flex-direction:column;gap:8px;}",
@@ -2739,6 +2779,10 @@ window.__ModuleLoader__.load({
 			const [schema, setSchema] = React.useState([]);
 			const [preview, setPreview] = React.useState(null); // QueryResult
 			const [page, setPage] = React.useState(1);
+			const [total, setTotal] = React.useState(null); // 全量行数（表格总行数或搜索匹配行数；null=未知 → 无总页数模式）
+			const [search, setSearch] = React.useState(""); // 已提交的内容搜索关键字（""=未搜索）
+			const [searchInput, setSearchInput] = React.useState(""); // 搜索框输入值（提交前）
+			const [jumpInput, setJumpInput] = React.useState(""); // 页码跳转输入值（提交前，""=跟随当前页）
 			const [busy, setBusy] = React.useState("");
 			const [loadErr, setLoadErr] = React.useState(""); // 内容区加载失败（就地显示 + 重试）
 			const openSeq = React.useRef(0); // 请求序号守卫
@@ -2761,26 +2805,38 @@ window.__ModuleLoader__.load({
 				if (sel && !grantedConns.some((c) => c.id === sel.connId)) setSel(null);
 			}, [grantedConns]); // eslint-disable-line
 
-			// 请求序号守卫（沿用面板）：快速切表/翻页时丢弃晚到旧响应，防止旧数据覆盖新选中项
-			const openTable = React.useCallback((s, pg) => {
+			// 请求序号守卫（沿用面板）：快速切表/翻页时丢弃晚到旧响应，防止旧数据覆盖新选中项。
+			// opts.search 缺省 = 切表/重试（重置搜索 + 拉总行数）；给值（含 ""）= 翻页/提交搜索；
+			// opts.withTotal 仅在明确给值时生效（翻页沿用已存 total 省一次 COUNT；缺省且未给
+			// search = 新表加载 → 拉计数）。
+			const openTable = React.useCallback((s, pg, opts) => {
 				if (!s || !projectPath) return;
+				const o = opts || {};
+				const kw = o.search !== undefined ? o.search : "";
+				const withTotal = o.withTotal !== undefined ? !!o.withTotal : o.search === undefined;
 				// PG 系跨库：database 传 "库名.schema"；其它库传库名
 				const dbRef = s.schemaName ? s.db + "." + s.schemaName : s.db;
 				const seq = ++openSeq.current;
 				setBusy("open"); setLoadErr("");
 				Promise.all([
 					api("schema" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name })),
-					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE })),
+					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE, search: kw || undefined, total: withTotal ? 1 : undefined })),
 				])
 					.then(([sch, prev]) => {
 						if (seq !== openSeq.current) return; // 旧请求晚到，丢弃
 						setSchema(sch || []); setPreview(prev); setPage(pg || 1);
+						setSearch(kw);
+						if (withTotal) setTotal(prev && prev.total != null ? prev.total : null); // 适配器无 countRows（如 redis）保持 null
 					})
 					// 面板内错误就地显示（不走面板顶部错误区）
 					.catch((e) => { if (seq === openSeq.current) setLoadErr(String(e && e.message ? e.message : e)); })
 					.finally(() => { if (seq === openSeq.current) setBusy(""); });
 			}, [projectPath]);
-			React.useEffect(() => { if (sel) openTable(sel, 1); }, [sel]); // eslint-disable-line
+			React.useEffect(() => {
+				if (sel) openTable(sel, 1);
+				else { setSearch(""); setSearchInput(""); setJumpInput(""); setTotal(null); } // 取消选中（切项目/授权收窄）同步清空搜索态
+			}, [sel]); // eslint-disable-line
+			React.useEffect(() => { setJumpInput(""); }, [page]); // 翻页后跳转输入回到「跟随当前页」
 
 			// 内容区互斥状态：未选中引导 / 加载骨架 / 错误重试 / 空态 / 表格
 			function rightPane() {
@@ -2808,20 +2864,82 @@ window.__ModuleLoader__.load({
 						undefined, "dbt-browse-tablewrap");
 				}
 				if (!preview || !preview.rows || preview.rows.length === 0) {
+					// 搜索激活且零匹配：明示「无匹配」并就地给清除入口（否则分页条不渲染，搜索无法退出）
+					if (search) {
+						return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } },
+							React.createElement("div", null, t("searchNoMatch")),
+							React.createElement("button", { className: "dbt-btn", onClick: () => { setSearchInput(""); openTable(sel, 1, { search: "", withTotal: true }); } }, t("cellSearchClear")));
+					}
 					return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } }, t("emptyData"));
 				}
 				// Navicat 式单元格网格：kind/可编辑性由当前连接与授权决定（rw=可编辑），保存后重拉当前页
 				const conn = grantedConns.find((c) => c.id === sel.connId) || conns.find((c) => c.id === sel.connId);
 				const grant = (grants || []).find((g) => g.connId === sel.connId);
-				// 分页条作为 children 传入：渲染顺序 表格 → 分页 → 详情栏（详情栏钉在面板最底部）
+				// 内容搜索能力面：redis 为 KV 型（服务端无行级搜索语义），不显示搜索框；其余库已实现 searchRows
+				const supportsSearch = !!conn && conn.kind !== "redis";
+				const hasTotal = total != null && total >= 0;
+				const lastPage = hasTotal ? lastPageOf(total, PAGE_SIZE) : null;
+				const jumpCommit = () => {
+					const raw = jumpInput.trim();
+					setJumpInput("");
+					if (!raw) return;
+					openTable(sel, clampJumpPage(raw, lastPage), { search });
+				};
+				// 分页条作为 children 传入：渲染顺序 表格 → 分页 → 详情栏（详情栏钉在面板最底部）。
+				// 有 total（SQL 系/mongo）：首页/末页/页码快跳/总数；无 total（redis 等 KV 型）：仅翻页。
 				const footer = sel && view === "preview" && !loadErr ? React.createElement(
 					"div",
 					{ className: "dbt-browse-footer" },
-					React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1) }, "‹ " + t("prevPage")),
-					React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
+					hasTotal ? React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, 1, { search }) }, t("firstPage")) : null,
+					React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1, { search }) }, "‹ " + t("prevPage")),
+					hasTotal ? React.createElement(
+						// 页码快跳：受控输入 + 回车提交（钳制到 [1, lastPage]）；失焦还原为跟随当前页
+						"span",
+						{ className: "dbt-muted", style: { display: "inline-flex", alignItems: "center", gap: 6 } },
+						t("jumpPrefix"),
+						React.createElement("input", {
+							className: "dbt-browse-jump",
+							type: "number",
+							min: 1,
+							max: lastPage,
+							value: jumpInput !== "" ? jumpInput : String(page),
+							"aria-label": t("pageJumpAria"),
+							disabled: busy === "open",
+							onChange: (e) => setJumpInput(e.target.value),
+							onKeyDown: (e) => { if (e.key === "Enter") jumpCommit(); },
+							onBlur: () => setJumpInput(""),
+						}),
+						t("jumpSuffix", { last: lastPage }),
+					) : React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
+					React.createElement("button", {
+						className: "dbt-btn",
+						disabled: (hasTotal ? page >= lastPage : (preview && preview.truncated) === false) || busy === "open",
+						onClick: () => openTable(sel, page + 1, { search }),
+					}, t("nextPage") + " ›"),
+					hasTotal ? React.createElement("button", { className: "dbt-btn", disabled: page >= lastPage || busy === "open", onClick: () => openTable(sel, lastPage, { search }) }, t("lastPage")) : null,
+					React.createElement("span", { className: "dbt-muted" }, hasTotal ? (search ? t("pageMatch", { n: total }) : t("pageTotal", { n: total })) : null),
 					React.createElement("span", { style: { flex: 1 } }),
 					preview && preview.truncated ? React.createElement("span", { className: "dbt-muted" }, t("previewTruncated")) : null,
-					React.createElement("button", { className: "dbt-btn", disabled: (preview && preview.truncated) === false || busy === "open", onClick: () => openTable(sel, page + 1) }, t("nextPage") + " ›"),
+					supportsSearch ? React.createElement("input", {
+						className: "dbt-browse-search",
+						type: "text",
+						placeholder: t("cellSearchPlaceholder"),
+						value: searchInput,
+						disabled: busy === "open",
+						"aria-label": t("cellSearchPlaceholder"),
+						onChange: (e) => setSearchInput(e.target.value),
+						onKeyDown: (e) => {
+							if (e.key !== "Enter") return;
+							const kw = e.currentTarget.value.trim();
+							if (kw) openTable(sel, 1, { search: kw, withTotal: true });
+							else if (search) { setSearchInput(""); openTable(sel, 1, { search: "", withTotal: true }); }
+						},
+					}) : null,
+					supportsSearch && (searchInput.trim() !== "" || search !== "") ? React.createElement("button", {
+						className: "dbt-btn",
+						disabled: busy === "open",
+						onClick: () => { setSearchInput(""); if (search) openTable(sel, 1, { search: "", withTotal: true }); },
+					}, t("cellSearchClear")) : null,
 				) : null;
 				return React.createElement(PreviewGrid, {
 					preview, schema,
@@ -2834,7 +2952,7 @@ window.__ModuleLoader__.load({
 					connId: sel.connId, projectPath,
 					connName: conn ? (conn.name || sel.connId) : sel.connId,
 					grantMode: grant ? grant.mode : "",
-					onSaved: () => openTable(sel, page),
+					onSaved: () => openTable(sel, page, { search }),
 					askConfirm,
 				}, footer);
 			}
@@ -4474,6 +4592,7 @@ window.__ModuleLoader__.load({
 			classifyHead, ConsoleView,
 			Panel, TransferView, TransferLogView,
 			urlToFieldsPatch,
+			lastPageOf, clampJumpPage,
 			ConnDialog, buildEditForm, EMPTY_FORM, hasAdvancedTls, SSL_TAB_KINDS, ensureStyles,
 			kindLabel, groupByKind,
 			ManageView, GrantsView,

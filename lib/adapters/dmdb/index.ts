@@ -26,7 +26,7 @@
  */
 import db from 'dmdb';
 import { sqlHead, SQL_READ_HEADS } from '../../guard/index.js';
-import { validPort } from '../sql-shared/common.js';
+import { escapeLikePattern, validPort } from '../sql-shared/common.js';
 import { conciseServerInfo } from '../connect-feedback.js';
 import type {
   AccessMode,
@@ -63,6 +63,18 @@ export function sanitizeIdentifier(name: string, label: string): string {
 /** 双引号标识符转义（" → ""），拼接进 SQL 前必须过此函数 */
 function escIdent(name: string): string {
   return name.replaceAll('"', '""');
+}
+
+/** LIKE 模式：通配符/转义符字面化（ESCAPE '#'）后 %…% 包裹（关键字本体走绑定） */
+function likePattern(kw: string): string {
+  return '%' + escapeLikePattern(kw) + '%';
+}
+
+/** 内容搜索谓词（countRows/searchRows 共用）：UPPER(TO_CHAR(col)) LIKE UPPER(:bN)。
+ *  TO_CHAR 统一转文本（数字/日期按会话格式），UPPER 两端大小写不敏感；
+ *  绑定名逐列唯一（b1..bN，位置数组按出现顺序对应），避免重名绑定歧义。 */
+function searchWhereSql(cols: string[]): string {
+  return '(' + cols.map((c, i) => `UPPER(TO_CHAR("${escIdent(c)}")) LIKE UPPER(:b${i + 1}) ESCAPE '#'`).join(' OR ') + ')';
 }
 
 function trunc(s: string, max = CELL_TRUNC): string {
@@ -428,6 +440,17 @@ export async function createDmAdapter(
       fn: (exec: (sql: string, binds?: unknown[]) => Promise<ExecResult | QueryResult>) => Promise<T>,
     ) => Promise<T>;
   };
+
+  /** 列名清单（内容搜索谓词用）：`WHERE 1=0` 借 metaData 元数据一次往返 */
+  async function searchColumnNames(owner: string, tab: string): Promise<string[]> {
+    const r = await withConn((c) => c.execute(
+      `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" WHERE 1=0`,
+      [],
+      execOpts,
+    ));
+    return (r.metaData ?? []).map((m) => String(m.name));
+  }
+
   const adapter: AdapterWithTx = {
     kind: 'dmdb',
     connId: conn.meta.id,
@@ -617,6 +640,46 @@ export async function createDmAdapter(
         const r = await withConn((c) => c.execute(
           `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" OFFSET ${off} ROWS FETCH FIRST ${n} ROWS ONLY`,
           [],
+          execOpts,
+        ));
+        return await rowsToQueryResult(r);
+      } catch (e) {
+        throw humanizeDmError(e);
+      }
+    },
+
+    async countRows(table: string, database?: string, search?: string): Promise<number> {
+      const owner = ownerOf(database);
+      const tab = sanitizeIdentifier(table, '表名'); // 拼接前经 escIdent 转义
+      try {
+        let sql = `SELECT COUNT(*) AS N FROM "${escIdent(owner)}"."${escIdent(tab)}"`;
+        const binds: unknown[] = [];
+        if (search != null && search !== '') {
+          const cols = await searchColumnNames(owner, tab);
+          if (cols.length === 0) return 0; // 无列恒无匹配
+          sql += ' WHERE ' + searchWhereSql(cols);
+          binds.push(...cols.map(() => likePattern(search)));
+        }
+        const r = await withConn((c) => c.execute(sql, binds, execOpts));
+        const row = r.rows?.[0];
+        return row ? Number(row.N) : 0;
+      } catch (e) {
+        throw humanizeDmError(e);
+      }
+    },
+
+    async searchRows(table: string, keyword: string, limit: number, database?: string, offset?: number): Promise<QueryResult> {
+      const owner = ownerOf(database);
+      const tab = sanitizeIdentifier(table, '表名'); // 拼接前经 escIdent 转义
+      const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
+      const off = Math.max(0, Math.floor(offset ?? 0) || 0);
+      try {
+        const cols = await searchColumnNames(owner, tab);
+        if (cols.length === 0) return { columns: [], rows: [], rowCount: 0 };
+        // OFFSET/FETCH 内联整数（同 previewRows 的契约注释）；LIKE 谓词绑定正常位置
+        const r = await withConn((c) => c.execute(
+          `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" WHERE ${searchWhereSql(cols)} OFFSET ${off} ROWS FETCH FIRST ${n} ROWS ONLY`,
+          cols.map(() => likePattern(keyword)),
           execOpts,
         ));
         return await rowsToQueryResult(r);

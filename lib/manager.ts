@@ -514,6 +514,7 @@ export class DbToolService {
     limit?: number,
     database?: string,
     offset?: number,
+    withTotal?: boolean,
   ): Promise<QueryResult> {
     const t = assertNonEmpty(table, 'table');
     const capped = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
@@ -521,10 +522,58 @@ export class DbToolService {
     const { key, adapter } = await this.authorize(projectPath, connId, false);
     try {
       const result = await adapter.previewRows(t, capped, database, off);
-      this.audit(key, connId, 'preview', `PREVIEW ${t} LIMIT ${capped} OFFSET ${off}`, 'none', false, true, undefined, result.rowCount);
+      let counted = false;
+      // 计数失败不拖垮预览主路径（total 缺失 → 前端退化为无总页数模式）
+      if (withTotal && adapter.countRows) {
+        try {
+          result.total = await adapter.countRows(t, database);
+          counted = true;
+        } catch { /* 保持 undefined */ }
+      }
+      this.audit(key, connId, 'preview', `PREVIEW ${t} LIMIT ${capped} OFFSET ${off}${counted ? ' COUNT' : ''}`, 'none', false, true, undefined, result.rowCount);
       return result;
     } catch (e) {
       this.audit(key, connId, 'preview', `PREVIEW ${t} LIMIT ${capped} OFFSET ${off}`, 'none', false, false, this.errText(e));
+      throw this.toDriverError(e);
+    }
+  }
+
+  /**
+   * 数据浏览内容搜索（Navicat 式跨列包含搜索）。适配器未实现 searchRows（KV 型
+   * Redis 无行级搜索语义）时报 INVALID_ARGUMENT，浏览端按 kind 隐藏搜索框。
+   */
+  async previewSearch(
+    projectPath: string | undefined,
+    connId: string,
+    table: string,
+    keyword: string,
+    limit?: number,
+    database?: string,
+    offset?: number,
+  ): Promise<QueryResult> {
+    const t = assertNonEmpty(table, 'table');
+    const kw = assertNonEmpty(keyword, 'keyword').trim();
+    if (kw.length === 0) throw new DbToolError('INVALID_ARGUMENT', '搜索关键字不能为空');
+    const capped = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+    const off = Math.max(0, Math.floor(Number(offset) || 0));
+    const { key, adapter } = await this.authorize(projectPath, connId, false);
+    if (!adapter.searchRows) {
+      throw new DbToolError('INVALID_ARGUMENT', `该连接类型（${adapter.kind}）不支持数据浏览内容搜索`);
+    }
+    const auditKw = kw.length > 100 ? kw.slice(0, 100) + '…' : kw;
+    try {
+      const result = await adapter.searchRows(t, kw, capped, database, off);
+      let counted = false;
+      if (adapter.countRows) {
+        try {
+          result.total = await adapter.countRows(t, database, kw);
+          counted = true;
+        } catch { /* 保持 undefined */ }
+      }
+      this.audit(key, connId, 'preview', `PREVIEW ${t} SEARCH "${auditKw}" LIMIT ${capped} OFFSET ${off}${counted ? ' COUNT' : ''}`, 'none', false, true, undefined, result.rowCount);
+      return result;
+    } catch (e) {
+      this.audit(key, connId, 'preview', `PREVIEW ${t} SEARCH "${auditKw}" LIMIT ${capped} OFFSET ${off}`, 'none', false, false, this.errText(e));
       throw this.toDriverError(e);
     }
   }
