@@ -447,3 +447,66 @@ describe('createPgLikeAdapter（mock 驱动）', () => {
     expect(createdDb.filter((d) => d !== 'gycwd')).toEqual(['db']);
   });
 });
+
+describe('数据浏览计数与内容搜索（countRows/searchRows，pg/gaussdb 共享实现）', () => {
+  // 与上方 describe 内 make 同款：箭头构造器捕获同一 FakePool 实例
+  async function make(kind: 'postgresql' | 'gaussdb') {
+    const pool = new FakePool();
+    const driver: PgLikeDriver = {
+      Pool: function (config: Record<string, unknown>) {
+        void config;
+        return pool;
+      } as unknown as PgLikeDriver['Pool'],
+    };
+    const a = await createPgLikeAdapter(kind, driver, conn(undefined, kind));
+    return { a, pool };
+  }
+
+  it('countRows：COUNT(*)::bigint AS n，驱动 bigint 字符串 Number 归一', async () => {
+    const { a, pool } = await make('postgresql');
+    pool.queue = [{ rows: [{ n: '1234' }], rowCount: 1 }]; // pg COUNT 返回 string
+    const n = await a.countRows!('users');
+    expect(pool.executed[0]?.sql).toBe('SELECT COUNT(*)::bigint AS n FROM "public"."users"');
+    expect(pool.executed[0]?.params).toEqual([]);
+    expect(n).toBe(1234);
+  });
+
+  it('searchRows：先探测列（LIMIT 0 fields），再全列 ::text ILIKE ESCAPE \'#\'，通配符/转义符字面化，LIMIT/OFFSET 尾随绑定', async () => {
+    const { a, pool } = await make('postgresql');
+    pool.queue = [
+      { rows: [], fields: [{ name: 'id' }, { name: 'na_me' }, { name: 'note' }], rowCount: 0 },
+      { rows: [{ id: 1, na_me: 'a%b', note: 'x' }], rowCount: 1 },
+    ];
+    const r = await a.searchRows!('users', 'a%b_c', 50, undefined, 100);
+    expect(pool.executed[0]?.sql).toBe('SELECT * FROM "public"."users" LIMIT 0');
+    expect(pool.executed[1]?.sql).toBe(
+      'SELECT * FROM "public"."users" WHERE ("id"::text ILIKE $1 ESCAPE \'#\' OR "na_me"::text ILIKE $2 ESCAPE \'#\' OR "note"::text ILIKE $3 ESCAPE \'#\') LIMIT $4 OFFSET $5',
+    );
+    expect(pool.executed[1]?.params).toEqual(['%a#%b#_c%', '%a#%b#_c%', '%a#%b#_c%', 50, 100]);
+    expect(r.rowCount).toBe(1);
+    expect(r.columns).toEqual(['id', 'na_me', 'note']);
+  });
+
+  it('countRows(search)：谓词与 searchRows 一致（匹配行数口径）', async () => {
+    const { a, pool } = await make('gaussdb');
+    pool.queue = [
+      { rows: [], fields: [{ name: 'id' }, { name: 'name' }], rowCount: 0 },
+      { rows: [{ n: '7' }], rowCount: 1 },
+    ];
+    const n = await a.countRows!('users', undefined, 'bob');
+    expect(pool.executed[1]?.sql).toBe(
+      'SELECT COUNT(*)::bigint AS n FROM "public"."users" WHERE ("id"::text ILIKE $1 ESCAPE \'#\' OR "name"::text ILIKE $2 ESCAPE \'#\')',
+    );
+    expect(pool.executed[1]?.params).toEqual(['%bob%', '%bob%']);
+    expect(n).toBe(7);
+  });
+
+  it('空探测（无列）：searchRows 返回空结果、countRows(search) 恒 0、countRows() 仍计数', async () => {
+    const { a, pool } = await make('postgresql');
+    pool.queue = [{ rows: [], rowCount: 0 }, { rows: [], rowCount: 0 }, { rows: [{ n: '5' }], rowCount: 1 }];
+    expect(await a.searchRows!('empty_t', 'kw', 50)).toMatchObject({ columns: [], rows: [], rowCount: 0 });
+    expect(await a.countRows!('empty_t', undefined, 'kw')).toBe(0);
+    expect(await a.countRows!('empty_t')).toBe(5);
+    expect(pool.executed[2]?.sql).toBe('SELECT COUNT(*)::bigint AS n FROM "public"."empty_t"');
+  });
+});

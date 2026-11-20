@@ -67,6 +67,32 @@ async function ensureFixture(): Promise<Fixture> {
   return fx;
 }
 
+/** 带浏览计数/内容搜索能力的假适配器 fixture（默认 fixture 未实现 → 走 UNSUPPORTED 路径） */
+async function makeSearchableFixture(): Promise<{
+  fx: Fixture;
+  seen: { countRows?: { table: string; database?: string; search?: string }; searchRows?: { table: string; keyword: string; limit: number; database?: string; offset?: number } };
+}> {
+  const seen: { countRows?: { table: string; database?: string; search?: string }; searchRows?: { table: string; keyword: string; limit: number; database?: string; offset?: number } } = {};
+  const f = await makeFixture('rw', {
+    countRows: async (table, database, search) => {
+      seen.countRows = { table, database, search };
+      return search ? 7 : 42;
+    },
+    searchRows: async (table, keyword, limit, database, offset) => {
+      seen.searchRows = { table, keyword, limit, database, offset };
+      return { columns: ['id', 'name'], rows: [[2, 'alice']], rowCount: 1 };
+    },
+  });
+  return { fx: f, seen };
+}
+
+/** 直打指定 service 的 HTTP handler（复用模块级 mockReq/MockRes 桩） */
+async function callFx(f: Fixture, method: string, url: string): Promise<{ status: number; json: any }> {
+  const res = new MockRes();
+  await handleDbToolRequest(mockReq(method, url), res as unknown as ServerResponse, f.service);
+  return { status: res.statusCode, json: JSON.parse(res.body) as any };
+}
+
 /* ---------- 1. 端到端全链路（Mock 示例：零依赖演示安全链路） ---------- */
 
 describe('端到端全链路（mock 适配器）', () => {
@@ -144,6 +170,50 @@ describe('端到端全链路（mock 适配器）', () => {
     const audit = f.service.auditTail(undefined, 100);
     expect(audit.some((e) => e.statement === stmt && e.confirmed && e.ok)).toBe(true);
     expect(audit.some((e) => e.error === 'INVALID_CHALLENGE')).toBe(true);
+  });
+});
+
+/* ---------- 1.5 数据浏览计数 + 内容搜索（HTTP → manager → 适配器链路） ---------- */
+
+describe('数据浏览计数与内容搜索（mock 适配器带 countRows/searchRows）', () => {
+  it('preview total=1 附带表格总行数；search 走 searchRows 并以匹配行数为 total；未授权同样拒绝', async () => {
+    const { fx: f, seen } = await makeSearchableFixture();
+    const q = (extra: string) => `/api/preview?project=${encodeURIComponent(f.projectA)}&connId=${CONN_ID}&table=users&limit=50&offset=0${extra}`;
+
+    // total=1 → previewRows + countRows（无关键字）
+    const withTotal = await callFx(f, 'GET', q('&total=1'));
+    expect(withTotal.json.ok, JSON.stringify(withTotal.json)).toBe(true);
+    expect(withTotal.json.data).toMatchObject({ columns: ['id'], rowCount: 1, total: 42 });
+    expect(seen.countRows).toMatchObject({ table: 'users', search: undefined });
+
+    // search → searchRows + countRows(带关键字)，total=匹配行数
+    const searched = await callFx(f, 'GET', q('&search=alice'));
+    expect(searched.json.ok, JSON.stringify(searched.json)).toBe(true);
+    expect(searched.json.data).toMatchObject({ columns: ['id', 'name'], rows: [[2, 'alice']], total: 7 });
+    expect(seen.searchRows).toMatchObject({ table: 'users', keyword: 'alice', limit: 50, offset: 0 });
+    expect(seen.countRows).toMatchObject({ table: 'users', search: 'alice' });
+
+    // 审计：搜索走 preview 动作且语句携带 SEARCH 与关键字
+    const audit = f.service.auditTail(undefined, 50);
+    expect(audit.some((e) => e.action === 'preview' && e.statement.includes('SEARCH "alice"') && e.ok)).toBe(true);
+
+    // 未授权项目 → 与 preview 同一道闸门
+    const denied = await callFx(f, 'GET', `/api/preview?project=${encodeURIComponent(f.projectB)}&connId=${CONN_ID}&table=users&search=alice`);
+    expect(denied.json).toMatchObject({ ok: false, code: 'UNAUTHORIZED_PROJECT' });
+    await f.dispose();
+  });
+
+  it('previewSearch：limit 钳制 1..50、offset ≥0、空关键字 INVALID_ARGUMENT、无适配器实现报不支持', async () => {
+    const { fx: f, seen } = await makeSearchableFixture();
+    await f.service.previewSearch(f.projectA, CONN_ID, 'users', 'bob', 999, undefined, -5);
+    expect(seen.searchRows).toMatchObject({ keyword: 'bob', limit: 50, offset: 0 });
+
+    await expect(f.service.previewSearch(f.projectA, CONN_ID, 'users', '   ', 50)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+
+    const plain = await makeFixture('rw'); // 默认假适配器无 searchRows
+    await expect(plain.service.previewSearch(plain.projectA, CONN_ID, 'users', 'bob', 50)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await plain.dispose();
+    await f.dispose();
   });
 });
 
