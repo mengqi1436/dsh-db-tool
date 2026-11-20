@@ -1,0 +1,23 @@
+[after] scene1 footer: 首页 | ‹ 上一页 | 第 | / 3 页 | 下一页 › | 末页 | 共 123 行 | 筛选
+[after] scene1 colfilter=6 pane=0
+[after] pane: rows=2 text= ＋ 添加条件 | 应用筛选 | 清除筛选 | id | item | buyer | qty | price | note | 包含 | eq | ne | 开头为 | 结尾为 | 不包含 | 开头不是 | 结尾不是 | lt | le | gt | ge | 为 NULL | 不为 NULL | 为空字符串 | 不为空字符串 | 介于 | 不介于 | 在列表中 | 不在列表中 | ×
+[after] applied footer: 首页 | ‹ 上一页 | 第 | / 1 页 | 下一页 › | 末页 | 匹配 15 行 | 筛选 · 1
+[after] applied activeFunnel=1 previewApi=http://127.0.0.1:8894/dsh-db-tool/api/preview?project=/tmp/uishot-navicat/proj-after&connId=sqlite1&database=main&table=orders&limit=50&offset=0&filters=[{"column":"buyer","op":"contains","value":"ali"}]&logic=and&total=1
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:8893/?bg=light
+Call log:
+[2m  - navigating to "http://127.0.0.1:8893/?bg=light", waiting until "load"[22m
+
+    at browseToPreview (/tmp/uishot-navicat/domcheck-filters.mjs:5:14)
+    at inspect (/tmp/uishot-navicat/domcheck-filters.mjs:23:9)
+    at async file:///tmp/uishot-navicat/domcheck-filters.mjs:51:1 {
+  log: [
+    '  - navigating to "http://127.0.0.1:8893/?bg=light", waiting until "load"'
+  ],
+  name: 'Error'
+}
+
+Node.js v26.13.0

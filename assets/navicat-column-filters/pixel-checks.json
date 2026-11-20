@@ -1,0 +1,26 @@
+{
+  "after-dark-1-page1.png": {
+    "textPixelRatio": 0.0177
+  },
+  "after-dark-2-pane.png": {
+    "textPixelRatio": 0.0228
+  },
+  "after-dark-3-applied.png": {
+    "textPixelRatio": 0.0177
+  },
+  "after-light-1-page1.png": {
+    "textPixelRatio": 0.0258
+  },
+  "after-light-2-pane.png": {
+    "textPixelRatio": 0.0346
+  },
+  "after-light-3-applied.png": {
+    "textPixelRatio": 0.0285
+  },
+  "before-dark-1-page1.png": {
+    "textPixelRatio": 0.0172
+  },
+  "before-light-1-page1.png": {
+    "textPixelRatio": 0.0253
+  }
+}

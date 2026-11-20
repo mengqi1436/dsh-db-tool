@@ -19,6 +19,7 @@ import type {
   TableInfo,
 } from '../types.js';
 import { assertIdent, clampLimit, clampOffset, escapeLikePattern, humanize, normalizeCell, quoteIdent } from '../sql-shared/common.js';
+import { bareLikeDialect, buildFilterWhereSql, parseBrowseFilters } from '../sql-shared/filters.js';
 
 /** 两驱动的最小公共面（本适配器只用这些能力）。 */
 interface SqliteStatement {
@@ -157,6 +158,13 @@ export function sqliteSearchWhere(cols: string[]): string {
   return '(' + cols.map((c) => `CAST(${quoteIdent(c)} AS TEXT) LIKE ? ESCAPE '#'`).join(' OR ') + ')';
 }
 
+/** 字段筛选方言（filterRows/countRows 共用）：CAST AS TEXT 文本化 + ? 占位 */
+export const sqliteFilterDialect = bareLikeDialect(
+  (c) => quoteIdent(c),
+  () => '?',
+  (c) => `CAST(${c} AS TEXT)`,
+);
+
 export async function createSqliteAdapter(
   conn: ResolvedConnection,
   opts?: { mode?: AccessMode },
@@ -255,12 +263,19 @@ export async function createSqliteAdapter(
         return toQueryResult(raw, stmtColumns(stmt, raw));
       }),
 
-    countRows: (table, _database, search) =>
+    countRows: (table, _database, search, filters, logic, logics) =>
       humanize('sqlite 数据浏览计数', async () => {
         const tbl = quoteIdent(assertIdent(table, '表名'));
         let sql = `SELECT COUNT(*) AS n FROM ${tbl}`;
         let params: string[] = [];
-        if (search != null && search !== '') {
+        if (filters != null) {
+          // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
+          const conds = parseBrowseFilters(filters);
+          if (conds.length === 0) return 0;
+          const built = buildFilterWhereSql(conds, logic ?? 'and', sqliteFilterDialect, logics);
+          sql += ' WHERE ' + built.where;
+          params = built.params as string[];
+        } else if (search != null && search !== '') {
           const cols = await sqliteColumnNames(table);
           if (cols.length === 0) return 0; // 无列恒无匹配
           sql += ' WHERE ' + sqliteSearchWhere(cols);
@@ -285,6 +300,19 @@ export async function createSqliteAdapter(
           lim,
           off,
         ) as Record<string, unknown>[];
+        return toQueryResult(raw, stmtColumns(stmt, raw));
+      }),
+
+    filterRows: (table, filters, logic, limit, _database, offset, logics) =>
+      humanize('sqlite 字段筛选', async () => {
+        const tbl = quoteIdent(assertIdent(table, '表名'));
+        const lim = clampLimit(limit);
+        const off = clampOffset(offset);
+        const conds = parseBrowseFilters(filters);
+        if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
+        const { where, params } = buildFilterWhereSql(conds, logic, sqliteFilterDialect, logics);
+        const stmt = db.prepare(`SELECT * FROM ${tbl} WHERE ${where} LIMIT ? OFFSET ?`);
+        const raw = stmt.all(...params, lim, off) as Record<string, unknown>[];
         return toQueryResult(raw, stmtColumns(stmt, raw));
       }),
 

@@ -34,6 +34,8 @@ export interface FakeAdapterOptions {
   /** 不传则适配器无 countRows/searchRows（验证浏览计数/内容搜索的未实现路径） */
   countRows?: NonNullable<DatabaseAdapter['countRows']>;
   searchRows?: NonNullable<DatabaseAdapter['searchRows']>;
+  /** 不传则适配器无 filterRows（验证字段筛选的未实现路径，KV 型 Redis 同形） */
+  filterRows?: NonNullable<DatabaseAdapter['filterRows']>;
 }
 
 /** 内存假适配器（mysql 语义） */
@@ -62,6 +64,7 @@ export function fakeAdapter(opts?: FakeAdapterOptions): DatabaseAdapter {
     ...(opts?.searchTables ? { searchTables: opts.searchTables } : {}),
     ...(opts?.countRows ? { countRows: opts.countRows } : {}),
     ...(opts?.searchRows ? { searchRows: opts.searchRows } : {}),
+    ...(opts?.filterRows ? { filterRows: opts.filterRows } : {}),
     close: async () => {},
   };
 }

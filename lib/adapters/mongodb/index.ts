@@ -18,6 +18,7 @@
  */
 import { createRequire } from 'node:module';
 import { validPort } from '../sql-shared/common.js';
+import { parseBrowseFilters, type BrowseFilter } from '../sql-shared/filters.js';
 import type {
   Binary,
   Decimal128,
@@ -124,6 +125,52 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 /** $regex 关键字转义：元字符字面化，保证「包含匹配」语义而非模式语义 */
 export function escapeMongoRegex(kw: string): string {
   return kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 字段筛选条件 → Mongo filter（countRows/filterRows 共用，Navicat「Filter & Sort」对齐）。
+ *  文本包含/开头/结尾复用 $regex 转义；比较类按绑定值原样匹配（BSON 类型敏感）。
+ *  shortcut: 数值/日期列的 lt/gt 等比较需传同型字面值，字符串数字不命中；
+ *  待做字段类型抽样推断后升级（JSON 值编辑器场景会补）。
+ *  纯函数（无 IO），导出供测试契约断言。logics 为逐行连接符（logics[i] 连接第 i 与
+ *  i+1 个条件），混合连接符按左结合 $and/$or 嵌套；缺省全部用 logic。 */
+export function browseFilterDoc(conds: BrowseFilter[], logic: 'and' | 'or', logics?: Array<'and' | 'or'>): Record<string, unknown> {
+  const parts = conds.map((f): Record<string, unknown> => {
+    const col = f.column;
+    // 锚点（^/$）在转义之后拼接：escapeMongoRegex 会字面化 ^/$，先拼锚点会被当字面字符
+    const rex = (escaped: string): Record<string, unknown> => ({ $regex: escaped, $options: 'i' });
+    switch (f.op) {
+      case 'eq': return { [col]: f.value };
+      case 'ne': return { [col]: { $ne: f.value } };
+      case 'lt': return { [col]: { $lt: f.value } };
+      case 'le': return { [col]: { $lte: f.value } };
+      case 'gt': return { [col]: { $gt: f.value } };
+      case 'ge': return { [col]: { $gte: f.value } };
+      case 'contains': return { [col]: rex(escapeMongoRegex(f.value!)) };
+      case 'not_contains': return { [col]: { $not: rex(escapeMongoRegex(f.value!)) } };
+      case 'begin_with': return { [col]: rex('^' + escapeMongoRegex(f.value!)) };
+      case 'not_begin_with': return { [col]: { $not: rex('^' + escapeMongoRegex(f.value!)) } };
+      case 'end_with': return { [col]: rex(escapeMongoRegex(f.value!) + '$') };
+      case 'not_end_with': return { [col]: { $not: rex(escapeMongoRegex(f.value!) + '$') } };
+      case 'is_null': return { [col]: null };
+      case 'is_not_null': return { [col]: { $ne: null } };
+      case 'is_empty': return { [col]: '' };
+      case 'is_not_empty': return { [col]: { $ne: '' } };
+      case 'between': return { [col]: { $gte: f.value, $lte: f.value2 } };
+      case 'not_between': return { $nor: [{ [col]: { $gte: f.value, $lte: f.value2 } }] };
+      case 'in': return { [col]: { $in: f.value!.split(',').map((s) => s.trim()).filter((s) => s !== '') } };
+      case 'not_in': return { [col]: { $nin: f.value!.split(',').map((s) => s.trim()).filter((s) => s !== '') } };
+      default: throw new Error(`未知筛选操作符: ${JSON.stringify(f.op)}`);
+    }
+  });
+  // 连接：无 logics → 统一 $and/$or；有 logics → 左结合嵌套（Navicat 混合连接符语义）
+  if (!logics || logics.length === 0 || parts.length <= 1) {
+    return parts.length === 0 ? {} : parts.length === 1 ? parts[0]! : { [logic === 'or' ? '$or' : '$and']: parts };
+  }
+  let expr = parts[0]!;
+  for (let k = 1; k < parts.length; k++) {
+    expr = { [logics[k - 1] === 'or' ? '$or' : '$and']: [expr, parts[k]] };
+  }
+  return expr;
 }
 
 /** 可执行服务端 JS 的键（代码注入面） */
@@ -561,8 +608,14 @@ export async function createMongoAdapter(
       }
     },
 
-    async countRows(name: string, database?: string, search?: string): Promise<number> {
+    async countRows(name: string, database?: string, search?: string, filters?: unknown, logic?: 'and' | 'or', logics?: Array<'and' | 'or'>): Promise<number> {
       try {
+        if (filters != null) {
+          // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
+          const conds = parseBrowseFilters(filters);
+          if (conds.length === 0) return 0;
+          return await dbOf(database).collection(name).countDocuments(browseFilterDoc(conds, logic ?? 'and', logics));
+        }
         const filter = await searchFilter(name, database, search);
         if (filter === null) return 0; // 空集合无字段可搜
         return await dbOf(database).collection(name).countDocuments(filter);
@@ -578,6 +631,20 @@ export async function createMongoAdapter(
         const filter = await searchFilter(name, database, keyword);
         if (filter === null) return { columns: [], rows: [], rowCount: 0 }; // 空集合无字段可搜
         const docs = await dbOf(database).collection(name).find(filter).sort({ _id: 1 }).skip(skip).limit(n).toArray();
+        return docsToResult(docs, false);
+      } catch (e) {
+        throw wrap(e);
+      }
+    },
+
+    async filterRows(table: string, filters: unknown, logic: 'and' | 'or', limit: number, database?: string, offset?: number, logics?: Array<'and' | 'or'>): Promise<QueryResult> {
+      try {
+        const n = Math.max(1, Math.min(Math.floor(limit) || 20, FIND_MAX_LIMIT));
+        const skip = Math.max(0, Math.floor(offset ?? 0) || 0);
+        const conds = parseBrowseFilters(filters);
+        if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
+        const filter = browseFilterDoc(conds, logic, logics);
+        const docs = await dbOf(database).collection(table).find(filter).sort({ _id: 1 }).skip(skip).limit(n).toArray();
         return docsToResult(docs, false);
       } catch (e) {
         throw wrap(e);
