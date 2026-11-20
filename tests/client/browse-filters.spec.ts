@@ -217,10 +217,9 @@ describe('1 能力面与筛选窗格结构', () => {
 		expect(text).toContain('清除筛选');
 		const colOptions = collect(selects[0]).filter((e) => e.type === 'option').map((o) => o.props.value);
 		expect(colOptions).toEqual(['id', 'name']); // schema 字段清单
-		const checkbox = collect(paneEl).find((e) => e.type === 'input' && e.props.type === 'checkbox');
-		expect(checkbox).toBeTruthy();
+		const checkbox = collect(paneEl).find((e) => e.type === 'input' && e.props.type === 'checkbox')!;
 		expect(checkbox.props.checked).toBe(true);
-		const input = collect(paneEl).filter((e) => e.type === 'input' && e.props.type !== 'checkbox')[0];
+		const input = collect(paneEl).filter((e) => e.type === 'input' && e.props.type !== 'checkbox')[0]!;
 		expect(input.props.placeholder).toBe('筛选值');
 	});
 
