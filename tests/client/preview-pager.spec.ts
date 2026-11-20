@@ -197,7 +197,7 @@ function paneProps(kind?: string) {
 
 describe('2 openTable 请求契约（search/total 参数）', () => {
 	it('源码：preview 请求携带 search/filters 与 total 参数，翻页沿用已存 total 不重复 COUNT', () => {
-		expect(src).toContain('search: kw || undefined, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, total: withTotal ? 1 : undefined');
+		expect(src).toContain('search: kw || undefined, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, logics: fl && fl.logics && fl.logics.length ? JSON.stringify(fl.logics) : undefined, total: withTotal ? 1 : undefined');
 		// 响应处理：仅在本次请求了计数时才更新 total（翻页响应无 total，不得清空已存值）
 		expect(src).toContain('if (withTotal) setTotal(prev && prev.total != null ? prev.total : null)');
 	});

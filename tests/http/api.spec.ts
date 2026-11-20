@@ -719,7 +719,7 @@ describe('GET /api/preview filters=（字段筛选，Navicat「Filter & Sort」�
     const q = `project=${encodeURIComponent(fx.projectA)}&connId=${CONN_ID}`;
     const r = await get(`/api/preview?${q}&table=users&filters=%5Bbroken`);
     expect(r.json).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' });
-    expect(r.json.error).toContain('filters 必须是合法 JSON');
+    expect(r.json.error).toContain('filters/logics 必须是合法 JSON');
   });
 
   it('空条件数组 → INVALID_ARGUMENT；未知操作符 → INVALID_ARGUMENT', async () => {

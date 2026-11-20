@@ -358,7 +358,7 @@ export async function createMysqlAdapter(
         return toQueryResult(rows as RowDataPacket[], fields);
       }),
 
-    countRows: (table, database, search, filters, logic) =>
+    countRows: (table, database, search, filters, logic, logics) =>
       humanize('mysql 数据浏览计数', async () => {
         const db = quoteIdent(database ? assertIdent(database, '库名') : defaultDb(), '`');
         const tbl = quoteIdent(assertIdent(table, '表名'), '`');
@@ -368,7 +368,7 @@ export async function createMysqlAdapter(
           // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
           const conds = parseBrowseFilters(filters);
           if (conds.length === 0) return 0;
-          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect);
+          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect, logics);
           where = ' WHERE ' + built.where;
           params = built.params as string[];
         } else if (search != null && search !== '') {
@@ -398,7 +398,7 @@ export async function createMysqlAdapter(
         return toQueryResult(rows as RowDataPacket[], fields);
       }),
 
-    filterRows: (table, filters, logic, limit, database, offset) =>
+    filterRows: (table, filters, logic, limit, database, offset, logics) =>
       humanize('mysql 字段筛选', async () => {
         const db = quoteIdent(database ? assertIdent(database, '库名') : defaultDb(), '`');
         const tbl = quoteIdent(assertIdent(table, '表名'), '`');
@@ -406,7 +406,7 @@ export async function createMysqlAdapter(
         const off = clampOffset(offset);
         const conds = parseBrowseFilters(filters);
         if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
-        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect);
+        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect, logics);
         const [rows, fields] = await pool.query(
           `SELECT * FROM ${db}.${tbl} WHERE ${where} LIMIT ? OFFSET ?`,
           [...params, lim, off],

@@ -165,22 +165,24 @@ export interface DatabaseAdapter {
   previewRows(table: string, limit: number, database?: string, offset?: number): Promise<QueryResult>;
 
   /** 可选：数据浏览计数（表格总行数；search 提供时为关键字匹配行数，谓词与 searchRows
-   *  完全一致；filters 提供时为字段筛选匹配行数，谓词与 filterRows 完全一致）。
+   *  完全一致；filters 提供时为字段筛选匹配行数，谓词与 filterRows 完全一致；
+   *  logics 为逐行连接符（长度 = 条件数-1，混合 AND/OR 左结合括号），缺省用 logic）。
    *  服务层在预览/搜索/筛选响应里以 total 附带；未实现（Redis KV 型无行级
    *  分页语义）时浏览端不展示总页数/末页。 */
-  countRows?(table: string, database?: string, search?: string, filters?: unknown, logic?: 'and' | 'or'): Promise<number>;
+  countRows?(table: string, database?: string, search?: string, filters?: unknown, logic?: 'and' | 'or', logics?: Array<'and' | 'or'>): Promise<number>;
 
   /** 可选：数据浏览内容搜索（Navicat 式跨列包含搜索）。语义与 previewRows 一致
    *  （同 limit/offset 分页、同 database 路由），关键字大小写不敏感、跨全部列、
    *  通配符字面匹配。未实现（Redis）时服务层报 UNSUPPORTED。 */
   searchRows?(table: string, keyword: string, limit: number, database?: string, offset?: number): Promise<QueryResult>;
 
-  /** 可选：数据浏览字段筛选（Navicat「Filter & Sort」对齐）：逐字段条件，logic 指定
-   *  条件间 and/or。filters 为 [{column, op, value, value2?}] 数组（op 白名单见
-   *  sql-shared/filters），适配器内部二次校验后构造 WHERE（值一律绑定参数）。
+  /** 可选：数据浏览字段筛选（Navicat「Filter & Sort」对齐）：逐字段条件，logic 为
+   *  缺省连接符，logics 为逐行连接符（logics[i] 连接第 i 与 i+1 个条件，长度=条件数-1；
+   *  混合连接符按左结合加括号）。filters 为 [{column, op, value, value2?}] 数组
+   *  （op 白名单见 sql-shared/filters），适配器内部二次校验后构造 WHERE（值一律绑定参数）。
    *  语义与 previewRows 一致（同 limit/offset 分页、同 database 路由）。
    *  未实现（Redis）时服务层报 UNSUPPORTED。 */
-  filterRows?(table: string, filters: unknown, logic: 'and' | 'or', limit: number, database?: string, offset?: number): Promise<QueryResult>;
+  filterRows?(table: string, filters: unknown, logic: 'and' | 'or', limit: number, database?: string, offset?: number, logics?: Array<'and' | 'or'>): Promise<QueryResult>;
 
   close(): Promise<void>;
 

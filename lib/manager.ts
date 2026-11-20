@@ -23,7 +23,7 @@ import type {
 import { randomBytes } from 'node:crypto';
 import { getAdapter, type ServiceAdapterFactory } from './adapters/index.js';
 import { friendlyConnectError } from './adapters/connect-feedback.js';
-import { normalizeFilterLogic, parseBrowseFilters } from './adapters/sql-shared/filters.js';
+import { normalizeFilterLogic, parseBrowseFilters, parseFilterLogics } from './adapters/sql-shared/filters.js';
 import {
   ChallengeStore,
   classifyStatement,
@@ -593,15 +593,19 @@ export class DbToolService {
     limit?: number,
     database?: string,
     offset?: number,
+    logicsRaw?: unknown,
   ): Promise<QueryResult> {
     const t = assertNonEmpty(table, 'table');
     let filters;
+    let logics: Array<'and' | 'or'>;
     try {
       filters = parseBrowseFilters(filtersRaw);
+      if (filters.length === 0) throw new Error('筛选条件不能为空');
+      const logic0 = normalizeFilterLogic(logicRaw);
+      logics = parseFilterLogics(logicsRaw, filters.length, logic0);
     } catch (e) {
       throw new DbToolError('INVALID_ARGUMENT', e instanceof Error ? e.message : String(e));
     }
-    if (filters.length === 0) throw new DbToolError('INVALID_ARGUMENT', '筛选条件不能为空');
     const logic = normalizeFilterLogic(logicRaw);
     const capped = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
     const off = Math.max(0, Math.floor(Number(offset) || 0));
@@ -611,19 +615,20 @@ export class DbToolService {
     }
     const auditDesc = JSON.stringify(filters);
     const auditKw = auditDesc.length > 100 ? auditDesc.slice(0, 100) + '…' : auditDesc;
+    const hasRowLogics = logics.some((l) => l !== logic);
     try {
-      const result = await adapter.filterRows(t, filters, logic, capped, database, off);
+      const result = await adapter.filterRows(t, filters, logic, capped, database, off, logics);
       let counted = false;
       if (adapter.countRows) {
         try {
-          result.total = await adapter.countRows(t, database, undefined, filters, logic);
+          result.total = await adapter.countRows(t, database, undefined, filters, logic, logics);
           counted = true;
         } catch { /* 保持 undefined */ }
       }
-      this.audit(key, connId, 'preview', `PREVIEW ${t} FILTER ${auditKw} ${logic.toUpperCase()} LIMIT ${capped} OFFSET ${off}${counted ? ' COUNT' : ''}`, 'none', false, true, undefined, result.rowCount);
+      this.audit(key, connId, 'preview', `PREVIEW ${t} FILTER ${auditKw} ${hasRowLogics ? 'LOGICS ' + logics.map((l) => l.toUpperCase()).join('-') : logic.toUpperCase()} LIMIT ${capped} OFFSET ${off}${counted ? ' COUNT' : ''}`, 'none', false, true, undefined, result.rowCount);
       return result;
     } catch (e) {
-      this.audit(key, connId, 'preview', `PREVIEW ${t} FILTER ${auditKw} ${logic.toUpperCase()} LIMIT ${capped} OFFSET ${off}`, 'none', false, false, this.errText(e));
+      this.audit(key, connId, 'preview', `PREVIEW ${t} FILTER ${auditKw} ${hasRowLogics ? 'LOGICS ' + logics.map((l) => l.toUpperCase()).join('-') : logic.toUpperCase()} LIMIT ${capped} OFFSET ${off}`, 'none', false, false, this.errText(e));
       throw this.toDriverError(e);
     }
   }

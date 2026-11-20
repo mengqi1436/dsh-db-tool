@@ -240,6 +240,7 @@ window.__ModuleLoader__.load({
 			filterValuePlaceholder: "筛选值",
 			filterValue2Placeholder: "筛选上界",
 			filterInHint: "多个值用英文逗号分隔",
+			filterRowEnable: "启用此条件",
 			filterOpContains: "包含",
 			filterOpNotContains: "不包含",
 			filterOpBeginWith: "开头为",
@@ -536,6 +537,7 @@ window.__ModuleLoader__.load({
 			filterValuePlaceholder: "Filter value",
 			filterValue2Placeholder: "Upper bound",
 			filterInHint: "Separate values with commas",
+			filterRowEnable: "Enable this condition",
 			filterOpContains: "contains",
 			filterOpNotContains: "does not contain",
 			filterOpBeginWith: "begins with",
@@ -938,7 +940,9 @@ window.__ModuleLoader__.load({
 				".dbt-filter-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}",
 				".dbt-filter-row select,.dbt-filter-row input{height:24px;box-sizing:border-box;border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-ctrl);background:var(--dbt-surface);color:inherit;font-size:12px;padding:0 4px;}",
 				".dbt-filter-row select{max-width:160px;}",
-				".dbt-filter-row input{width:140px;}",
+				".dbt-filter-row input{flex:1 1 140px;min-width:100px;max-width:260px;}",
+				".dbt-filter-row.dbt-filter-off{opacity:.45;}",
+				".dbt-filter-row .dbt-filter-logic{width:92px;flex:none;}",
 				".dbt-colfilter{border:none;background:transparent;color:inherit;cursor:pointer;padding:0 2px;margin-left:2px;font-size:10px;line-height:1;opacity:.55;}",
 				".dbt-colfilter.active{opacity:1;font-weight:700;}",
 				"@media (hover:hover) and (pointer:fine){.dbt-colfilter:hover{opacity:1;}}",
@@ -2927,7 +2931,7 @@ window.__ModuleLoader__.load({
 				setBusy("open"); setLoadErr("");
 				Promise.all([
 					api("schema" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name })),
-					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE, search: kw || undefined, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, total: withTotal ? 1 : undefined })),
+					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE, search: kw || undefined, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, logics: fl && fl.logics && fl.logics.length ? JSON.stringify(fl.logics) : undefined, total: withTotal ? 1 : undefined })),
 				])
 					.then(([sch, prev]) => {
 						if (seq !== openSeq.current) return; // 旧请求晚到，丢弃
@@ -2949,11 +2953,16 @@ window.__ModuleLoader__.load({
 
 			// 字段筛选（Navicat「Filter & Sort」式窗格）：草稿行编辑 / 应用 / 清除。
 			// 应用与内容搜索互斥：提交筛选清空搜索，提交搜索清空筛选（服务端两种谓词不叠加）。
+			// 行复选框未勾选的条件不参与提交（Navicat 构建器启停语义）；全部取消勾选 = 清除筛选。
 			const applyFilters = () => {
-				if (!sel || !sel.connId || filters.length === 0) return;
-				setAppliedFilters(filters.slice()); setAppliedLogic(filterLogic);
+				if (!sel || !sel.connId) return;
+				const rows = filters.filter((f) => f && f.enabled !== false);
+				if (rows.length === 0) { clearFilters(); return; }
+				const list = rows.map(({ column, op, value, value2 }) => ({ column, op, value, value2 }));
+				const logics = rows.slice(0, -1).map((r) => (r.logic === "or" ? "or" : "and"));
+				setAppliedFilters(list); setAppliedLogic(filterLogic);
 				setSearch(""); setSearchInput("");
-				openTable(sel, 1, { filters: { list: filters, logic: filterLogic }, withTotal: true });
+				openTable(sel, 1, { filters: { list, logic: filterLogic, logics }, withTotal: true });
 			};
 			const clearFilters = () => {
 				const had = appliedFilters.length > 0;
@@ -2962,7 +2971,7 @@ window.__ModuleLoader__.load({
 			};
 			const addFilterFor = (col) => {
 				setFiltersOpen(true);
-				setFilters((prev) => (prev.some((f) => f && f.column === col) ? prev : prev.concat([{ column: col, op: "contains", value: "" }])));
+				setFilters((prev) => (prev.some((f) => f && f.column === col) ? prev : prev.concat([{ column: col, op: "contains", value: "", logic: filterLogic, enabled: true }])));
 			};
 			const updateFilterRow = (i, patch) => setFilters((prev) => prev.map((f, k) => (k === i ? { ...f, ...patch } : f)));
 			const removeFilterRow = (i) => setFilters((prev) => prev.filter((_, k) => k !== i));
@@ -3065,8 +3074,9 @@ window.__ModuleLoader__.load({
 							setFiltersOpen(opening);
 							if (opening && filters.length === 0) {
 								// 展开时带回当前条件：优先已提交条件（Navicat 语义：窗格展示生效条件），否则补一空行便于直接输入
-								if (appliedFilters.length > 0) { setFilters(appliedFilters.slice()); setFilterLogic(appliedLogic); }
-								else setFilters([{ column: (schema[0] || {}).name || "", op: "contains", value: "" }]);
+								if (appliedFilters.length > 0) {
+									setFilters(appliedFilters.map((f) => ({ ...f, logic: filterLogic, enabled: true }))); setFilterLogic(appliedLogic);
+								} else setFilters([{ column: (schema[0] || {}).name || "", op: "contains", value: "", logic: filterLogic, enabled: true }]);
 							}
 						},
 					}, t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : "")) : null,
@@ -3094,25 +3104,30 @@ window.__ModuleLoader__.load({
 						onClick: () => { setSearchInput(""); if (search) openTable(sel, 1, { search: "", withTotal: true }); },
 					}, t("cellSearchClear")) : null,
 				) : null;
-				// 字段筛选窗格（Navicat「Filter & Sort」式条件行）：表格上方，条件间 AND/OR 联合
+				// 字段筛选窗格（Navicat「Filter & Sort」构建器布局）：工具条（添加条件/应用/清除）
+				// + 条件行「复选框 / 字段 / 操作符 / 值 / 行间 AND-OR / 删除」，行复选框启停条件，
+				// 行间连接符混合时服务端按左结合括号求值
 				const filterPane = supportsFilters && (filtersOpen || filters.length > 0) ? React.createElement(
 					"div",
 					{ className: "dbt-filter-pane", role: "group", "aria-label": t("filterTitle") },
-					// 窗格头：标题 + 条件间逻辑 + 添加条件 + 收起
+					// 工具条：添加条件 | 应用筛选 / 清除筛选（对齐 Navicat 构建器工具条）
 					React.createElement("div", { className: "dbt-filter-row" },
-						React.createElement("strong", null, t("filterTitle")),
-						React.createElement("select", { value: filterLogic, "aria-label": t("filterLogicAria"), onChange: (e) => setFilterLogic(e.target.value) },
-							React.createElement("option", { value: "and" }, t("filterLogicAnd")),
-							React.createElement("option", { value: "or" }, t("filterLogicOr")),
-						),
-						React.createElement("button", { className: "dbt-btn", disabled: busy === "open", onClick: () => setFilters(filters.concat([{ column: (schema[0] || {}).name || "", op: "contains", value: "" }])) }, t("filterAddCondition")),
+						React.createElement("button", {
+							className: "dbt-btn", disabled: busy === "open",
+							onClick: () => setFilters(filters.concat([{ column: (schema[0] || {}).name || "", op: "contains", value: "", logic: filterLogic, enabled: true }])),
+						}, "＋ " + t("filterAddCondition")),
 						React.createElement("span", { style: { flex: 1 } }),
-						React.createElement("button", { className: "dbt-btn", onClick: () => setFiltersOpen(false) }, t("close")),
+						React.createElement("button", { className: "dbt-btn primary", disabled: busy === "open" || filters.length === 0, onClick: applyFilters }, t("filterApply")),
+						React.createElement("button", { className: "dbt-btn", disabled: busy === "open", onClick: clearFilters }, t("filterClear")),
 					),
-					// 条件行：字段 / 操作符 / 值（between 双值；in 提示逗号分隔）
+					// 条件行：复选框(启停) / 字段 / 操作符 / 值（between 双值；in 提示逗号分隔）/ 行间 AND-OR / 删除
 					filters.map((f, i) => {
 						const colOpts = schema.some((c) => c.name === f.column) ? schema : schema.concat([{ name: f.column }]);
-						return React.createElement("div", { className: "dbt-filter-row", key: i },
+						return React.createElement("div", { className: "dbt-filter-row" + (f.enabled === false ? " dbt-filter-off" : ""), key: i },
+							React.createElement("input", {
+								type: "checkbox", checked: f.enabled !== false, "aria-label": t("filterRowEnable"),
+								onChange: (e) => updateFilterRow(i, { enabled: e.target.checked }),
+							}),
 							React.createElement("select", { value: f.column, "aria-label": t("column"), onChange: (e) => updateFilterRow(i, { column: e.target.value }) },
 								colOpts.map((c) => React.createElement("option", { key: c.name, value: c.name }, c.name)),
 							),
@@ -3132,14 +3147,17 @@ window.__ModuleLoader__.load({
 								onKeyDown: (e) => { if (e.key === "Enter") applyFilters(); },
 							}) : null,
 							f.op === "in" || f.op === "not_in" ? React.createElement("span", { className: "dbt-muted" }, t("filterInHint")) : null,
+							// 行间连接符：连接本行与下一行（末行无连接对象，不渲染）——Navicat 构建器行尾逻辑下拉
+							i < filters.length - 1 ? React.createElement("select", {
+								className: "dbt-filter-logic", value: f.logic === "or" ? "or" : "and",
+								"aria-label": t("filterLogicAria"), onChange: (e) => updateFilterRow(i, { logic: e.target.value }),
+							},
+								React.createElement("option", { value: "and" }, t("filterLogicAnd")),
+								React.createElement("option", { value: "or" }, t("filterLogicOr")),
+							) : null,
 							React.createElement("button", { className: "dbt-btn", onClick: () => removeFilterRow(i), "aria-label": t("close") }, "×"),
 						);
 					}),
-					// 动作行：应用 / 清除
-					React.createElement("div", { className: "dbt-filter-row" },
-						React.createElement("button", { className: "dbt-btn primary", disabled: busy === "open" || filters.length === 0, onClick: applyFilters }, t("filterApply")),
-						React.createElement("button", { className: "dbt-btn", disabled: busy === "open", onClick: clearFilters }, t("filterClear")),
-					),
 				) : null;
 				return React.createElement(
 					"div",

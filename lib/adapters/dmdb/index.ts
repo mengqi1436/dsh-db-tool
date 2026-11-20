@@ -663,7 +663,7 @@ export async function createDmAdapter(
       }
     },
 
-    async countRows(table: string, database?: string, search?: string, filters?: unknown, logic?: 'and' | 'or'): Promise<number> {
+    async countRows(table: string, database?: string, search?: string, filters?: unknown, logic?: 'and' | 'or', logics?: Array<'and' | 'or'>): Promise<number> {
       const owner = ownerOf(database);
       const tab = sanitizeIdentifier(table, '表名'); // 拼接前经 escIdent 转义
       try {
@@ -673,7 +673,7 @@ export async function createDmAdapter(
           // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
           const conds = parseBrowseFilters(filters);
           if (conds.length === 0) return 0;
-          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect);
+          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect, logics);
           sql += ' WHERE ' + built.where;
           binds.push(...built.params);
         } else if (search != null && search !== '') {
@@ -710,7 +710,7 @@ export async function createDmAdapter(
       }
     },
 
-    async filterRows(table: string, filters: unknown, logic: 'and' | 'or', limit: number, database?: string, offset?: number): Promise<QueryResult> {
+    async filterRows(table: string, filters: unknown, logic: 'and' | 'or', limit: number, database?: string, offset?: number, logics?: Array<'and' | 'or'>): Promise<QueryResult> {
       const owner = ownerOf(database);
       const tab = sanitizeIdentifier(table, '表名'); // 拼接前经 escIdent 转义
       const n = Math.max(1, Math.min(Math.floor(limit) || 20, ROWS_MAX));
@@ -718,7 +718,7 @@ export async function createDmAdapter(
       try {
         const conds = parseBrowseFilters(filters);
         if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
-        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect);
+        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect, logics);
         // OFFSET/FETCH 内联整数（同 previewRows 的契约注释）；筛选谓词绑定正常位置
         const r = await withConn((c) => c.execute(
           `SELECT * FROM "${escIdent(owner)}"."${escIdent(tab)}" WHERE ${where} OFFSET ${off} ROWS FETCH FIRST ${n} ROWS ONLY`,

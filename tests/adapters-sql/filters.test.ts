@@ -13,6 +13,7 @@ import {
   buildFilterWhereSql,
   normalizeFilterLogic,
   parseBrowseFilters,
+  parseFilterLogics,
   pgLikeDialect,
   upperLikeDialect,
 } from '../../lib/adapters/sql-shared/filters.js';
@@ -71,6 +72,48 @@ describe('parseBrowseFilters（入参边界）', () => {
     expect(() => parseBrowseFilters([{ column: 'a', op: 'in', value: bigList }])).toThrow(/100 个值上限/);
     const okList = Array.from({ length: 100 }, (_, i) => `${i}`).join(',');
     expect(parseBrowseFilters([{ column: 'a', op: 'in', value: okList }])).toHaveLength(1);
+  });
+});
+
+describe('parseFilterLogics（逐行连接符，Navicat 构建器语义）', () => {
+  it('缺省 → 全部 logic；长度必须 = 条件数-1；值只能是 and/or', () => {
+    expect(parseFilterLogics(undefined, 3, 'and')).toEqual(['and', 'and']);
+    expect(parseFilterLogics(undefined, 1, 'or')).toEqual([]);
+    expect(parseFilterLogics(['and', 'or'], 3, 'and')).toEqual(['and', 'or']);
+    expect(() => parseFilterLogics(['and'], 3, 'and')).toThrow(/数量必须是条件数-1/);
+    expect(() => parseFilterLogics(['xor'], 2, 'and')).toThrow(/只能是 and\/or/);
+    expect(() => parseFilterLogics('and', 2, 'and')).toThrow(/必须是数组/);
+  });
+});
+
+describe('混合连接符 WHERE 构造（左结合括号）', () => {
+  it("logics=['and','or']：((c1 AND c2) OR c3)，占位符序号不受括号影响", () => {
+    const conds = parseBrowseFilters([
+      { column: 'a', op: 'eq', value: '1' },
+      { column: 'b', op: 'eq', value: '2' },
+      { column: 'c', op: 'eq', value: '3' },
+    ]);
+    const logics = parseFilterLogics(['and', 'or'], 3, 'and');
+    const { where, params } = buildFilterWhereSql(conds, 'and', mysqlD, logics);
+    expect(where).toBe('(((`a` = ?) AND (`b` = ?)) OR (`c` = ?))');
+    expect(params).toEqual(['1', '2', '3']);
+  });
+
+  it('logics 全同值时仍按左结合；单条件无连接符', () => {
+    const conds = parseBrowseFilters([
+      { column: 'a', op: 'is_null' },
+      { column: 'b', op: 'is_null' },
+    ]);
+    expect(buildFilterWhereSql(conds, 'and', mysqlD, parseFilterLogics(['and'], 2, 'and')).where).toBe('((`a` IS NULL) AND (`b` IS NULL))');
+    expect(buildFilterWhereSql(conds.slice(0, 1), 'and', mysqlD, parseFilterLogics(undefined, 1, 'and')).where).toBe('(`a` IS NULL)');
+  });
+
+  it('logics 缺省回退全局 logic（向后兼容既有调用）', () => {
+    const conds = parseBrowseFilters([
+      { column: 'a', op: 'eq', value: '1' },
+      { column: 'b', op: 'eq', value: '2' },
+    ]);
+    expect(buildFilterWhereSql(conds, 'or', mysqlD).where).toBe('(`a` = ?) OR (`b` = ?)');
   });
 });
 

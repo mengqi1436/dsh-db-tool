@@ -1606,7 +1606,7 @@ export async function createSqlserverAdapter(
         return toQueryResult(res, ['__dsh_rn']);
       }),
 
-    countRows: (table, database, search, filters, logic) =>
+    countRows: (table, database, search, filters, logic, logics) =>
       wrap('sqlserver 数据浏览计数', async () => {
         const { db, schema } = parseBrowseTarget(database, 'schema');
         const tbl = assertIdent(table, '表名');
@@ -1619,7 +1619,7 @@ export async function createSqlserverAdapter(
           // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
           const conds = parseBrowseFilters(filters);
           if (conds.length === 0) return 0;
-          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect);
+          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect, logics);
           sql += ' WHERE ' + built.where;
           built.params.forEach((v, i) => req.input(`p${i + 1}`, v));
         } else if (search != null && search !== '') {
@@ -1666,7 +1666,7 @@ export async function createSqlserverAdapter(
         return toQueryResult(res, ['__dsh_rn']);
       }),
 
-    filterRows: (table, filters, logic, limit, database, offset) =>
+    filterRows: (table, filters, logic, limit, database, offset, logics) =>
       wrap('sqlserver 字段筛选', async () => {
         const { db, schema } = parseBrowseTarget(database, 'schema');
         const tbl = assertIdent(table, '表名');
@@ -1678,7 +1678,7 @@ export async function createSqlserverAdapter(
         const major = await box.major();
         const conds = parseBrowseFilters(filters);
         if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
-        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect);
+        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect, logics);
         const req = box.pool.request();
         params.forEach((v, i) => req.input(`p${i + 1}`, v));
         if (major >= 11) {

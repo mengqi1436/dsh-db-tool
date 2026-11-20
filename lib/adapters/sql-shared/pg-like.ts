@@ -619,7 +619,7 @@ export async function createPgLikeAdapter(
         return toQueryResult(res);
       }),
 
-    countRows: (table, database, search, filters, logic) =>
+    countRows: (table, database, search, filters, logic, logics) =>
       humanize(`${kind} 数据浏览计数`, async () => {
         const { db, schema } = parseBrowseTarget(database, 'schema');
         const tbl = assertIdent(table, '表名');
@@ -630,7 +630,7 @@ export async function createPgLikeAdapter(
           // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
           const conds = parseBrowseFilters(filters);
           if (conds.length === 0) return 0;
-          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect);
+          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect, logics);
           where = ' WHERE ' + built.where;
           params = built.params as string[];
         } else if (search != null && search !== '') {
@@ -659,7 +659,7 @@ export async function createPgLikeAdapter(
         return toQueryResult(res);
       }),
 
-    filterRows: (table, filters, logic, limit, database, offset) =>
+    filterRows: (table, filters, logic, limit, database, offset, logics) =>
       humanize(`${kind} 字段筛选`, async () => {
         const { db, schema } = parseBrowseTarget(database, 'schema');
         const tbl = assertIdent(table, '表名');
@@ -667,7 +667,7 @@ export async function createPgLikeAdapter(
         const off = clampOffset(offset);
         const conds = parseBrowseFilters(filters);
         if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
-        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect);
+        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect, logics);
         const sql = `SELECT * FROM ${quoteIdent(schema)}.${quoteIdent(tbl)} WHERE ${where} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
         const all = [...params, lim, off];
         // 当前库保持事务路由（run）；跨库必须用该库自己的池（与 searchRows 同路由）

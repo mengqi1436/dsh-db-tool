@@ -263,7 +263,7 @@ export async function createSqliteAdapter(
         return toQueryResult(raw, stmtColumns(stmt, raw));
       }),
 
-    countRows: (table, _database, search, filters, logic) =>
+    countRows: (table, _database, search, filters, logic, logics) =>
       humanize('sqlite 数据浏览计数', async () => {
         const tbl = quoteIdent(assertIdent(table, '表名'));
         let sql = `SELECT COUNT(*) AS n FROM ${tbl}`;
@@ -272,7 +272,7 @@ export async function createSqliteAdapter(
           // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
           const conds = parseBrowseFilters(filters);
           if (conds.length === 0) return 0;
-          const built = buildFilterWhereSql(conds, logic ?? 'and', sqliteFilterDialect);
+          const built = buildFilterWhereSql(conds, logic ?? 'and', sqliteFilterDialect, logics);
           sql += ' WHERE ' + built.where;
           params = built.params as string[];
         } else if (search != null && search !== '') {
@@ -303,14 +303,14 @@ export async function createSqliteAdapter(
         return toQueryResult(raw, stmtColumns(stmt, raw));
       }),
 
-    filterRows: (table, filters, logic, limit, _database, offset) =>
+    filterRows: (table, filters, logic, limit, _database, offset, logics) =>
       humanize('sqlite 字段筛选', async () => {
         const tbl = quoteIdent(assertIdent(table, '表名'));
         const lim = clampLimit(limit);
         const off = clampOffset(offset);
         const conds = parseBrowseFilters(filters);
         if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
-        const { where, params } = buildFilterWhereSql(conds, logic, sqliteFilterDialect);
+        const { where, params } = buildFilterWhereSql(conds, logic, sqliteFilterDialect, logics);
         const stmt = db.prepare(`SELECT * FROM ${tbl} WHERE ${where} LIMIT ? OFFSET ?`);
         const raw = stmt.all(...params, lim, off) as Record<string, unknown>[];
         return toQueryResult(raw, stmtColumns(stmt, raw));

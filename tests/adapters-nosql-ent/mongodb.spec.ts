@@ -486,6 +486,12 @@ describe('字段筛选（Navicat「Filter & Sort」对齐）', () => {
       .toEqual({ n: { $not: { $regex: 'x', $options: 'i' } } });
     expect(browseFilterDoc([{ column: 'n', op: 'is_empty' }], 'and')).toEqual({ n: '' });
     expect(browseFilterDoc([], 'and')).toEqual({});
+    // 混合连接符：左结合 $and/$or 嵌套（Navicat 构建器语义）
+    expect(browseFilterDoc([
+      { column: 'a', op: 'eq', value: '1' },
+      { column: 'b', op: 'eq', value: '2' },
+      { column: 'c', op: 'eq', value: '3' },
+    ], 'and', ['and', 'or'])).toEqual({ $or: [{ $and: [{ a: '1' }, { b: '2' }] }, { c: '3' }] });
   });
 
   it('filterRows：$and filter + 与 previewRows 同 sort/skip/limit；countRows 走同一 filter', async () => {
