@@ -87,7 +87,7 @@
     "stryker-cli": "^1.1.0",
     "tedious": "^20.3.8",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.11"
+    "vitest": "^5.1.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
