@@ -414,6 +414,26 @@ describe('previewRows（offset 翻页）', () => {
   });
 });
 
+describe('describeTable（视图跳过索引）', () => {
+  it('视图（type=view）不再调 indexes（listIndexes 对视图报 CommandNotSupportedOnView，浏览树点开视图不再整页报错）', async () => {
+    const { client, dbObj, coll } = makeClient([{ _id: 'x', n: 1 }]);
+    dbObj.listCollections.mockReturnValue({
+      toArray: vi.fn(async () => [{ name: 'v_users', type: 'view' }]),
+    });
+    const a = await createMongoAdapter(conn, { client });
+    const cols = await a.describeTable('v_users');
+    expect(coll.indexes).not.toHaveBeenCalled();
+    // 字段推断照常（视图可 find）
+    expect(cols.map((c) => c.name)).toEqual(['_id', 'n']);
+  });
+  it('集合仍调 indexes 注入索引注释（行为不变）', async () => {
+    const { client, coll } = makeClient([{ _id: 'x', n: 1 }]);
+    const a = await createMongoAdapter(conn, { client });
+    await a.describeTable('users');
+    expect(coll.indexes).toHaveBeenCalled();
+  });
+});
+
 describe('countRows/searchRows（浏览计数与内容搜索）', () => {
   it('countRows：无关键字 → countDocuments({})；有关键字 → 抽样字段逐个 $regex（元字符转义）', async () => {
     const { client, coll } = makeClient([{ _id: 'x', name: 'alice', score: 1 }]);

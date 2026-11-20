@@ -530,13 +530,13 @@ export async function createOracleAdapter(
     },
 
     async listDatabases(): Promise<string[]> {
-      // Oracle 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表者），
+      // Oracle 为单库多 schema 模型：「数据库」下拉列出可浏览的 schema（有表或有视图者），
       // 失败回退当前用户 schema，绝不用 service 名等占位值（会污染 owner 参数）。
       // 内建系统 schema（数据字典/组件账户）业务不可查询，列出只会让展开时报
       // ORA-00942/ORA-01031 类错误，故过滤（保留当前用户自身）。
       try {
         const r = await withConn((c) => c.execute(
-          'SELECT DISTINCT owner FROM all_tables ORDER BY owner',
+          'SELECT owner FROM all_tables UNION SELECT owner FROM all_views ORDER BY owner',
           [],
           execOpts,
         ));
@@ -553,21 +553,32 @@ export async function createOracleAdapter(
     async listTables(database?: string): Promise<TableInfo[]> {
       const owner = ownerOf(database);
       try {
-        // 表注释取 ALL_TAB_COMMENTS（COMMENT ON TABLE 的 Oracle 字典视图），LEFT JOIN 不放大行数
+        // 表 + 视图一次取全（UNION ALL 派生表统一排序/截断）：视图与表共用 describeTable
+        // （ALL_TAB_COLUMNS）与 previewRows（SELECT *）路径，视图不列出即无法浏览视图数据；
+        // 纯视图 schema 由 listDatabases 的 all_tables/all_views 并集保证可见。
+        // 注释同源 ALL_TAB_COMMENTS（视图注释也存此表），LEFT JOIN 不放大行数
         const r = await withConn((c) => c.execute(
-          `SELECT t.table_name, c.comments
-           FROM all_tables t
-           LEFT JOIN all_tab_comments c ON c.owner = t.owner AND c.table_name = t.table_name
-           WHERE t.owner = :owner ORDER BY t.table_name FETCH FIRST 500 ROWS ONLY`,
-          [owner],
+          `SELECT name, obj_type, comments FROM (
+             SELECT t.table_name AS name, 'TABLE' AS obj_type, c.comments AS comments
+             FROM all_tables t
+             LEFT JOIN all_tab_comments c ON c.owner = t.owner AND c.table_name = t.table_name
+             WHERE t.owner = :owner
+             UNION ALL
+             SELECT v.view_name, 'VIEW', cv.comments
+             FROM all_views v
+             LEFT JOIN all_tab_comments cv ON cv.owner = v.owner AND cv.table_name = v.view_name
+             WHERE v.owner = :owner
+           ) ORDER BY name FETCH FIRST 500 ROWS ONLY`,
+          [owner, owner],
           execOpts,
         ));
         const rows = (r.rows as Record<string, unknown>[] | undefined) ?? [];
         return rows.map((row) => {
           const comment = row.COMMENTS;
+          const objType = String(row.OBJ_TYPE ?? '');
           return {
-            name: String(row.TABLE_NAME ?? ''),
-            type: 'TABLE',
+            name: String(row.NAME ?? ''),
+            type: objType === 'VIEW' ? 'VIEW' : 'TABLE',
             comment: comment != null && comment !== '' ? String(comment) : undefined,
           };
         });

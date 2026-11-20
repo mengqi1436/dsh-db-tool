@@ -178,11 +178,13 @@ describe('Oracle 元数据（mock pool）', () => {
     expect(r.ok).toBe(true);
     expect(r.serverInfo).toContain('版本信息不可读');
   });
-  it('listDatabases 列 all_tables 有表 schema，过滤内建系统 schema，空/失败回退当前用户', async () => {
+  it('listDatabases 列 all_tables/all_views 有表或有视图的 schema，过滤内建系统 schema，空/失败回退当前用户', async () => {
     const pool = makeOraPool([{ OWNER: 'SCOTT' }, { OWNER: 'SYSTEM' }, { OWNER: 'APEX_2400' }, { OWNER: 'HR' }], [{ name: 'OWNER' }]);
     const a = await createOracleAdapter(oraConn, { pool });
     expect(await a.listDatabases()).toEqual(['SCOTT', 'HR']);
     expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tables');
+    // 纯视图 schema（只有视图没有表）也要能出现在库层
+    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_views');
 
     const empty = await createOracleAdapter(oraConn, { pool: makeOraPool([], []) });
     expect(await empty.listDatabases()).toEqual(['SCOTT']);
@@ -192,16 +194,24 @@ describe('Oracle 元数据（mock pool）', () => {
     const b = await createOracleAdapter(oraConn, { pool: broken });
     expect(await b.listDatabases()).toEqual(['SCOTT']);
   });
-  it('listTables 查 all_tables 联 all_tab_comments 取表注释，owner 默认大写用户', async () => {
-    const pool = makeOraPool([{ TABLE_NAME: 'EMP', COMMENTS: '员工表' }, { TABLE_NAME: 'BONUS', COMMENTS: null }], [{ name: 'TABLE_NAME' }, { name: 'COMMENTS' }]);
+  it('listTables 查 all_tables + all_views（表/视图一次取全）联 all_tab_comments，owner 默认大写用户', async () => {
+    const pool = makeOraPool([
+      { NAME: 'BONUS', OBJ_TYPE: 'TABLE', COMMENTS: null },
+      { NAME: 'EMP', OBJ_TYPE: 'TABLE', COMMENTS: '员工表' },
+      { NAME: 'V_EMP', OBJ_TYPE: 'VIEW', COMMENTS: '员工视图' },
+    ], [{ name: 'NAME' }, { name: 'OBJ_TYPE' }, { name: 'COMMENTS' }]);
     const a = await createOracleAdapter(oraConn, { pool });
     const ts = await a.listTables();
-    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tables');
-    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('all_tab_comments');
-    expect(pool.connObj.execute.mock.calls[0]![1]).toEqual(['SCOTT']);
+    const sql = pool.connObj.execute.mock.calls[0]![0] as string;
+    expect(sql).toContain('all_tables');
+    expect(sql).toContain('all_views');
+    expect(sql).toContain('all_tab_comments');
+    // UNION 两个分支各定位一次 owner
+    expect(pool.connObj.execute.mock.calls[0]![1]).toEqual(['SCOTT', 'SCOTT']);
     expect(ts).toEqual([
-      { name: 'EMP', type: 'TABLE', comment: '员工表' },
       { name: 'BONUS', type: 'TABLE', comment: undefined },
+      { name: 'EMP', type: 'TABLE', comment: '员工表' },
+      { name: 'V_EMP', type: 'VIEW', comment: '员工视图' },
     ]);
   });
   it('describeTable 组合类型串与主键 PRI', async () => {
@@ -334,19 +344,30 @@ describe('达梦 DM（mock pool）', () => {
     await a.previewRows('t', 5, undefined, 15);
     expect(pool.connObj.execute.mock.calls[1]![0] as string).toContain('OFFSET 15 ROWS FETCH FIRST 5 ROWS ONLY');
   });
-  it('listTables 复用 ALL_TABLES 数据字典并联 ALL_TAB_COMMENTS 取表注释', async () => {
-    const pool = makeDmPool([{ TABLE_NAME: 'T1', COMMENTS: '测试表' }], [{ name: 'TABLE_NAME' }, { name: 'COMMENTS' }]);
+  it('listTables 复用 ALL_TABLES + ALL_VIEWS（表/视图一次取全）联 ALL_TAB_COMMENTS 取注释', async () => {
+    const pool = makeDmPool([
+      { NAME: 'T1', OBJ_TYPE: 'TABLE', COMMENTS: '测试表' },
+      { NAME: 'V1', OBJ_TYPE: 'VIEW', COMMENTS: '测试视图' },
+    ], [{ name: 'NAME' }, { name: 'OBJ_TYPE' }, { name: 'COMMENTS' }]);
     const a = await createDmAdapter(dmConn, { pool });
     const ts = await a.listTables();
-    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
-    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TAB_COMMENTS');
-    expect(ts).toEqual([{ name: 'T1', type: 'TABLE', comment: '测试表' }]);
+    const sql = pool.connObj.execute.mock.calls[0]![0] as string;
+    expect(sql).toContain('ALL_TABLES');
+    expect(sql).toContain('ALL_VIEWS');
+    expect(sql).toContain('ALL_TAB_COMMENTS');
+    expect(ts).toEqual([
+      { name: 'T1', type: 'TABLE', comment: '测试表' },
+      { name: 'V1', type: 'VIEW', comment: '测试视图' },
+    ]);
   });
-  it('listDatabases 列 ALL_TABLES 有表 schema（非 host 占位），过滤系统安全 schema，空/失败回退当前用户', async () => {
+  it('listDatabases 列 ALL_TABLES/ALL_VIEWS 有表或有视图的 schema（非 host 占位），过滤系统安全 schema，空/失败回退当前用户', async () => {
     const pool = makeDmPool([{ OWNER: 'SYSDBA' }, { OWNER: 'SYSSSO' }, { OWNER: 'SYSAUDITOR' }, { OWNER: 'APP' }], [{ name: 'OWNER' }]);
     const a = await createDmAdapter(dmConn, { pool });
     expect(await a.listDatabases()).toEqual(['SYSDBA', 'APP']);
-    expect(pool.connObj.execute.mock.calls[0]![0] as string).toContain('ALL_TABLES');
+    const sql = pool.connObj.execute.mock.calls[0]![0] as string;
+    expect(sql).toContain('ALL_TABLES');
+    // 纯视图 schema 也要能出现在库层
+    expect(sql).toContain('ALL_VIEWS');
 
     const empty = await createDmAdapter(dmConn, { pool: makeDmPool([], []) });
     expect(await empty.listDatabases()).toEqual(['SYSDBA']);

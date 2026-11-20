@@ -73,10 +73,11 @@ DDL、`FLUSHALL`、`dropDatabase` 等语句先返回 `NEEDS_CONFIRMATION`，不�
 
 ### 数据浏览
 
+- 连接 → 库 → schema → 表/视图树形展开
 - 连接 → 库 → schema → 表四级树形展开
 - 目录树按当前数据库账号的权限过滤：库名、schema 与表/视图至少需要可 SELECT（查看权限即可见），无权限的项直接隐藏；MySQL / PostgreSQL / GaussDB / SQL Server 在服务端字典查询中过滤，Oracle / 达梦 / MongoDB / Redis / SQLite 因模型不同维持原有可见范围
 - 库筛选 + 跨库表名模糊搜索（MySQL / PostgreSQL / GaussDB 走 `information_schema` 原生查询，其余库回退内存过滤）
-- 表结构查看与数据预览，结果网格支持排序、分页、单元格复制
+- 表/视图结构查看与数据预览，结果网格支持排序、分页、单元格复制
 - 分页条含总行数、首页 / 末页直达与页码快跳（总行数由服务端 `COUNT` 提供；Redis 为 KV 型无行级分页语义，仅保留上一页 / 下一页）
 - 数据预览内容搜索：关键字跨全部列大小写不敏感包含匹配（SQL 系为 `LIKE`/`ILIKE` + `ESCAPE`，通配符按字面匹配；MongoDB 为逐字段 `$regex`），搜索态下分页与计数按匹配行数计；Redis 不支持
 - 数据预览字段筛选（对齐 Navicat「Filter & Sort」）：对每个字段分别设置条件（包含 / 等于 / 比较 / 开头 / 结尾 / 为 NULL / 为空 / 介于 / 在列表中及各自取反），多个条件以 AND 或 OR 联合生效，列头漏斗可对当前列快速添加条件，筛选态下分页与计数按匹配行数计；条件值一律走绑定参数，字段名经标识符校验与方言转义；Redis 不支持

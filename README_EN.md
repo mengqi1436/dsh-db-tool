@@ -73,10 +73,11 @@ Every execution (including rejected requests) appends one line to `audit.jsonl`:
 
 ### Data browsing
 
+- Tree expansion: connection → database → schema → table/view
 - Four-level tree: connection → database → schema → table
 - The tree is filtered by the connected database account's privileges: databases, schemas and tables/views are listed only when at least `SELECT`-able (view-only access still counts); entries without permission are hidden. MySQL / PostgreSQL / GaussDB / SQL Server filter inside the server-side dictionary queries; Oracle / Dameng / MongoDB / Redis / SQLite keep their original visibility scope due to different permission models
 - Database filter plus cross-database table-name search (MySQL / PostgreSQL / GaussDB query `information_schema` natively; other kinds fall back to in-memory filtering)
-- Table structure viewing and data preview; the result grid supports sorting, paging and cell copying
+- Table/view structure viewing and data preview; the result grid supports sorting, paging and cell copying
 - The pager shows the total row count with first/last page and page-number jump (the total comes from a server-side `COUNT`; Redis is a KV store without row-level paging and keeps prev/next only)
 - Content search in data preview: the keyword matches all columns case-insensitively as a substring (SQL kinds use `LIKE`/`ILIKE` with `ESCAPE`, wildcards match literally; MongoDB uses per-field `$regex`); while searching, paging and counts follow the matching rows; not supported on Redis
 - Per-column filters in data preview (aligned with Navicat "Filter & Sort"): set a condition per column (contains / equals / comparison / begins with / ends with / is null / is empty / between / in list, each with its negation), combine multiple conditions with AND or OR, and click the header funnel to add a condition for the current column quickly; while filtering, paging and counts follow the matching rows; condition values always go through bound parameters and column names pass identifier validation plus dialect quoting; not supported on Redis
