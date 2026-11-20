@@ -223,7 +223,9 @@ class FakeTds {
     }
     if (sql.includes('ProductMajorVersion')) return rec([{ major: this.version.major }], cols('major'));
     if (sql.includes('sys.databases')) return rec(this.databases.map((name) => ({ name })), cols('name'));
-    // 注意顺序：LIST_TABLES_SQL 同时含 sys.objects 与 sys.schemas（JOIN），必须先判 sys.objects
+    // 注意顺序：LIST_TABLES_SQL 与 LIST_SCHEMAS_SQL（权限过滤后）都同时含 sys.objects 与
+    // sys.schemas，必须先用 schema 级权限谓词区分（listSchemas 独有），再判 sys.objects
+    if (sql.includes("'SCHEMA', 'SELECT'")) return rec(this.schemas.map((name) => ({ name })), cols('name'));
     if (sql.includes('sys.objects')) {
       const schema = String(binds['p1'] ?? '');
       const list = this.tablesBySchema[schema] ?? [];
