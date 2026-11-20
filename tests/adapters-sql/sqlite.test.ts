@@ -146,6 +146,35 @@ for (const mode of ['node', 'better'] as const) {
       expect(page1.rows[0]?.[0]).toBe(1); // offset 缺省 0
     });
 
+    it('countRows：表格总行数与关键字匹配行数（同一谓词口径）', async () => {
+      // 基线用同库 COUNT(*) 对齐（此前用例可能已插入额外行，不假设恰 60）
+      const base = Number((await adapter.query('SELECT COUNT(*) AS n FROM users')).rows[0]?.[0]);
+      expect(await adapter.countRows!('users')).toBe(base);
+      // user1 前缀：user1, user10..user19 → 11 行（LIKE 大小写不敏感为 ASCII 语义）
+      expect(await adapter.countRows!('users', undefined, 'user1')).toBe(11);
+      // 通配符字面化：'%'/'_' 是普通字符，不产生全表匹配
+      expect(await adapter.countRows!('users', undefined, '%')).toBe(0);
+      expect(await adapter.countRows!('users', undefined, 'user_')).toBe(0);
+    });
+
+    it('searchRows：user5 → user5, user50..user59 共 11 行；第二页取剩余', async () => {
+      const page1 = await adapter.searchRows!('users', 'user5', 10);
+      expect(page1.rowCount).toBe(10);
+      expect(page1.rows[0]?.[1]).toBe('user5');
+      const page2 = await adapter.searchRows!('users', 'user5', 10, undefined, 10);
+      expect(page2.rowCount).toBe(1);
+      expect(page2.rows[0]?.[1]).toBe('user59');
+      // 跨列：数值列（score）文本化后同样命中
+      const byScore = await adapter.searchRows!('users', '61.5', 50); // user41 → 41*1.5=61.5
+      expect(byScore.rowCount).toBe(1);
+      expect(byScore.rows[0]?.[1]).toBe('user41');
+    });
+
+    it('searchRows：通配符字面化（% _ 不展开为全表）', async () => {
+      expect((await adapter.searchRows!('users', '%', 50)).rowCount).toBe(0);
+      expect((await adapter.searchRows!('users', '_', 50)).rowCount).toBe(0);
+    });
+
     it('注入类标识符被安全引用（防注入靠引号转义，不再字符白名单拒绝）', async () => {
       // 整串被当作普通表名引用：PRAGMA/SELECT 查无此表即安全失败，注入永不执行
       await expect(adapter.describeTable('users; DROP TABLE users')).rejects.toThrow(/表不存在/);

@@ -31,6 +31,9 @@ export interface FakeAdapterOptions {
   previewRows?: (table: string, limit: number, database?: string) => Promise<QueryResult>;
   /** 不传则适配器无 searchTables 方法（验证 manager 逐库回退路径） */
   searchTables?: DatabaseAdapter['searchTables'];
+  /** 不传则适配器无 countRows/searchRows（验证浏览计数/内容搜索的未实现路径） */
+  countRows?: NonNullable<DatabaseAdapter['countRows']>;
+  searchRows?: NonNullable<DatabaseAdapter['searchRows']>;
 }
 
 /** 内存假适配器（mysql 语义） */
@@ -57,6 +60,8 @@ export function fakeAdapter(opts?: FakeAdapterOptions): DatabaseAdapter {
     ],
     previewRows: opts?.previewRows ?? (async () => ({ columns: ['id'], rows: [[1]], rowCount: 1 })),
     ...(opts?.searchTables ? { searchTables: opts.searchTables } : {}),
+    ...(opts?.countRows ? { countRows: opts.countRows } : {}),
+    ...(opts?.searchRows ? { searchRows: opts.searchRows } : {}),
     close: async () => {},
   };
 }

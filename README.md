@@ -76,6 +76,9 @@ DDL、`FLUSHALL`、`dropDatabase` 等语句先返回 `NEEDS_CONFIRMATION`，不�
 - 连接 → 库 → schema → 表/视图树形展开
 - 库筛选 + 跨库表名模糊搜索（MySQL / PostgreSQL / GaussDB 走 `information_schema` 原生查询，其余库回退内存过滤）
 - 表/视图结构查看与数据预览，结果网格支持排序、分页、单元格复制
+- 表结构查看与数据预览，结果网格支持排序、分页、单元格复制
+- 分页条含总行数、首页 / 末页直达与页码快跳（总行数由服务端 `COUNT` 提供；Redis 为 KV 型无行级分页语义，仅保留上一页 / 下一页）
+- 数据预览内容搜索：关键字跨全部列大小写不敏感包含匹配（SQL 系为 `LIKE`/`ILIKE` + `ESCAPE`，通配符按字面匹配；MongoDB 为逐字段 `$regex`），搜索态下分页与计数按匹配行数计；Redis 不支持
 
 ### SQL 控制台
 

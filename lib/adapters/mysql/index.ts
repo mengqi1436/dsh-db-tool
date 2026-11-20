@@ -23,7 +23,7 @@ import type {
   TableInfo,
   TableSearchHit,
 } from '../types.js';
-import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell, quoteIdent, validPort } from '../sql-shared/common.js';
+import { assertIdent, clampLimit, clampOffset, escapeLikePattern, humanize, normalizeCell, quoteIdent, validPort } from '../sql-shared/common.js';
 import type { TxHandle } from '../sql-shared/pg-like.js';
 
 /** ro 模式下 query 允许的读语句首词白名单 */
@@ -150,6 +150,20 @@ export async function createMysqlAdapter(
       rows: rows.map((r) => columns.map((c) => normalizeCell(r[c]))),
       rowCount: rows.length,
     };
+  }
+
+  /** LIKE 模式：通配符/转义符字面化（ESCAPE '#'）后 %…% 包裹（关键字本体走绑定） */
+  const likePattern = (kw: string): string => '%' + escapeLikePattern(kw) + '%';
+
+  /** 跨列 LIKE 谓词（countRows/searchRows 共用）。显式 ESCAPE '#' 与其余方言统一；
+   *  MySQL 默认 collation 大小写不敏感，跟随即可。 */
+  const likeWhere = (cols: string[]): string =>
+    '(' + cols.map((c) => `${quoteIdent(c, '`')} LIKE ? ESCAPE '#'`).join(' OR ') + ')';
+
+  /** 列名清单（内容搜索谓词用）：`SELECT * … WHERE 1=0` 借 fields 元数据一次往返 */
+  async function columnNames(target: string): Promise<string[]> {
+    const [, fields] = await pool.query(`SELECT * FROM ${target} WHERE 1=0`);
+    return (fields ?? []).map((f) => String(f.name));
   }
 
   const tx: TxHandle = {
@@ -335,6 +349,39 @@ export async function createMysqlAdapter(
         const [rows, fields] = await pool.query(
           `SELECT * FROM ${db}.${tbl} LIMIT ? OFFSET ?`,
           [lim, off],
+        );
+        if (!Array.isArray(rows)) return { columns: [], rows: [], rowCount: 0 };
+        return toQueryResult(rows as RowDataPacket[], fields);
+      }),
+
+    countRows: (table, database, search) =>
+      humanize('mysql 数据浏览计数', async () => {
+        const db = quoteIdent(database ? assertIdent(database, '库名') : defaultDb(), '`');
+        const tbl = quoteIdent(assertIdent(table, '表名'), '`');
+        let where = '';
+        let params: string[] = [];
+        if (search != null && search !== '') {
+          const cols = await columnNames(`${db}.${tbl}`);
+          if (cols.length === 0) return 0; // 无列恒无匹配
+          where = ' WHERE ' + likeWhere(cols);
+          params = cols.map(() => likePattern(search));
+        }
+        const [rows] = await pool.query(`SELECT COUNT(*) AS n FROM ${db}.${tbl}${where}`, params);
+        const r = (rows as RowDataPacket[])[0];
+        return r ? Number(r.n) : 0;
+      }),
+
+    searchRows: (table, keyword, limit, database, offset) =>
+      humanize('mysql 内容搜索', async () => {
+        const db = quoteIdent(database ? assertIdent(database, '库名') : defaultDb(), '`');
+        const tbl = quoteIdent(assertIdent(table, '表名'), '`');
+        const lim = clampLimit(limit);
+        const off = clampOffset(offset);
+        const cols = await columnNames(`${db}.${tbl}`);
+        if (cols.length === 0) return { columns: [], rows: [], rowCount: 0 };
+        const [rows, fields] = await pool.query(
+          `SELECT * FROM ${db}.${tbl} WHERE ${likeWhere(cols)} LIMIT ? OFFSET ?`,
+          [...cols.map(() => likePattern(keyword)), lim, off],
         );
         if (!Array.isArray(rows)) return { columns: [], rows: [], rowCount: 0 };
         return toQueryResult(rows as RowDataPacket[], fields);

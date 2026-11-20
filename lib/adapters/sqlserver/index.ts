@@ -6,7 +6,7 @@
  * 会触发宿主 @deepseek-ai/dsh-app-boot 的 require.resolve.paths bug 使插件整体加载失败
  * （约束由 tests/guard/deps-core-collision.spec.ts 守护）。故运行时经 createRequire 相对
  * 加载 vendor/sqlserver-driver.cjs（scripts/build-sqlserver.mjs 产物），失败不缓存并给中文
- * 修复指引。mssql 12.7.4 不随包发 .d.ts（package.json 无 types 字段），类型在本文件自声明
+ * 修复指引。mssql 不随包发 .d.ts（package.json 无 types 字段，对 12.7.x 逐版核实过），类型在本文件自声明
  * 最小接口——与 pg-like.ts 的 PgLikeDriver 同一手法。
  *
  * 占位符：对外只接受 `?`（客户端 dialectOf('sqlserver') 返回 'q'），内部经词法扫描顺序重写为
@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as tls from 'node:tls';
 import { SQL_READ_HEADS, sqlHead } from '../../guard/index.js';
-import { assertIdent, clampLimit, clampOffset, humanize, normalizeCell } from '../sql-shared/common.js';
+import { assertIdent, clampLimit, clampOffset, escapeLikePattern, humanize, normalizeCell } from '../sql-shared/common.js';
 import type { TxHandle } from '../sql-shared/pg-like.js';
 import type {
   AccessMode,
@@ -1324,6 +1324,26 @@ export async function createSqlserverAdapter(
     return { columns: names, rows, rowCount: rows.length };
   };
 
+  /** LIKE 模式：通配符/转义符字面化（ESCAPE '#'）后 %…% 包裹（关键字本体走绑定） */
+  const searchPattern = (kw: string): string => '%' + escapeLikePattern(kw) + '%';
+
+  /** 跨列 LIKE 谓词（countRows/searchRows 共用）：NVARCHAR(MAX) 显式转文本后 LIKE。
+   *  显式 ESCAPE '#'（T-SQL 无默认转义符）；默认 collation 大小写不敏感，跟随即可。 */
+  const searchWhereSql = (cols: string[], prefix: string): string =>
+    '(' +
+    cols.map((c, i) => `CAST(${qIdent(c)} AS NVARCHAR(MAX)) LIKE @${prefix}${i + 1} ESCAPE '#'`).join(' OR ') +
+    ')';
+
+  /** 方括号引用（与 previewRows 内局部 q 同款；helper 处独立声明避免引用闭包内后置定义） */
+  const qIdent = (name: string): string => `[${name.replaceAll(']', ']]')}]`;
+
+  /** 列名清单（内容搜索谓词用）：`SELECT TOP 0 *` 借 recordset.columns 元数据一次往返 */
+  const searchColumnNames = async (box: PoolBox, target: string): Promise<string[]> => {
+    const res = await box.pool.request().query(`SELECT TOP 0 * FROM ${target}`);
+    const meta = (res.recordset as SqlRecordset | undefined)?.columns;
+    return meta ? Object.keys(meta) : [];
+  };
+
   const mainPool = makePoolBox(Driver, cfg);
 
   // 跨库（Navicat 式）：按库名缓存独立池，ro 时同样受首词白名单约束（query 路径统一校验）。
@@ -1564,6 +1584,59 @@ export async function createSqlserverAdapter(
         req.input('p2', off + lim);
         const res = await req.query(
           `SELECT t.* FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS [__dsh_rn] FROM ${target}) AS t WHERE t.[__dsh_rn] > @p1 AND t.[__dsh_rn] <= @p2`,
+        );
+        return toQueryResult(res, ['__dsh_rn']);
+      }),
+
+    countRows: (table, database, search) =>
+      wrap('sqlserver 数据浏览计数', async () => {
+        const { db, schema } = parseBrowseTarget(database, 'schema');
+        const tbl = assertIdent(table, '表名');
+        const q = (name: string): string => `[${name.replaceAll(']', ']]')}]`;
+        const target = `${q(schema)}.${q(tbl)}`;
+        const box = poolOf(db);
+        let sql = `SELECT COUNT(*) AS [n] FROM ${target}`;
+        const req = box.pool.request();
+        if (search != null && search !== '') {
+          const cols = await searchColumnNames(box, target);
+          if (cols.length === 0) return 0; // 无列恒无匹配
+          sql += ' WHERE ' + searchWhereSql(cols, 'p');
+          cols.forEach((_, i) => req.input(`p${i + 1}`, searchPattern(search)));
+        }
+        const res = await req.query(sql);
+        const recordset = (res.recordset ?? []) as Array<Record<string, unknown>>;
+        return recordset[0] ? Number(recordset[0]!['n']) : 0;
+      }),
+
+    searchRows: (table, keyword, limit, database, offset) =>
+      wrap('sqlserver 内容搜索', async () => {
+        const { db, schema } = parseBrowseTarget(database, 'schema');
+        const tbl = assertIdent(table, '表名');
+        const lim = clampLimit(limit);
+        const off = clampOffset(offset);
+        const q = (name: string): string => `[${name.replaceAll(']', ']]')}]`;
+        const target = `${q(schema)}.${q(tbl)}`;
+        const box = poolOf(db);
+        const major = await box.major();
+        const cols = await searchColumnNames(box, target);
+        if (cols.length === 0) return { columns: [], rows: [], rowCount: 0 };
+        const where = searchWhereSql(cols, 'p');
+        const req = box.pool.request();
+        cols.forEach((_, i) => req.input(`p${i + 1}`, searchPattern(keyword)));
+        if (major >= 11) {
+          // T-SQL 的 OFFSET/FETCH 强制要求 ORDER BY；(SELECT NULL) 是常量排序，等价于不指定顺序。
+          req.input('dsh_off', off);
+          req.input('dsh_lim', lim);
+          const res = await req.query(
+            `SELECT * FROM ${target} WHERE ${where} ORDER BY (SELECT NULL) OFFSET @dsh_off ROWS FETCH NEXT @dsh_lim ROWS ONLY`,
+          );
+          return toQueryResult(res);
+        }
+        // 2008/2008 R2：谓词下推进 ROW_NUMBER 子查询，序号列在投影后剔除。
+        req.input('dsh_off', off);
+        req.input('dsh_end', off + lim);
+        const res = await req.query(
+          `SELECT t.* FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS [__dsh_rn] FROM ${target} WHERE ${where}) AS t WHERE t.[__dsh_rn] > @dsh_off AND t.[__dsh_rn] <= @dsh_end`,
         );
         return toQueryResult(res, ['__dsh_rn']);
       }),

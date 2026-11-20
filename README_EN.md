@@ -76,6 +76,9 @@ Every execution (including rejected requests) appends one line to `audit.jsonl`:
 - Tree expansion: connection → database → schema → table/view
 - Database filter plus cross-database table-name search (MySQL / PostgreSQL / GaussDB query `information_schema` natively; other kinds fall back to in-memory filtering)
 - Table/view structure viewing and data preview; the result grid supports sorting, paging and cell copying
+- Table structure viewing and data preview; the result grid supports sorting, paging and cell copying
+- The pager shows the total row count with first/last page and page-number jump (the total comes from a server-side `COUNT`; Redis is a KV store without row-level paging and keeps prev/next only)
+- Content search in data preview: the keyword matches all columns case-insensitively as a substring (SQL kinds use `LIKE`/`ILIKE` with `ESCAPE`, wildcards match literally; MongoDB uses per-field `$regex`); while searching, paging and counts follow the matching rows; not supported on Redis
 
 ### SQL console
 
