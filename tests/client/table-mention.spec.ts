@@ -134,6 +134,8 @@ let T: any;
 let mod: any;
 let fetchImpl: (url: string) => Promise<any> = () => Promise.resolve({ ok: true, text: () => Promise.resolve('') });
 
+let src = ''; // client.js 源码原文（样式契约源码断言用）
+
 beforeAll(() => {
 	// apply() 里 ensureStyles() 会建 <style>，此处只需最小 document（对齐 sidebar-registration.spec）
 	const stubEl: any = { textContent: '', style: {}, setAttribute() {}, appendChild() {} };
@@ -150,7 +152,7 @@ beforeAll(() => {
 			},
 		},
 	};
-	const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
+	src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../client/client.js'), 'utf8');
 	new Function('window', 'console', 'fetch', src)(fakeWindow, console, (url: string) => fetchImpl(url));
 	mod = fakeWindow.__DEF__.factory((name: string) => {
 		if (name === 'react') return reactStub.React;
@@ -474,7 +476,7 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 		const { pane, host } = await selectTable({ id: 'c1', name: '主库', kind: 'mysql' }, { name: 't1', type: 'TABLE', comment: '' });
 		const crumb = collect(pane).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-browse-crumb'));
 		expect(crumb, '未找到面包屑').toBeTruthy();
-		const btn = collect(crumb).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn') && flatText(e).includes('@'));
+		const btn = collect(crumb).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-mention-btn'));
 		expect(btn, '选中表后面包屑缺 @添加到对话按钮').toBeTruthy();
 		btn!.props.onClick();
 		expect(host.calls).toHaveLength(1);
@@ -485,7 +487,7 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 	it('postgresql 三层：插入带模式的四段记号 "@db:c2/mydb/public/orders "', async () => {
 		const { pane, host } = await selectTable({ id: 'c2', name: '分析库', kind: 'postgresql' }, { name: 'orders', type: 'TABLE', comment: '' });
 		const crumb = collect(pane).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-browse-crumb'));
-		const btn = collect(crumb).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn') && flatText(e).includes('@'));
+		const btn = collect(crumb).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-mention-btn'));
 		expect(btn).toBeTruthy();
 		btn!.props.onClick();
 		expect(host.calls[0]!.text).toBe('@db:c2/mydb/public/orders ');
@@ -502,7 +504,7 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 		});
 		const crumb = collect(pane).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-browse-crumb'));
 		expect(crumb).toBeTruthy();
-		const btn = collect(crumb).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn') && flatText(e).includes('@'));
+		const btn = collect(crumb).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-mention-btn'));
 		expect(btn, '未选中表不应渲染 @ 按钮').toBeUndefined();
 	});
 
@@ -513,7 +515,7 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 			[{ name: 'id', dataType: 'int', nullable: false }, { name: 'user_id', dataType: 'int', nullable: false }, { name: 'amount', dataType: 'int', nullable: true }],
 		);
 		// 默认视图即结构页：字段行末列挂行内 @ 按钮
-		const colBtns = collect(pane).filter((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn')
+		const colBtns = collect(pane).filter((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-mention-btn')
 			&& typeof e.props['aria-label'] === 'string' && e.props['aria-label'].includes('字段'));
 		expect(colBtns.length, '结构页字段行缺 @ 按钮').toBe(3);
 		// 点击 user_id 行按钮
@@ -530,7 +532,7 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 			{ name: 'orders', type: 'TABLE', comment: '' },
 			[{ name: 'id', dataType: 'int4', nullable: false }],
 		);
-		const colBtns = collect(pane).filter((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn')
+		const colBtns = collect(pane).filter((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-mention-btn')
 			&& typeof e.props['aria-label'] === 'string' && e.props['aria-label'].includes('字段'));
 		expect(colBtns.length).toBe(1);
 		colBtns[0]!.props.onClick();
@@ -608,5 +610,22 @@ describe('apply() @db:/@col: 表字段引用管线注册', () => {
 		expect(() => mod.apply(ctx)).not.toThrow();
 		expect(state.rules).toHaveLength(0);
 		expect(state.seats.find((s) => s.name === 'conversation.user.text.node')).toBeUndefined();
+	});
+});
+
+describe('@ 入口样式契约（侧边栏同款悬停浮现 + 紧凑图标钮）', () => {
+	// 源码级断言（对齐 browse-layout.spec 的结构断言风格）：用户反馈「平时不显眼、悬停才浮现、
+	// 尺寸贴合侧边栏」，锁住三条不可回退的 CSS 契约
+	it('平时隐藏：.dbt-rowactions 默认 display:none，仅行悬停/键盘聚焦/触屏恒显三种通路浮现', () => {
+		expect(src).toContain('.dbt-rowactions{display:none;flex:none;align-items:center;}');
+		expect(src).toContain('@media (hover: hover){.dbt-browse-crumb:hover .dbt-rowactions,.dbt-table tbody tr:hover .dbt-rowactions{display:inline-flex;}}');
+		expect(src).toContain('.dbt-rowactions:focus-within{display:inline-flex;}');
+		expect(src).toContain('@media (hover: none){.dbt-rowactions{display:inline-flex;}}');
+	});
+
+	it('紧凑图标钮：24px 命中区 + 14px @ 字形，配色走宿主 alias token（带插件变量回退）', () => {
+		expect(src).toContain('.dbt-mention-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;');
+		expect(src).toContain('color:var(--dsw-alias-label-tertiary,var(--dbt-text-secondary))');
+		expect(src).toContain('color:var(--dsw-alias-label-primary,var(--dbt-text))');
 	});
 });

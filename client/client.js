@@ -239,7 +239,6 @@ window.__ModuleLoader__.load({
 			browseNoGrant: "当前项目没有已授权的连接。数据浏览只显示已授权的连接，未授权的连接已隐藏。",
 			browseGoGrants: "前往授权",
 			browseHiddenGrant: "已隐藏 {n} 个未授权连接",
-			mentionAdd: "@添加到对话",
 			mentionHint: "把当前表以 @db: 引用插入对话输入框，发送后助手可直接读取该表数据",
 			mentionColHint: "把该字段以 @col: 引用插入对话输入框，发送后助手可直接读取该列的结构与数据",
 			mentionCopied: "对话输入框暂不可插入，引用已复制，请粘贴到对话",
@@ -513,7 +512,6 @@ window.__ModuleLoader__.load({
 			browseNoGrant: "No connections are granted to this project. Data browse only shows granted connections; ungranted ones are hidden.",
 			browseGoGrants: "Go to grants",
 			browseHiddenGrant: "{n} ungranted connections hidden",
-			mentionAdd: "@ Add to chat",
 			mentionHint: "Insert the current table as an @db: reference into the chat input so the assistant can read its data after you send",
 			mentionColHint: "Insert this column as an @col: reference into the chat input so the assistant can read its structure and data after you send",
 			mentionCopied: "Chat input unavailable; reference copied — paste it into the chat",
@@ -959,11 +957,21 @@ window.__ModuleLoader__.load({
 				".dbt-browse-crumb .dbt-crumb-seg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38%;}",
 				".dbt-browse-crumb .dbt-crumb-sep{flex:none;opacity:.55;}",
 				".dbt-browse-crumb strong{color:var(--dbt-text);font-weight:600;}",
-				// 对话文本里的 @db: 表引用 chip（宿主 UserText 管线渲染本插件节点）：
+				// 对话文本里的 @db:/@col: 引用 chip（宿主 UserText 管线渲染本插件节点）：
 				// 只描边不着色，浅色/深色主题均沿用 currentColor；label 超宽省略
 				".dbt-mention-chip{display:inline-flex;align-items:baseline;gap:3px;padding:0 7px;border-radius:9px;border:1px solid rgba(127,127,127,.45);font-size:12px;line-height:20px;max-width:240px;vertical-align:baseline;}",
 				".dbt-mention-chip .dbt-mention-ns{opacity:.65;flex:none;}",
 				".dbt-mention-chip .dbt-mention-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				// @db:/@col: 表/字段引用入口：侧边栏同款「行悬停浮现」——平时整组隐藏（不占视觉），
+				// 悬停所在行 / 键盘聚焦按钮时出现；触屏（hover:none）无悬停语义，恒显以免不可达。
+				// 按钮为 24px 命中区 + 14px @ 字形的紧凑图标钮（对齐宿主 Rows .iconButton 规格），
+				// 静置 tertiary、悬停 primary，配色走宿主 alias token，旧宿主缺 token 回退插件变量
+				".dbt-rowactions{display:none;flex:none;align-items:center;}",
+				".dbt-rowactions:focus-within{display:inline-flex;}",
+				".dbt-mention-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;border-radius:var(--dsw-radius-xs,4px);background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,var(--dbt-text-secondary));font-size:14px;font-weight:500;line-height:1;}",
+				".dbt-mention-btn:hover{color:var(--dsw-alias-label-primary,var(--dbt-text));}",
+				"@media (hover: hover){.dbt-browse-crumb:hover .dbt-rowactions,.dbt-table tbody tr:hover .dbt-rowactions{display:inline-flex;}}",
+				"@media (hover: none){.dbt-rowactions{display:inline-flex;}}",
 				".dbt-browse-main{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;}",
 				".dbt-browse-tabs{flex:none;}",
 				".dbt-browse-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}",
@@ -3010,16 +3018,18 @@ window.__ModuleLoader__.load({
 				}
 				if (view === "structure") {
 					if (!schema.length) return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } }, t("emptyStructure"));
-					// 末列为行内 @ 按钮（React 元素单元格，resultTable 原样渲染）：该字段以 @col: 记号进对话
+					// 末列为行内 @ 按钮（React 元素单元格，resultTable 原样渲染）：该字段以 @col: 记号进对话。
+					// 按钮平时隐藏（侧边栏同款悬停浮现，见 .dbt-rowactions），悬浮行上才出现
 					return resultTable(
 						[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment"), ""],
 						schema.map((col) => [
 							col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || "",
-							React.createElement("button", {
-								className: "dbt-btn", key: col.name,
-								title: t("mentionColHint"), "aria-label": t("mentionColHint") + "：" + col.name,
-								onClick: () => mentionColumnToChat(col.name),
-							}, t("mentionAdd")),
+							React.createElement("span", { className: "dbt-rowactions", key: col.name },
+								React.createElement("button", {
+									className: "dbt-mention-btn",
+									title: t("mentionColHint"), "aria-label": t("mentionColHint") + "：" + col.name,
+									onClick: () => mentionColumnToChat(col.name),
+								}, "@")),
 						]),
 						undefined, "dbt-browse-tablewrap");
 				}
@@ -3149,12 +3159,14 @@ window.__ModuleLoader__.load({
 					sel ? React.createElement("span", { className: "dbt-crumb-seg", title: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db }, sel.schemaName ? sel.db + "." + sel.schemaName : sel.db) : null,
 					sel ? React.createElement("span", { className: "dbt-crumb-sep" }, "›") : null,
 					sel ? React.createElement("strong", { className: "dbt-crumb-seg" }, sel.table.name) : React.createElement("span", null, t("browseCrumbEmpty")),
-					// @表引用：把当前表以 @db: 记号送入会话输入框（对话里助手按工具说明直接读表）
-					sel ? React.createElement("button", {
-						className: "dbt-btn", style: { flex: "none" },
-						title: t("mentionHint"), "aria-label": t("mentionHint"),
-						onClick: mentionSelToChat,
-					}, t("mentionAdd")) : null,
+					// @表引用：把当前表以 @db: 记号送入会话输入框（对话里助手按工具说明直接读表）。
+					// 平时隐藏（侧边栏同款悬停浮现），悬浮面包屑行上才出现
+					sel ? React.createElement("span", { className: "dbt-rowactions" },
+						React.createElement("button", {
+							className: "dbt-mention-btn",
+							title: t("mentionHint"), "aria-label": t("mentionHint"),
+							onClick: mentionSelToChat,
+						}, "@")) : null,
 					mentionNote ? React.createElement("span", { className: "dbt-muted", style: { flex: "none", maxWidth: 260 }, role: "status" }, mentionNote) : null,
 					hiddenGranted > 0 ? React.createElement("span", { className: "dbt-muted", style: { marginLeft: "auto", flex: "none" }, title: t("browseHiddenGrant", { n: hiddenGranted }) }, t("browseHiddenGrant", { n: hiddenGranted })) : null),
 				// 3) 结构/数据分段 + 内容区（flex:1 吃满剩余高度）
