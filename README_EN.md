@@ -80,7 +80,7 @@ Every execution (including rejected requests) appends one line to `audit.jsonl`:
 - Table/view structure viewing and data preview; the result grid supports sorting, paging and cell copying
 - The pager shows the total row count with first/last page and page-number jump (the total comes from a server-side `COUNT`; Redis is a KV store without row-level paging and keeps prev/next only)
 - Content search in data preview: the keyword matches all columns case-insensitively as a substring (SQL kinds use `LIKE`/`ILIKE` with `ESCAPE`, wildcards match literally; MongoDB uses per-field `$regex`); while searching, paging and counts follow the matching rows; not supported on Redis
-- **@ table mention**: the "@ Add to chat" button in the breadcrumb inserts the current table into the session input box as an `@db:<connection>/<database>[/<schema>]/<table>` token (falling back to a clipboard copy when the host input channel is unavailable); the token renders as a dedicated reference chip in conversation text, and the model reads the table live through the `DatabaseManager` query / preview actions per the tool guidance
+- **@ table/column mention**: the "@ Add to chat" button in the breadcrumb inserts the current table into the session input box as an `@db:<connection>/<database>[/<schema>]/<table>` token, and the button on each column row of the structure tab inserts that column as an `@col:<connection>/<database>[/<schema>]/<table>/<column>` token (both fall back to a clipboard copy when the host input channel is unavailable); both tokens render as dedicated reference chips in conversation text, and the model reads the table or column live through the `DatabaseManager` query / preview / schema actions per the tool guidance
 
 ### SQL console
 

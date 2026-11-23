@@ -1,10 +1,10 @@
 /**
- * 「数据浏览 → 对话」@db: 表引用的离线测试（stub React 多轮渲染 + 脚本化 fetch + 记录器式宿主桩）。
+ * 「数据浏览 → 对话」@db: 表引用与 @col: 字段引用的离线测试（stub React 多轮渲染 + 脚本化 fetch + 记录器式宿主桩）。
  *
  * 覆盖：
  *  1) 记号编解码纯函数：buildDbMention 三段（连接/库/表）与四段（含模式）形态、段内空白与
  *     '/' 的 %XX 转义、parseDbMention 还原（database 归并 "库.模式"）与非法形态 invalid 标记；
- *  2) DB_TABLE_RULE 识别契约：词法边界（(?<!\S)）、from 偏移、尾标点剥离、裸 @db: 跳过、
+ *  2) DB_MENTION_RULE 识别契约：词法边界（(?<!\S)）、from 偏移、尾标点剥离、裸 @db: 跳过、
  *     非 @db: 的 @ token 不捕获（留给宿主文件规则）；order 25 早于宿主文件/目录规则（30），
  *     同起点命中时低序规则胜出——@db: 记号由本插件渲染，不再落成指向不存在文件的文件 chip；
  *  3) DbTableChip 渲染：chip 展示表名 + 全文 title，无任何点击行为；
@@ -32,6 +32,7 @@ const reactStub = (() => {
 		createElement(type: any, props: any, ...kids: any[]) {
 			return { type, props: props || {}, children: kids };
 		},
+		isValidElement(el: any) { return !!el && typeof el === 'object' && el.type !== undefined; },
 		useState(init: any) {
 			const i = hookIdx++;
 			const key = 's' + i;
@@ -42,7 +43,9 @@ const reactStub = (() => {
 			const i = hookIdx++;
 			const key = 'r' + i;
 			if (!slots.has(key)) slots.set(key, { current: init });
-			return [slots.get(key)];
+			// 必须返回对象本体（真实 React 语义）：BrowsePane 的 openSeq.current 是数字守卫，
+			// 包装成数组会让 .current 变 undefined，seq 守卫永假、busy 永挂骨架
+			return slots.get(key);
 		},
 		useCallback(fn: any) {
 			const i = hookIdx++;
@@ -194,6 +197,23 @@ describe('@db: 表引用记号编解码', () => {
 		expect(emptySeg.invalid).toBe(true);
 		expect(emptySeg.label).toBe('c1//users');
 	});
+
+	it('@col: 四段形态（连接/库/表/列）', () => {
+		expect(T.buildDbColMention('c1', 'mydb', null, 'orders', 'user_id')).toBe('@col:c1/mydb/orders/user_id');
+		const parsed = T.parseDbColMention('@col:c1/mydb/orders/user_id');
+		expect(parsed).toMatchObject({ connId: 'c1', database: 'mydb', schemaName: null, table: 'orders', column: 'user_id', label: 'orders.user_id', invalid: false });
+	});
+
+	it('@col: 五段形态（含模式）+ 列名转义 round-trip', () => {
+		expect(T.buildDbColMention('c2', 'mydb', 'public', 'orders', 'a/b col')).toBe('@col:c2/mydb/public/orders/a%2Fb%20col');
+		const parsed = T.parseDbColMention('@col:c2/mydb/public/orders/a%2Fb%20col');
+		expect(parsed).toMatchObject({ connId: 'c2', database: 'mydb.public', schemaName: 'public', table: 'orders', column: 'a/b col', label: 'orders.a/b col', invalid: false });
+	});
+
+	it('@col: 非法形态标记 invalid，只保留原文', () => {
+		expect(T.parseDbColMention('@col:c1/mydb/orders').invalid).toBe(true);
+		expect(T.parseDbColMention('@col:c1//orders/x').invalid).toBe(true);
+	});
 });
 
 /* ---------- 识别规则 ---------- */
@@ -213,45 +233,64 @@ function fileRuleMirror(text: string, from: number) {
 	return undefined;
 }
 
-describe('DB_TABLE_RULE 识别契约', () => {
+describe('DB_MENTION_RULE 识别契约', () => {
 	it('命中 @db: token，偏移与数据正确；from 偏移跳过更早命中', () => {
 		const text = '看 @db:c1/mydb/users 和后续';
-		const hit = T.DB_TABLE_RULE.match(text, 0);
+		const hit = T.DB_MENTION_RULE.match(text, 0);
 		expect(hit).toBeTruthy();
 		expect(hit.id).toBe('db-table');
 		expect(text.slice(hit.start, hit.end)).toBe('@db:c1/mydb/users');
 		expect(hit.data.table).toBe('users');
-		const later = T.DB_TABLE_RULE.match(text, hit.end);
+		const later = T.DB_MENTION_RULE.match(text, hit.end);
 		expect(later).toBeUndefined();
 	});
 
 	it('多命中时 from 语义：第二个 @db: token 可达', () => {
 		const text = '@db:c1/a/t1 @db:c1/b/t2';
-		const first = T.DB_TABLE_RULE.match(text, 0);
-		const second = T.DB_TABLE_RULE.match(text, first.end);
+		const first = T.DB_MENTION_RULE.match(text, 0);
+		const second = T.DB_MENTION_RULE.match(text, first.end);
 		expect(text.slice(second.start, second.end)).toBe('@db:c1/b/t2');
 	});
 
 	it('尾标点剥离出 token（句号留在正文）', () => {
 		const text = '表是 @db:c1/mydb/users.';
-		const hit = T.DB_TABLE_RULE.match(text, 0);
+		const hit = T.DB_MENTION_RULE.match(text, 0);
 		expect(text.slice(hit.start, hit.end)).toBe('@db:c1/mydb/users');
 	});
 
 	it('裸 @db: 与非 @db: 的 @ token 不捕获（裸 token 留给宿主规则，普通文件引用不受影响）', () => {
-		expect(T.DB_TABLE_RULE.match('裸 @db: 不是引用', 0)).toBeUndefined();
-		expect(T.DB_TABLE_RULE.match('文件 @README.md 在根目录', 0)).toBeUndefined();
+		expect(T.DB_MENTION_RULE.match('裸 @db: 不是引用', 0)).toBeUndefined();
+		expect(T.DB_MENTION_RULE.match('文件 @README.md 在根目录', 0)).toBeUndefined();
 	});
 
 	it('词法边界：@ 前紧贴非空白字符（邮箱形态）不命中', () => {
-		expect(T.DB_TABLE_RULE.match('邮箱 a@db:c1/mydb/users', 0)).toBeUndefined();
+		expect(T.DB_MENTION_RULE.match('邮箱 a@db:c1/mydb/users', 0)).toBeUndefined();
+	});
+
+	it('@col: 命中分流为 db-column 节点，label 为 表.列；裸 @col: 不捕获', () => {
+		const text = '列 @col:c1/mydb/orders/user_id 是外键';
+		const hit = T.DB_MENTION_RULE.match(text, 0)!;
+		expect(hit.id).toBe('db-column');
+		expect(text.slice(hit.start, hit.end)).toBe('@col:c1/mydb/orders/user_id');
+		expect(hit.data).toMatchObject({ connId: 'c1', database: 'mydb', schemaName: null, table: 'orders', column: 'user_id', label: 'orders.user_id', invalid: false });
+		expect(T.DB_MENTION_RULE.match('裸 @col: 不是引用', 0)).toBeUndefined();
+	});
+
+	it('@col: 混合 @db: 文本各自命中；@db: 五段不会被当列引用', () => {
+		const text = '@db:c1/a/t1 与 @col:c1/a/t1/user_id';
+		const first = T.DB_MENTION_RULE.match(text, 0)!;
+		expect(first.id).toBe('db-table');
+		const second = T.DB_MENTION_RULE.match(text, first.end)!;
+		expect(second.id).toBe('db-column');
+		expect(T.parseDbMention('@db:c1/a/t1/extra/deeper').invalid).toBe(true); // 五段超出表记号语法
+		expect(T.parseDbColMention('@col:c1/a/t1').invalid).toBe(true); // 列记号必须有列段
 	});
 
 	it('order 25 早于宿主文件/目录规则（30），同起点命中时低序规则胜出', () => {
 		// 规则序：宿主按 order 升序遍历，winner 取「更早 start」，平局保留先遍历者
-		expect(T.DB_TABLE_RULE.order).toBeLessThan(30);
+		expect(T.DB_MENTION_RULE.order).toBeLessThan(30);
 		const text = '读 @db:c1/mydb/users 这张表';
-		const ours = T.DB_TABLE_RULE.match(text, 0)!;
+		const ours = T.DB_MENTION_RULE.match(text, 0)!;
 		const file = fileRuleMirror(text, 0)!;
 		expect(file.start).toBe(ours.start); // 宿主规则本会捕获同一 token
 		const winner = [ours, file].sort((a, b) => a.start - b.start)[0];
@@ -279,6 +318,17 @@ describe('DbTableChip 渲染', () => {
 			raw: '@db:c1/users',
 		});
 		expect(flatText(el)).toBe('@db:c1/users');
+	});
+
+	it('@col: chip 展示 表.列 + @col: 前缀，title 为原文，无点击行为', () => {
+		const el = reactStub.render(T.DbColumnChip, {
+			node: { id: 'db-column', start: 0, end: 26, data: T.parseDbColMention('@col:c1/mydb/orders/user_id') },
+			raw: '@col:c1/mydb/orders/user_id',
+		});
+		expect(el.props.className).toBe('dbt-mention-chip');
+		expect(el.props.title).toBe('@col:c1/mydb/orders/user_id');
+		expect(flatText(el)).toBe('@col:orders.user_id');
+		expect(el.props.onClick).toBeUndefined();
 	});
 });
 
@@ -360,11 +410,12 @@ describe('insertDbMention 宿主链路', () => {
 /* ---------- BrowsePane 集成：面包屑 @ 按钮 ---------- */
 
 describe('BrowsePane 面包屑 @添加到对话', () => {
-	async function selectTable(conn: any, table: any) {
+	async function selectTable(conn: any, table: any, schema?: any[]) {
 		const byUrl = new Map<string, unknown>([
 			['databases', ['mydb']],
 			['schemas', ['public']],
 			['tables', [table]],
+			['schema', schema && schema.length ? schema : [{ name: 'id', dataType: 'int', nullable: false }]],
 		]);
 		fetchImpl = (async (url: string) => {
 			const path = String(url);
@@ -373,7 +424,7 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 			else if (path.includes('/schemas')) data = byUrl.get('schemas');
 			else if (path.includes('/tables')) data = byUrl.get('tables');
 			else if (path.includes('/search-tables')) data = [];
-			else if (path.includes('/schema?')) data = [{ name: 'id', dataType: 'int', nullable: false }];
+			else if (path.includes('/schema?')) data = byUrl.get('schema');
 			else if (path.includes('/preview')) data = { columns: ['id'], rows: [], truncated: false };
 			return { ok: true, text: () => Promise.resolve(JSON.stringify({ ok: true, data })) };
 		}) as any;
@@ -413,6 +464,9 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 		// 选中表后重渲染 Pane：sel 生效，openTable（schema+preview）与面包屑按钮就位
 		pane = reactStub.render(T.BrowsePane, props);
 		await flush();
+		// 再渲染一轮：schema/preview 已到位，结构页字段行 @ 按钮就位
+		pane = reactStub.render(T.BrowsePane, props);
+		await flush();
 		return { pane, host };
 	}
 
@@ -450,6 +504,37 @@ describe('BrowsePane 面包屑 @添加到对话', () => {
 		expect(crumb).toBeTruthy();
 		const btn = collect(crumb).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn') && flatText(e).includes('@'));
 		expect(btn, '未选中表不应渲染 @ 按钮').toBeUndefined();
+	});
+
+	it('结构页：每个字段行有 @ 按钮，点击插入 "@col:<连接>/<库>/<表>/<列> "', async () => {
+		const { pane, host } = await selectTable(
+			{ id: 'c1', name: '主库', kind: 'mysql' },
+			{ name: 'orders', type: 'TABLE', comment: '' },
+			[{ name: 'id', dataType: 'int', nullable: false }, { name: 'user_id', dataType: 'int', nullable: false }, { name: 'amount', dataType: 'int', nullable: true }],
+		);
+		// 默认视图即结构页：字段行末列挂行内 @ 按钮
+		const colBtns = collect(pane).filter((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn')
+			&& typeof e.props['aria-label'] === 'string' && e.props['aria-label'].includes('字段'));
+		expect(colBtns.length, '结构页字段行缺 @ 按钮').toBe(3);
+		// 点击 user_id 行按钮
+		const target = colBtns.find((e) => e.props['aria-label'].includes('user_id'));
+		expect(target).toBeTruthy();
+		target!.props.onClick();
+		expect(host.calls[0]!.text).toBe('@col:c1/mydb/orders/user_id ');
+		expect(host.calls[0]!.focused).toBe(true);
+	});
+
+	it('结构页（PG 系含模式）：插入四段带模式记号 "@col:c2/mydb/public/orders/id "', async () => {
+		const { pane, host } = await selectTable(
+			{ id: 'c2', name: '分析库', kind: 'postgresql' },
+			{ name: 'orders', type: 'TABLE', comment: '' },
+			[{ name: 'id', dataType: 'int4', nullable: false }],
+		);
+		const colBtns = collect(pane).filter((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-btn')
+			&& typeof e.props['aria-label'] === 'string' && e.props['aria-label'].includes('字段'));
+		expect(colBtns.length).toBe(1);
+		colBtns[0]!.props.onClick();
+		expect(host.calls[0]!.text).toBe('@col:c2/mydb/public/orders/id ');
 	});
 });
 
@@ -501,22 +586,24 @@ function makeApplyCtx(withConversation: boolean) {
 	return { ctx, state };
 }
 
-describe('apply() @db: 表引用管线注册', () => {
-	it('宿主带 uiConversation：注册 db-table 规则与 chip 席位，且随 disposer 撤销', () => {
+describe('apply() @db:/@col: 表字段引用管线注册', () => {
+	it('宿主带 uiConversation：注册 db-mention 规则与 db-table/db-column 两个 chip 席位，且随 disposer 撤销', () => {
 		const { ctx, state } = makeApplyCtx(true);
 		mod.apply(ctx);
 		expect(state.rules).toHaveLength(1);
-		expect(state.rules[0].id).toBe('db-table');
-		const seat = state.seats.find((s) => s.name === 'conversation.user.text.node');
-		expect(seat, '缺 conversation.user.text.node 席位').toBeTruthy();
-		expect(seat!.key).toBe('db-table');
-		expect(typeof seat!.comp).toBe('function');
+		expect(state.rules[0].id).toBe('db-mention');
+		const tableSeat = state.seats.find((s) => s.name === 'conversation.user.text.node' && s.key === 'db-table');
+		const colSeat = state.seats.find((s) => s.name === 'conversation.user.text.node' && s.key === 'db-column');
+		expect(tableSeat, '缺 db-table chip 席位').toBeTruthy();
+		expect(colSeat, '缺 db-column chip 席位').toBeTruthy();
+		expect(typeof tableSeat!.comp).toBe('function');
+		expect(typeof colSeat!.comp).toBe('function');
 		for (const dispose of state.disposers) dispose();
 		expect(state.rules).toHaveLength(0);
 		expect(state.seats).toHaveLength(0);
 	});
 
-	it('旧宿主无 uiConversation：不注册规则与 chip 席位（@db: 退化为普通文本）', () => {
+	it('旧宿主无 uiConversation：不注册规则与 chip 席位（@db:/@col: 退化为普通文本）', () => {
 		const { ctx, state } = makeApplyCtx(false);
 		expect(() => mod.apply(ctx)).not.toThrow();
 		expect(state.rules).toHaveLength(0);
