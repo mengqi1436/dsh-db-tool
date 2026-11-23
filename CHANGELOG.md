@@ -1,5 +1,16 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+### 新增(数据浏览)
+
+- **@表引用（数据浏览 → 对话）**：面包屑行新增「@添加到对话」按钮，把当前选中的表以 `@db:<连接id>/<库名>[/<模式>]/<表名>` 记号插入当前会话输入框（宿主 conversation.input 通道插入光标处并聚焦；宿主链路缺失或输入框提交中拒插时退化为剪贴板复制并就地提示）。对话文本中的该记号经宿主 UserText 管线渲染为独立引用 chip——本插件注册 `db-table` 识别规则（order 25 早于宿主文件/目录引用规则 30，同起点命中时低序胜出，`@db:` 不再被误认成指向不存在文件的文件引用）与 `conversation.user.text.node` 席位（chip 只展示，不挂点击行为）。段内空白与 `/` 以 URL 转义（%XX）保持单 token；旧宿主缺 `uiConversation` 服务时记号退化为普通文本，不影响插入。
+- **`DatabaseManager` 工具说明新增表引用解读约定**：`@db:` 记号的段位语义（3 段无模式 / 4 段 database 传 "库.模式"）、「不是文件路径、不要用文件读取工具」与 %XX 解码要求，使对话收到引用后可直接用 query / preview 实时读取该表数据。
+
+### 测试
+
+- `tests/client/table-mention.spec.ts` 新增 23 条：记号编解码 round-trip（三段/四段/%XX 转义与非法序列）、`DB_TABLE_RULE` 识别契约（词法边界、from 偏移、尾标点、裸 `@db:` 与非 `@db:` token 不捕获、order 25 早于宿主文件规则的同起点胜出）、chip 渲染（表名 + 原文 title、无点击行为）、`insertDbMention` 宿主链路（插入 "token + 空格" 并聚焦 / scope 不匹配与链路缺失 unsupported / 输入框拒插 busy 不聚焦 / 链路抛错降级）、BrowsePane 集成（mysql 两层与 PG 三层选中表后面包屑出现按钮且插入正确记号、未选中不渲染按钮）、apply() 注册契约（有 `uiConversation` 注册规则与 chip 席位且随 disposer 撤销、无则不注册）。
+
 ## 1.9.22
 
 本版把数据浏览的三块补齐：目录树支持视图（Oracle / 达梦表 + 视图一次取全，MongoDB 视图结构页跳过索引）、目录树按当前账号的操作权限过滤，以及数据预览的分页快跳 / 总行数与 Navicat 式字段内容搜索。
