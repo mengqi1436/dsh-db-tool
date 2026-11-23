@@ -26,6 +26,22 @@
 | 亮色 | [light/before-2-structure-columns.png](light/before-2-structure-columns.png) | [light/after-2-structure-columns.png](light/after-2-structure-columns.png) |
 | 暗色 | [dark/before-2-structure-columns.png](dark/before-2-structure-columns.png) | [dark/after-2-structure-columns.png](dark/after-2-structure-columns.png) |
 
+## 操作演示（鼠标点击全流程，亮色）
+
+同一真实产物，页面下方带「会话输入框 · 演示接收区」（明确标注：真实 DSH 中为宿主对话输入框，此处仅展示插件插入的记号）。四步全为鼠标点击，无键盘输入：
+
+1. **demo-1**：对象树点开树壳 → 点连接 → 点 main → 点 orders —— 面包屑出现「@添加到对话」（表引用入口）
+2. **demo-2**：鼠标点面包屑「@添加到对话」→ 接收区插入 `@db:c1/main/orders`（发送后助手即可读该表）
+3. **demo-3**：选中表后默认落在结构页 —— 每个字段行末列各有一个「@添加到对话」（字段引用入口）
+4. **demo-4**：鼠标点 user_id 字段行的 @ 按钮 → 接收区插入 `@col:c1/main/orders/user_id`（与 demo-2 的表引用可并存，发送后助手读表结构按列取数）
+
+| 步骤 | 截图 |
+|---|---|
+| 1 树中点选表 | [demo/demo-1-table-mention.png](demo/demo-1-table-mention.png) |
+| 2 点面包屑 @ 插入表引用 | [demo/demo-2-table-inserted.png](demo/demo-2-table-inserted.png) |
+| 3 结构页字段行 @ 入口 | [demo/demo-3-column-mention.png](demo/demo-3-column-mention.png) |
+| 4 点字段行 @ 插入列引用 | [demo/demo-4-column-inserted.png](demo/demo-4-column-inserted.png) |
+
 ## 限制
 
 对话文本内的 `@db:` / `@col:` 引用 chip 由宿主会话管线（`conversation.user.text.node` 席位）渲染，需要运行中的 DSH 宿主对话才能成像，本离线取证环境无法真实呈现；该链路由 `tests/client/table-mention.spec.ts` 的规则/渲染/注册契约覆盖。
