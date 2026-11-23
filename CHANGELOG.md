@@ -1,5 +1,16 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+### 新增(数据浏览)
+
+- **@表/字段引用（数据浏览 → 对话）**：面包屑行与结构页每个字段行各有一个 @ 引用入口，把当前表以 `@db:<连接id>/<库名>[/<模式>]/<表名>`、该列以 `@col:<连接id>/<库名>[/<模式>]/<表名>/<列名>` 记号插入当前会话输入框。入口为侧边栏同款「行悬停浮现」的紧凑图标钮：平时整组隐藏（`display:none`），悬停所在行 / 键盘聚焦按钮时浮现（`@media (hover: hover)` + `:focus-within`），触屏（`hover: none`）恒显；按钮 24px 命中区 + 14px @ 字形，静置 tertiary / 悬停 primary，配色走宿主 alias token（`--dsw-alias-label-*`，缺失回退插件变量）。插入均经宿主 conversation.input 通道进光标处并聚焦；宿主链路缺失或输入框提交中拒插时退化为剪贴板复制并就地提示。对话文本中的两类记号经宿主 UserText 管线渲染为独立引用 chip——本插件注册 `db-mention` 识别规则（order 25 早于宿主文件/目录引用规则 30，同起点命中时低序胜出，`@db:` / `@col:` 不再被误认成指向不存在文件的文件引用）并按命名空间分流到 `db-table` / `db-column` 两个 `conversation.user.text.node` 渲染席位（chip 只展示，不挂点击行为）。段内空白与 `/` 以 URL 转义（%XX）保持单 token；旧宿主缺 `uiConversation` 服务时记号退化为普通文本，不影响插入。
+- **`DatabaseManager` 工具说明新增表/字段引用解读约定**：`@db:` 与 `@col:` 记号的段位语义（3/4 段为表、4/5 段为列，database 传 "库.模式"）、「不是文件路径、不要用文件读取工具」与 %XX 解码要求，使对话收到引用后可直接用 query / preview / schema 实时读取该表或该列。
+
+### 测试
+
+- `tests/client/table-mention.spec.ts` 新增 31 条：记号编解码 round-trip（@db: 三段/四段、@col: 四段/五段、%XX 转义与非法序列）、`DB_MENTION_RULE` 识别契约（词法边界、from 偏移、尾标点、裸 `@db:`/`@col:` 与非 `@db:` token 不捕获、order 25 早于宿主文件规则的同起点胜出、@db:/@col: 混合文本分流）、chip 渲染（表名/表.列 + 原文 title、无点击行为）、`insertDbMention` 宿主链路（插入 "token + 空格" 并聚焦 / scope 不匹配与链路缺失 unsupported / 输入框拒插 busy 不聚焦 / 链路抛错降级）、BrowsePane 集成（mysql 两层与 PG 三层选中表后面包屑按钮插入正确表记号、结构页每字段行按钮插入正确列记号、未选中不渲染按钮）、apply() 注册契约（有 `uiConversation` 注册规则与两个 chip 席位且随 disposer 撤销、无则不注册）。
+
 ## 1.9.22
 
 本版把数据浏览的三块补齐：目录树支持视图（Oracle / 达梦表 + 视图一次取全，MongoDB 视图结构页跳过索引）、目录树按当前账号的操作权限过滤，以及数据预览的分页快跳 / 总行数与 Navicat 式字段内容搜索。
