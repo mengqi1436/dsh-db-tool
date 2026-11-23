@@ -1,5 +1,11 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+### 文档(技能)
+
+- `skills/db-admin/SKILL.md` 补齐 1.9.22 / 1.9.23 的模型侧行为：新增「表/字段引用（@db: / @col:）」一节（记号来自数据浏览面板的面包屑/结构页行入口，不是文件路径；`@db:` 段位解析为 conn_id + database（第 3 段存在时传 "库名.模式"）+ 表名、`@col:` 末段为列名；段内 %XX 先解码；结构不确定先 `schema`，取值用 `query` / `preview`；引用不绕过授权与确认）；`schema` 说明补「表与视图一起列出」（SQL 系视图 type `VIEW`、PG 系物化视图等原样标注、MongoDB `collection`/`view`、MongoDB 视图结构页不含索引）与「清单按账号权限过滤」（PG/GaussDB CONNECT/USAGE+SELECT、SQL Server HAS_DBACCESS/SELECT，清单里没有 ≠ 不存在）；九库方言速查 Oracle / 达梦元数据入口改为表+视图一次取全；侧边栏数据浏览面板行补视图、权限过滤、总行数、分页快跳、跨列内容搜索与 @ 引用入口（`/api/preview` 支持 `search` / `total` 参数）。
+
 ## 1.9.23
 
 本版新增数据浏览的表/字段 @ 引用：面包屑与结构页每字段行各有一个行悬停浮现的 @ 入口，把表以 `@db:`、列以 `@col:` 记号插入对话输入框，对话中渲染为独立引用 chip，模型侧据约定用 query / preview / schema 实时读取该表或该列。

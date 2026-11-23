@@ -1,6 +1,6 @@
 ---
 name: db-admin
-description: 通过 dsh-db-tool 插件操作 9 种数据库（MySQL、PostgreSQL、GaussDB、SQLite、Redis、MongoDB、Oracle、达梦、SQL Server）。调用 DatabaseManager 工具完成连接查询、SQL/命令执行、库表浏览、数据预览；处理 NEEDS_CONFIRMATION 危险操作确认流程，遵守 ro/rw 项目授权与安全规范。
+description: 通过 dsh-db-tool 插件操作 9 种数据库（MySQL、PostgreSQL、GaussDB、SQLite、Redis、MongoDB、Oracle、达梦、SQL Server）。调用 DatabaseManager 工具完成连接查询、SQL/命令执行、库表浏览、数据预览；解读数据浏览插入的 @db:/@col: 表/字段引用；处理 NEEDS_CONFIRMATION 危险操作确认流程，遵守 ro/rw 项目授权与安全规范。
 ---
 
 # db-admin：数据库管理与查询
@@ -102,7 +102,8 @@ DatabaseManager({ action: "schema", conn_id: "c1", database: "shop" })          
 DatabaseManager({ action: "schema", conn_id: "c1", database: "shop", table: "users" })          // → 列结构
 ```
 
-- 表列表返回 `TableInfo[]`：`{name, type?, comment?, database?}`（Redis 的 type 为 hash|list|set|zset|string|stream）。
+- 表列表返回 `TableInfo[]`：`{name, type?, comment?, database?}`，**表与视图一起列出**——SQL 系视图 `type` 为 `VIEW`（PG 系物化视图等类型原样标注），MongoDB 为 `collection` / `view`，Redis 为 hash|list|set|zset|string|stream；视图与表共用结构/预览路径（MongoDB 视图无索引，结构页不含索引）。
+- **清单按账号权限过滤**：库/模式/表清单只列出当前数据库账号可读的对象（PG/GaussDB 库按 CONNECT、模式要求 USAGE 且其中至少一张关系可 SELECT；SQL Server 库按 HAS_DBACCESS、表/视图只列可 SELECT 的）。清单里没有 ≠ 不存在，可能是无权限被隐藏。
 - PostgreSQL/GaussDB 为「数据库 → 模式(schema) → 表」三层语义，支持跨库浏览（Navicat 行为）：`database` 参数传 `"库名.schema"` 即可浏览连接库之外的库（如 `gycwd.public`，服务端自动用同一凭据开指向该库的连接）；只传 schema 名（如 `public`）则查连接自身库。`listSchemas(database)` 的参数是**纯库名**。不确定 schema 时先执行 `SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema'`。
 - 列结构返回 `ColumnInfo[]`：`{name, dataType, nullable, key?, default?, comment?}`。
 - 找不到表名时不要盲目逐库遍历：已知表名问「在哪张表」时先 `database` 逐个试，或引导用户用侧边栏的跨库表名搜索（见下文），模型侧没有等价 action。
@@ -143,6 +144,16 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 
 这两种库的 `query` 与 `execute` 也直接接受命令 JSON（读命令走 `query`、写命令走 `execute`），是按语言区分的两条通道；`run_script` 则是唯一能做「多步组合」的入口。
 
+## 表/字段引用（@db: / @col:）
+
+数据浏览面板可把当前表/列以引用记号插入对话输入框：目录树选中表后由面包屑行插入 `@db:<连接id>/<库名>[/<模式>]/<表名>`，结构页每个字段行插入 `@col:<连接id>/<库名>[/<模式>]/<表名>/<列名>`，对话中渲染为引用 chip。用户消息出现这两类记号时按以下约定处理：
+
+- **不是文件路径**：这些文件不存在，不要用文件读取工具去读，也不要把记号当普通文本回显给用户。
+- **段位解析**：`@db:` 第 1 段为 `conn_id`；出现第 3 段（模式）时 `database` 传 `"<库名>.<模式>"`，否则传第 2 段；末段为表名。`@col:` 先按 `@db:` 规则定位表，末段为列名。
+- **URL 转义**：段内 `%XX`（空白或 `/` 的转义）在传参前先解码还原。
+- **实时读取**：记号只是指向，不代表结构或数据已就绪——结构不确定先 `schema`，取列值用 `query`（SELECT 该列）或 `preview`。
+- 授权与确认语义不变：引用不绕过当前项目的 ro/rw 授权与危险确认流程。
+
 ## 九库方言速查
 
 | 库 | 占位符 | 元数据入口 | 分页 | 备注 |
@@ -153,8 +164,8 @@ DatabaseManager({ action: "run_script", conn_id: "mongo1", code: '{"find":"users
 | SQLite | `?` | `sqlite_master` / `PRAGMA` | `LIMIT n OFFSET m` | 库列表固定 `['main']` |
 | Redis | 无（命令数组） | `SCAN`（禁用 `KEYS` 遍历） | `SCAN cursor` | `run_script` 传 `["SCAN","0","MATCH","user:*","COUNT","100"]`；传输走 `__redis_keys` envelope 降级 |
 | MongoDB | 无（BSON 文档） | `listCollections` | `find().skip().limit()` | `run_script` 传 `{"find":"users","filter":{},"limit":20,"skip":40}` |
-| Oracle | `:name` | `ALL_TABLES` / `USER_TABLES` | `OFFSET m ROWS FETCH NEXT n ROWS ONLY` | |
-| 达梦(DM) | `:name` | 系统视图同 Oracle 风格 | `OFFSET m ROWS FETCH NEXT n ROWS ONLY`（8a 支持 `LIMIT`） | |
+| Oracle | `:name` | `ALL_TABLES` ∪ `ALL_VIEWS`（表+视图一次取全） | `OFFSET m ROWS FETCH NEXT n ROWS ONLY` | |
+| 达梦(DM) | `:name` | 系统视图同 Oracle 风格（表+视图一次取全） | `OFFSET m ROWS FETCH NEXT n ROWS ONLY`（8a 支持 `LIMIT`） | |
 | SQL Server | `?`（适配器内部重写为 `@p1`） | `sys.*` catalog views | 2012+ `OFFSET m ROWS FETCH NEXT n ROWS ONLY`；2008/2008R2 降级 `ROW_NUMBER` | 标识符 `[x]`，名中含 `]` 双写为 `]]`；**仅 SQL 认证**（不支持 Windows 集成认证 / Azure AD）；其余边界见下方「SQL Server 覆盖范围与边界」 |
 
 **Redis 传输口径（降级，非无损表到表）**：上表 Redis 行是命令与浏览口径；数据传输中 Redis 通过固定 envelope 表 `__redis_keys` 降级参与，六列为 `key`/`type`/`ttl_ms`/`encoding`/`payload`/`dump`。其中 `ttl_ms` 无过期为 0（PTTL `-1` 落 `0n`、PTTL `-2` 读瞬间键已消失则跳过该键，正值原样毫秒），`encoding` 为 `OBJECT ENCODING` 内存编码诊断值（如 raw/hashtable/listpack/quicklist，与 `payload` 列的序列化无关），`payload` 恒为 UTF-8 JSON 字符串。`ttl_ms` 来自 [TTL](https://redis.io/docs/latest/commands/ttl/)（及 PTTL），`dump` 来自 [DUMP](https://redis.io/docs/latest/commands/dump/)，仅在同构 Redis→Redis 时经 [RESTORE](https://redis.io/docs/latest/commands/restore/) 恢复；[SCAN](https://redis.io/docs/latest/commands/scan/) 的 cursor 语义决定 keyspace 枚举不是一次性快照。【官方文档已确认】[Redis data types](https://redis.io/docs/latest/develop/data-types/) 把 Redis 定义为 data structure server；【项目推断】因此 stream consumer group、跨版本 `DUMP`、逻辑库 `dbN` 等原生键空间语义明确排除，「不能无损表到表」是依据官方命令语义的项目判断，官方未逐字声明。异构迁移使用中间类型模型的依据见【官方文档已确认】[AWS DMS built-in data types](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Reference.DataTypes.html) 与 [Airbyte supported data types](https://docs.airbyte.com/platform/understanding-airbyte/supported-data-types)；任务配置持久化的产品依据见 [DBeaver Task management](https://dbeaver.com/docs/dbeaver/Task-Management) 与 [Navicat Save Profiles](https://www.navicat.com/manual/pdf_manual/en/navicat_16/win_manual/navicat_en.pdf)（后者为【官方页面动态壳/搜索摘要已确认】的 PDF 摘要，未逐页解析）。
@@ -260,7 +271,7 @@ Challenge 属性：**一次性**（用过即失效）、绑定语句 hash（改�
 |---|---|---|
 | 连接管理 | 新增/编辑/删除连接、保存前测试草稿、连通性测试、导出/导入 | `/api/connections*`、`/api/test-draft` |
 | 项目授权 | 为当前项目路径逐连接勾选 ro/rw、撤销 | `/api/grants` |
-| 数据浏览 | 库/模式/表三级树、跨库表名搜索、数据预览网格 | `/api/databases`、`/api/schemas`、`/api/schema`、`/api/tables`、`/api/search-tables`、`/api/preview` |
+| 数据浏览 | 库/模式/表三级树（含视图，按账号权限过滤）、跨库表名搜索、数据预览网格（总行数、分页快跳、跨列内容搜索）、@表/字段引用插入对话 | `/api/databases`、`/api/schemas`、`/api/schema`、`/api/tables`、`/api/search-tables`、`/api/preview`（支持 `search` / `total` 参数） |
 | SQL 控制台 | 多标签编辑器、逐条执行、`GO`/`GO n` 批分隔、事务、结果网格（50 行/页，CSV/JSON 导出） | `/api/query`、`/api/execute`、`/api/console/*`、`/api/audit` |
 | 数据传输 | 表数据搬运、实时进度；含「传输历史」「传输日志」两个子标签 | `/api/transfer/start`、`/api/transfer/{id}`、`/api/transfer/live`、`/api/transfer-history`、`/api/transfer-log` |
 
