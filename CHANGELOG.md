@@ -1,6 +1,9 @@
 # Changelog — dsh-db-tool
 
-## 未发布
+## 1.9.24
+
+本版修复 1.9.23 在真机宿主上右侧栏完全不显示的回归：apply() 改用官方文档指定的可选服务查询写法（ctx.get("uiConversation")，缺失即整体跳过、记号退化为普通文本），不再声明进 inject；同时把 skills/db-admin/SKILL.md frontmatter description 中破坏 YAML 解析的 @db:/@col: 记号改写为无冒号表述。
+
 
 ### 修复(右侧栏)
 
