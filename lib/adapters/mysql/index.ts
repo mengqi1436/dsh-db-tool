@@ -24,6 +24,7 @@ import type {
   TableSearchHit,
 } from '../types.js';
 import { assertIdent, clampLimit, clampOffset, escapeLikePattern, humanize, normalizeCell, quoteIdent, validPort } from '../sql-shared/common.js';
+import { bareLikeDialect, buildFilterWhereSql, parseBrowseFilters } from '../sql-shared/filters.js';
 import type { TxHandle } from '../sql-shared/pg-like.js';
 
 /** ro 模式下 query 允许的读语句首词白名单 */
@@ -159,6 +160,9 @@ export async function createMysqlAdapter(
    *  MySQL 默认 collation 大小写不敏感，跟随即可。 */
   const likeWhere = (cols: string[]): string =>
     '(' + cols.map((c) => `${quoteIdent(c, '`')} LIKE ? ESCAPE '#'`).join(' OR ') + ')';
+
+  /** 字段筛选方言（filterRows/countRows 共用）：裸列 LIKE（数字列隐式转文本）+ ? 占位 */
+  const filterDialect = bareLikeDialect((c) => quoteIdent(c, '`'), () => '?');
 
   /** 列名清单（内容搜索谓词用）：`SELECT * … WHERE 1=0` 借 fields 元数据一次往返 */
   async function columnNames(target: string): Promise<string[]> {
@@ -354,13 +358,20 @@ export async function createMysqlAdapter(
         return toQueryResult(rows as RowDataPacket[], fields);
       }),
 
-    countRows: (table, database, search) =>
+    countRows: (table, database, search, filters, logic, logics) =>
       humanize('mysql 数据浏览计数', async () => {
         const db = quoteIdent(database ? assertIdent(database, '库名') : defaultDb(), '`');
         const tbl = quoteIdent(assertIdent(table, '表名'), '`');
         let where = '';
         let params: string[] = [];
-        if (search != null && search !== '') {
+        if (filters != null) {
+          // 字段筛选计数：谓词与 filterRows 完全一致（parse 双保险，见 filters.ts）
+          const conds = parseBrowseFilters(filters);
+          if (conds.length === 0) return 0;
+          const built = buildFilterWhereSql(conds, logic ?? 'and', filterDialect, logics);
+          where = ' WHERE ' + built.where;
+          params = built.params as string[];
+        } else if (search != null && search !== '') {
           const cols = await columnNames(`${db}.${tbl}`);
           if (cols.length === 0) return 0; // 无列恒无匹配
           where = ' WHERE ' + likeWhere(cols);
@@ -382,6 +393,23 @@ export async function createMysqlAdapter(
         const [rows, fields] = await pool.query(
           `SELECT * FROM ${db}.${tbl} WHERE ${likeWhere(cols)} LIMIT ? OFFSET ?`,
           [...cols.map(() => likePattern(keyword)), lim, off],
+        );
+        if (!Array.isArray(rows)) return { columns: [], rows: [], rowCount: 0 };
+        return toQueryResult(rows as RowDataPacket[], fields);
+      }),
+
+    filterRows: (table, filters, logic, limit, database, offset, logics) =>
+      humanize('mysql 字段筛选', async () => {
+        const db = quoteIdent(database ? assertIdent(database, '库名') : defaultDb(), '`');
+        const tbl = quoteIdent(assertIdent(table, '表名'), '`');
+        const lim = clampLimit(limit);
+        const off = clampOffset(offset);
+        const conds = parseBrowseFilters(filters);
+        if (conds.length === 0) return { columns: [], rows: [], rowCount: 0 };
+        const { where, params } = buildFilterWhereSql(conds, logic, filterDialect, logics);
+        const [rows, fields] = await pool.query(
+          `SELECT * FROM ${db}.${tbl} WHERE ${where} LIMIT ? OFFSET ?`,
+          [...params, lim, off],
         );
         if (!Array.isArray(rows)) return { columns: [], rows: [], rowCount: 0 };
         return toQueryResult(rows as RowDataPacket[], fields);

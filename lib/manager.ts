@@ -23,6 +23,7 @@ import type {
 import { randomBytes } from 'node:crypto';
 import { getAdapter, type ServiceAdapterFactory } from './adapters/index.js';
 import { friendlyConnectError } from './adapters/connect-feedback.js';
+import { normalizeFilterLogic, parseBrowseFilters, parseFilterLogics } from './adapters/sql-shared/filters.js';
 import {
   ChallengeStore,
   classifyStatement,
@@ -574,6 +575,60 @@ export class DbToolService {
       return result;
     } catch (e) {
       this.audit(key, connId, 'preview', `PREVIEW ${t} SEARCH "${auditKw}" LIMIT ${capped} OFFSET ${off}`, 'none', false, false, this.errText(e));
+      throw this.toDriverError(e);
+    }
+  }
+
+  /**
+   * 数据浏览字段筛选（Navicat「Filter & Sort」对齐）：逐字段条件 + 条件间 and/or 联合。
+   * 适配器未实现 filterRows（KV 型 Redis 无行级筛选语义）时报 INVALID_ARGUMENT，
+   * 浏览端按 kind 隐藏筛选入口（与内容搜索同一能力面）。
+   */
+  async previewFilters(
+    projectPath: string | undefined,
+    connId: string,
+    table: string,
+    filtersRaw: unknown,
+    logicRaw: string | undefined,
+    limit?: number,
+    database?: string,
+    offset?: number,
+    logicsRaw?: unknown,
+  ): Promise<QueryResult> {
+    const t = assertNonEmpty(table, 'table');
+    let filters;
+    let logics: Array<'and' | 'or'>;
+    try {
+      filters = parseBrowseFilters(filtersRaw);
+      if (filters.length === 0) throw new Error('筛选条件不能为空');
+      const logic0 = normalizeFilterLogic(logicRaw);
+      logics = parseFilterLogics(logicsRaw, filters.length, logic0);
+    } catch (e) {
+      throw new DbToolError('INVALID_ARGUMENT', e instanceof Error ? e.message : String(e));
+    }
+    const logic = normalizeFilterLogic(logicRaw);
+    const capped = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+    const off = Math.max(0, Math.floor(Number(offset) || 0));
+    const { key, adapter } = await this.authorize(projectPath, connId, false);
+    if (!adapter.filterRows) {
+      throw new DbToolError('INVALID_ARGUMENT', `该连接类型（${adapter.kind}）不支持数据浏览字段筛选`);
+    }
+    const auditDesc = JSON.stringify(filters);
+    const auditKw = auditDesc.length > 100 ? auditDesc.slice(0, 100) + '…' : auditDesc;
+    const hasRowLogics = logics.some((l) => l !== logic);
+    try {
+      const result = await adapter.filterRows(t, filters, logic, capped, database, off, logics);
+      let counted = false;
+      if (adapter.countRows) {
+        try {
+          result.total = await adapter.countRows(t, database, undefined, filters, logic, logics);
+          counted = true;
+        } catch { /* 保持 undefined */ }
+      }
+      this.audit(key, connId, 'preview', `PREVIEW ${t} FILTER ${auditKw} ${hasRowLogics ? 'LOGICS ' + logics.map((l) => l.toUpperCase()).join('-') : logic.toUpperCase()} LIMIT ${capped} OFFSET ${off}${counted ? ' COUNT' : ''}`, 'none', false, true, undefined, result.rowCount);
+      return result;
+    } catch (e) {
+      this.audit(key, connId, 'preview', `PREVIEW ${t} FILTER ${auditKw} ${hasRowLogics ? 'LOGICS ' + logics.map((l) => l.toUpperCase()).join('-') : logic.toUpperCase()} LIMIT ${capped} OFFSET ${off}`, 'none', false, false, this.errText(e));
       throw this.toDriverError(e);
     }
   }
