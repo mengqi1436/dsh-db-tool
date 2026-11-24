@@ -1,0 +1,26 @@
+{
+  "dark/after-1-grants-w500.png": {
+    "textPixelRatio": 0.0323,
+    "cornerOk": true
+  },
+  "dark/after-2-grants-interacted-w500.png": {
+    "textPixelRatio": 0.0305,
+    "cornerOk": true
+  },
+  "dark/before-1-grants-w500.png": {
+    "textPixelRatio": 0.0271,
+    "cornerOk": true
+  },
+  "light/after-1-grants-w500.png": {
+    "textPixelRatio": 0.0294,
+    "cornerOk": true
+  },
+  "light/after-2-grants-interacted-w500.png": {
+    "textPixelRatio": 0.028,
+    "cornerOk": true
+  },
+  "light/before-1-grants-w500.png": {
+    "textPixelRatio": 0.0251,
+    "cornerOk": true
+  }
+}
