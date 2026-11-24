@@ -2,6 +2,10 @@
 
 ## 未发布
 
+### 修复(技能)
+
+- `skills/db-admin/SKILL.md` frontmatter description 中的 `@db:/@col:` 记号含 ASCII 冒号+空格，破坏 YAML 纯量解析（任何标准 YAML 解析器报 mapping values are not allowed here，技能加载时 frontmatter 读不出），改写为无冒号的 `@db 与 @col 表/字段引用记号`；正文不受影响。
+
 ### 文档(技能)
 
 - `skills/db-admin/SKILL.md` 补齐 1.9.22 / 1.9.23 的模型侧行为：新增「表/字段引用（@db: / @col:）」一节（记号来自数据浏览面板的面包屑/结构页行入口，不是文件路径；`@db:` 段位解析为 conn_id + database（第 3 段存在时传 "库名.模式"）+ 表名、`@col:` 末段为列名；段内 %XX 先解码；结构不确定先 `schema`，取值用 `query` / `preview`；引用不绕过授权与确认）；`schema` 说明补「表与视图一起列出」（SQL 系视图 type `VIEW`、PG 系物化视图等原样标注、MongoDB `collection`/`view`、MongoDB 视图结构页不含索引）与「清单按账号权限过滤」（PG/GaussDB CONNECT/USAGE+SELECT、SQL Server HAS_DBACCESS/SELECT，清单里没有 ≠ 不存在）；九库方言速查 Oracle / 达梦元数据入口改为表+视图一次取全；侧边栏数据浏览面板行补视图、权限过滤、总行数、分页快跳、跨列内容搜索与 @ 引用入口（`/api/preview` 支持 `search` / `total` 参数）。
