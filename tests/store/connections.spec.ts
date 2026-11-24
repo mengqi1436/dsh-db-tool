@@ -91,6 +91,19 @@ describe('ConnectionStore', () => {
     expect(store.connections.get('u')!.mode).toBe('url');
   });
 
+  it('toMeta 字符串端口回显 number：前端原样发字符串端口（fail-closed 校验在适配器侧），编辑回填/卡片不得丢端口', () => {
+    const meta = store.connections.create({ id: 'r', kind: 'redis', fields: { host: 'h', port: '14330' } });
+    expect(meta.port).toBe(14330);
+    expect(store.connections.get('r')!.port).toBe(14330);
+    expect(store.connections.list().find((m) => m.id === 'r')!.port).toBe(14330);
+    // update 后（fields 整体重发）同样回显
+    const updated = store.connections.update('r', { fields: { host: 'h2', port: '6379' } });
+    expect(updated!.port).toBe(6379);
+    // 非法端口不回显假值：存原串由适配器连接时报错（fail-closed），meta 省略
+    store.connections.create({ id: 'bad', kind: 'redis', fields: { host: 'h', port: 'abc' } });
+    expect(store.connections.get('bad')!.port).toBeUndefined();
+  });
+
   it('hasPassword 指示：带密码创建/更新后为 true，明文绝不出库；无密码为 false', () => {
     store.connections.create({ id: 'p', kind: 'mysql', fields: { host: 'h', password: 'SECRET1' } });
     store.connections.create({ id: 'n', kind: 'mysql', fields: { host: 'h' } });
