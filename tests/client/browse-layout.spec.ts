@@ -271,7 +271,7 @@ describe('4 控件尺寸一致性', () => {
 		// 旧实现：style 里带 padding: "2px 6px" + lineHeight: 1.45 的 kind 胶囊
 		expect(src).not.toContain('padding: "2px 6px", fontFamily: MONO_FONT');
 		const uses = src.match(/className: "dbt-kindchip"/g) ?? [];
-		expect(uses.length).toBe(2); // 连接管理 + 授权两处列表行
+		expect(uses.length).toBe(2); // 连接管理 + 授权两处卡片头行
 	});
 });
 
