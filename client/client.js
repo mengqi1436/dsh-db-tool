@@ -187,7 +187,7 @@ window.__ModuleLoader__.load({
 			pickFile: "选择文件",
 			// 授权
 			grantsHint: "为当前项目授权连接。只读=仅查询/浏览，读写=允许执行语句与脚本。未授权的连接在业务操作中一律拒绝。",
-			grantsEmptyHint: "当前项目尚未授权任何连接，在下方每行选择「只读」或「读写」即可完成授权。",
+			grantsEmptyHint: "当前项目尚未授权任何连接，在下方每张卡片选择「只读」或「读写」即可完成授权。",
 			grantsSummary: "已授权 {granted}/{total} 个连接",
 			modeBadgeRo: "只读",
 			modeBadgeRw: "读写",
@@ -266,6 +266,9 @@ window.__ModuleLoader__.load({
 			browseNoGrant: "当前项目没有已授权的连接。数据浏览只显示已授权的连接，未授权的连接已隐藏。",
 			browseGoGrants: "前往授权",
 			browseHiddenGrant: "已隐藏 {n} 个未授权连接",
+			mentionHint: "把当前表以 @db: 引用插入对话输入框，发送后助手可直接读取该表数据",
+			mentionColHint: "把该字段以 @col: 引用插入对话输入框，发送后助手可直接读取该列的结构与数据",
+			mentionCopied: "对话输入框暂不可插入，引用已复制，请粘贴到对话",
 			objects: "对象树",
 			// 单元格底部详情栏（Navicat 式就地写回）
 			cellValue: "完整值",
@@ -485,7 +488,7 @@ window.__ModuleLoader__.load({
 			importDecryptFail: "Wrong passphrase or corrupted file",
 			pickFile: "Pick file",
 			grantsHint: "Grant connections to the current project. ro = read-only (query/browse), rw = read-write (execute/script allowed). Unauthorized connections are always rejected.",
-			grantsEmptyHint: "No connections granted to this project yet. Pick read-only or read-write on a row below to grant.",
+			grantsEmptyHint: "No connections granted to this project yet. Pick read-only or read-write on a card below to grant.",
 			grantsSummary: "{granted}/{total} connections granted",
 			modeBadgeRo: "RO",
 			modeBadgeRw: "RW",
@@ -563,6 +566,9 @@ window.__ModuleLoader__.load({
 			browseNoGrant: "No connections are granted to this project. Data browse only shows granted connections; ungranted ones are hidden.",
 			browseGoGrants: "Go to grants",
 			browseHiddenGrant: "{n} ungranted connections hidden",
+			mentionHint: "Insert the current table as an @db: reference into the chat input so the assistant can read its data after you send",
+			mentionColHint: "Insert this column as an @col: reference into the chat input so the assistant can read its structure and data after you send",
+			mentionCopied: "Chat input unavailable; reference copied — paste it into the chat",
 			objects: "Objects",
 			// Cell bottom detail bar (Navicat-style in-place write-back)
 			cellValue: "Full value",
@@ -708,6 +714,115 @@ window.__ModuleLoader__.load({
 			const n = Math.floor(Number(raw));
 			if (!Number.isFinite(n) || n < 1) return 1;
 			return n > lastPage ? lastPage : n;
+		}
+
+		// --- @db: 表引用 / @col: 字段引用（数据浏览 → 对话输入框）纯函数（tests/client 契约断言） ---
+		// 记号形态 @db:<连接>/<库>[/<模式>]/<表> 与 @col:<连接>/<库>[/<模式>]/<表>/<列>：
+		// 单 token（无空白）不破坏 @ 语法；段内空白与 '/' 一律 URL 转义为 %XX——空白会截断
+		// @ token，'/' 是段分隔符。模型侧按工具说明解码后传参（host 端不解析该记号）。
+		const DB_MENTION_NS = "@db:";
+		const COL_MENTION_NS = "@col:";
+		function encodeMentionSegment(value) {
+			return String(value == null ? "" : value).replace(/[\s/]/gu, (ch) => encodeURIComponent(ch));
+		}
+		function decodeMentionSegment(value) {
+			try { return decodeURIComponent(value); } catch (e) { return value; } // 非法 % 序列原样保留
+		}
+		function buildDbMention(connId, database, schemaName, table) {
+			const segs = [connId, database];
+			if (schemaName) segs.push(schemaName);
+			segs.push(table);
+			return DB_MENTION_NS + segs.map(encodeMentionSegment).join("/");
+		}
+		function buildDbColMention(connId, database, schemaName, table, column) {
+			const segs = [connId, database];
+			if (schemaName) segs.push(schemaName);
+			segs.push(table, column);
+			return COL_MENTION_NS + segs.map(encodeMentionSegment).join("/");
+		}
+		// @db:：3 段 = 连接/库/表；4 段 = 连接/库/模式/表（database 归并为 "库.模式"，与 query/preview
+		// 的 database 参数一致）。@col:：4 段 = 连接/库/表/列；5 段 = 连接/库/模式/表/列。
+		// 其余形态不臆测，invalid=true 只保留原文供 chip 展示
+		function parseMentionBody(ns, token) {
+			const body = String(token).slice(ns.length);
+			const segs = body.split("/").map(decodeMentionSegment);
+			return { body, segs };
+		}
+		function parseDbMention(token) {
+			const { body, segs } = parseMentionBody(DB_MENTION_NS, token);
+			if (segs.length === 3 && segs.every(Boolean)) {
+				return { raw: token, connId: segs[0], database: segs[1], schemaName: null, table: segs[2], label: segs[2], invalid: false };
+			}
+			if (segs.length === 4 && segs.every(Boolean)) {
+				return { raw: token, connId: segs[0], database: segs[1] + "." + segs[2], schemaName: segs[2], table: segs[3], label: segs[3], invalid: false };
+			}
+			return { raw: token, label: body, invalid: true };
+		}
+		function parseDbColMention(token) {
+			const { body, segs } = parseMentionBody(COL_MENTION_NS, token);
+			if (segs.length === 4 && segs.every(Boolean)) {
+				return { raw: token, connId: segs[0], database: segs[1], schemaName: null, table: segs[2], column: segs[3], label: segs[2] + "." + segs[3], invalid: false };
+			}
+			if (segs.length === 5 && segs.every(Boolean)) {
+				return { raw: token, connId: segs[0], database: segs[1] + "." + segs[2], schemaName: segs[2], table: segs[3], column: segs[4], label: segs[3] + "." + segs[4], invalid: false };
+			}
+			return { raw: token, label: body, invalid: true };
+		}
+		// 对话文本识别规则：注册进宿主 uiConversation.userText。order 25 早于宿主文件/目录引用
+		// 规则（order 30），同起点命中时低序规则胜出——@db: / @col: 记号由本插件渲染成表/字段
+		// 引用 chip，不再落成指向不存在文件的宿主文件 chip。词法边界与尾标点剥离镜像宿主 nextPath；
+		// 节点 id 按命名空间分流（db-table / db-column），各挂各的渲染席位。
+		function mentionRuleMatch(text, from) {
+			const tokens = /(?<!\S)(@(?:db|col):[^\s]+)/gu;
+			tokens.lastIndex = from;
+			for (let match = tokens.exec(text); match !== null; match = tokens.exec(text)) {
+				const token = match[1].replace(/[.,;:!?，。；：！？]+$/u, "");
+				if (token.startsWith(COL_MENTION_NS)) {
+					if (token.length <= COL_MENTION_NS.length) continue; // 裸 @col: 不是引用
+					return { id: "db-column", start: match.index, end: match.index + token.length, data: parseDbColMention(token) };
+				}
+				if (token.length <= DB_MENTION_NS.length) continue; // 裸 @db: 不是引用
+				return { id: "db-table", start: match.index, end: match.index + token.length, data: parseDbMention(token) };
+			}
+			return undefined;
+		}
+		const DB_MENTION_RULE = {
+			id: "db-mention",
+			order: 25,
+			match: mentionRuleMatch,
+		};
+		// 对话文本中的 @db: / @col: chip：只展示（label + 全文 title），不挂任何点击行为——
+		// 表/字段引用不是文件路径，宿主的文件预览打开必然失败
+		function mentionChip(ns, props) {
+			const node = props.node || {};
+			const data = node.data || {};
+			const raw = typeof props.raw === "string" ? props.raw : String(data.raw || "");
+			return React.createElement("span", { className: "dbt-mention-chip", title: raw },
+				React.createElement("span", { className: "dbt-mention-ns" }, ns),
+				React.createElement("span", { className: "dbt-mention-label" }, String(data.label || "")));
+		}
+		function DbTableChip(props) {
+			return mentionChip(DB_MENTION_NS, props);
+		}
+		function DbColumnChip(props) {
+			return mentionChip(COL_MENTION_NS, props);
+		}
+		// 把 @db: 记号插入当前会话输入框光标处（宿主 conversation.input 通道，CAS span）。
+		// 返回 "inserted"（已插入并聚焦）/ "busy"（输入框提交中拒插）/ "unsupported"（宿主链路缺失）。
+		function insertDbMention(ctx, sessionId, token) {
+			try {
+				const sessions = ctx && typeof ctx.get === "function" ? ctx.get("sessions") : undefined;
+				const sctx = sessions && typeof sessions.scope === "function" ? sessions.scope(sessionId) : undefined;
+				const conv = sctx ? sctx.conversation : undefined;
+				const input = conv && conv.input ? conv.input.for(sctx) : undefined;
+				const actions = input && input.actions;
+				if (!actions || typeof actions.captureInsertion !== "function" || typeof actions.insertText !== "function") return "unsupported";
+				const ok = actions.insertText(token + " ", actions.captureInsertion());
+				if (ok && typeof input.focus === "function") input.focus();
+				return ok ? "inserted" : "busy";
+			} catch (e) {
+				return "unsupported";
+			}
 		}
 
 		// --- HTTP 封装：保留 code / challengeId 供确认通道使用 ---
@@ -923,6 +1038,21 @@ window.__ModuleLoader__.load({
 				".dbt-browse-crumb .dbt-crumb-seg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38%;}",
 				".dbt-browse-crumb .dbt-crumb-sep{flex:none;opacity:.55;}",
 				".dbt-browse-crumb strong{color:var(--dbt-text);font-weight:600;}",
+				// 对话文本里的 @db:/@col: 引用 chip（宿主 UserText 管线渲染本插件节点）：
+				// 只描边不着色，浅色/深色主题均沿用 currentColor；label 超宽省略
+				".dbt-mention-chip{display:inline-flex;align-items:baseline;gap:3px;padding:0 7px;border-radius:9px;border:1px solid rgba(127,127,127,.45);font-size:12px;line-height:20px;max-width:240px;vertical-align:baseline;}",
+				".dbt-mention-chip .dbt-mention-ns{opacity:.65;flex:none;}",
+				".dbt-mention-chip .dbt-mention-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+				// @db:/@col: 表/字段引用入口：侧边栏同款「行悬停浮现」——平时整组隐藏（不占视觉），
+				// 悬停所在行 / 键盘聚焦按钮时出现；触屏（hover:none）无悬停语义，恒显以免不可达。
+				// 按钮为 24px 命中区 + 14px @ 字形的紧凑图标钮（对齐宿主 Rows .iconButton 规格），
+				// 静置 tertiary、悬停 primary，配色走宿主 alias token，旧宿主缺 token 回退插件变量
+				".dbt-rowactions{display:none;flex:none;align-items:center;}",
+				".dbt-rowactions:focus-within{display:inline-flex;}",
+				".dbt-mention-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;border-radius:var(--dsw-radius-xs,4px);background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,var(--dbt-text-secondary));font-size:14px;font-weight:500;line-height:1;}",
+				".dbt-mention-btn:hover{color:var(--dsw-alias-label-primary,var(--dbt-text));}",
+				"@media (hover: hover){.dbt-browse-crumb:hover .dbt-rowactions,.dbt-table tbody tr:hover .dbt-rowactions{display:inline-flex;}}",
+				"@media (hover: none){.dbt-rowactions{display:inline-flex;}}",
 				".dbt-browse-main{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;}",
 				".dbt-browse-tabs{flex:none;}",
 				".dbt-browse-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}",
@@ -1205,9 +1335,9 @@ window.__ModuleLoader__.load({
 						rows.map((row, i) =>
 							React.createElement("tr", { key: i },
 								row.map((cell, j) =>
-									React.createElement("td", { key: j, title: cellTitles ? cellTitles(row, cell, j) : cell === null ? "NULL" : String(cell) },
-										// NULL 用 muted 弱化；其余保持 String(cell) 渲染语义不变
-										cell === null ? React.createElement("span", { className: "dbt-muted" }, "NULL") : String(cell)))),
+									React.createElement("td", { key: j, title: React.isValidElement(cell) ? undefined : cellTitles ? cellTitles(row, cell, j) : cell === null ? "NULL" : String(cell) },
+										// NULL 用 muted 弱化；React 元素（行内操作按钮）原样渲染；其余保持 String(cell) 渲染语义不变
+										cell === null ? React.createElement("span", { className: "dbt-muted" }, "NULL") : React.isValidElement(cell) ? cell : String(cell)))),
 						),
 					),
 				),
@@ -2278,6 +2408,45 @@ window.__ModuleLoader__.load({
 					},
 				}, m === "rw" ? t("modeBadgeRw") : t("modeBadgeRo"));
 			}
+			// 授权卡片（对齐连接管理卡片语言）：头行 kind 胶囊（带数据库图标）+ 名称 + 模式徽标，
+			// 地址副行帮助区分同名连接；seg 为权威状态源，徽标 aria-hidden 免重复播报
+			function grantCard(c) {
+				const m = modeOf(c.id);
+				return React.createElement(
+					"div",
+					{ className: "dbt-conncard", key: c.id },
+					React.createElement(
+						"div",
+						{ className: "dbt-conncard-head" },
+						React.createElement("span", { className: "dbt-kindchip", style: { fontFamily: MONO_FONT } }, icon(12), kindLabel(c.kind)),
+						React.createElement("strong", { className: "dbt-conncard-name" }, c.name || c.id),
+						modeBadge(m),
+					),
+					(c.safeUrl || c.host) ? React.createElement(
+						"div",
+						{ className: "dbt-conncard-sub", title: c.safeUrl || (c.host + ":" + (c.port || "")) },
+						c.safeUrl || (c.host + ":" + (c.port || "")),
+					) : null,
+					// seg 拉通整卡宽 + 三段均分（inline 覆盖 .dbt-seg button 的 flex:none）：目标更大更易选；
+					// border-box 让 width:100% 含 seg 自身 2px padding，不溢出卡片内容盒；
+					// min-width:0 + 单行省略让窄卡长英文文案优雅降级（中文短文案不触发）
+					React.createElement(
+						"div",
+						{ className: "dbt-seg", role: "radiogroup", "aria-label": t("grantModeGroup", { name: c.name || c.id }), style: { marginTop: "auto", width: "100%", boxSizing: "border-box" } },
+						["", "ro", "rw"].map((mode) =>
+							React.createElement("button", {
+								key: mode || "none",
+								className: mode === m ? "active" : "",
+								role: "radio",
+								"aria-checked": mode === m,
+								style: { flex: "1 1 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 8px" },
+								disabled: props.busy === "grant",
+								onClick: () => setGrant(c.id, mode),
+							}, mode === "" ? t("modeNone") : mode === "ro" ? t("modeRo") : t("modeRw")),
+						),
+					),
+				);
+			}
 			return React.createElement(
 				"div",
 				{ style: { display: "flex", flexDirection: "column", gap: 8 } },
@@ -2289,40 +2458,19 @@ window.__ModuleLoader__.load({
 						{ className: "dbt-muted", "aria-live": "polite" },
 						grantedCount === 0 ? t("grantsEmptyHint") : t("grantsSummary", { granted: grantedCount, total: conns.length }),
 					),
-					// iOS inset grouped：授权行装一张卡，行间 hairline（授权链路：seg 点击 → PUT/DELETE /grants）
-					React.createElement(
+					// 卡片网格（对齐连接管理）：按数据库类型分组小节 + auto-fill 自适应列数，
+					// 每张连接一张授权卡（授权链路不变：seg 点击 → PUT/DELETE /grants）
+					groupByKind(conns).map(([kind, list]) => React.createElement(
 						"div",
-						{ className: "dbt-group" },
-						conns.map((c) => {
-							const m = modeOf(c.id);
-							return React.createElement(
-								"div",
-								{ className: "dbt-listrow", key: c.id },
-								// 主行对齐连接管理：kind 填充 pill + 名称 13px semibold + 模式徽标（seg 为权威状态源，徽标 aria-hidden 免重复播报）
-								React.createElement(
-									"div",
-									{ className: "dbt-row", style: { flex: 1, minWidth: 0 } },
-									React.createElement("span", { className: "dbt-kindchip", style: { fontFamily: MONO_FONT } }, kindLabel(c.kind)),
-									React.createElement("strong", { style: { fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name || c.id),
-									modeBadge(m),
-								),
-								React.createElement(
-									"div",
-									{ className: "dbt-seg", role: "radiogroup", "aria-label": t("grantModeGroup", { name: c.name || c.id }) },
-									["", "ro", "rw"].map((mode) =>
-										React.createElement("button", {
-											key: mode || "none",
-											className: mode === m ? "active" : "",
-											role: "radio",
-											"aria-checked": mode === m,
-											disabled: props.busy === "grant",
-											onClick: () => setGrant(c.id, mode),
-										}, mode === "" ? t("modeNone") : mode === "ro" ? t("modeRo") : t("modeRw")),
-									),
-								),
-							);
-						}),
-					),
+						{ className: "dbt-kindgroup", key: kind },
+						React.createElement(
+							"div",
+							{ className: "dbt-kindgroup-head" },
+							React.createElement("span", { className: "dbt-kindgroup-title" }, icon(12), kindLabel(kind)),
+							React.createElement("span", { className: "dbt-kindgroup-count" }, String(list.length)),
+						),
+						React.createElement("div", { className: "dbt-conncards" }, list.map(grantCard)),
+					)),
 			);
 		}
 
@@ -2873,7 +3021,7 @@ window.__ModuleLoader__.load({
 
 		// Navicat 式浏览面板（内嵌侧边栏）：上半对象树选库-表，下半结构/数据预览，点表即看，不再弹窗
 		function BrowsePane(props) {
-			const { conns, projectPath, grants, askConfirm, active } = props;
+			const { conns, projectPath, grants, askConfirm, active, sessionId, ctx } = props;
 			// active：所属 tab 是否激活（Panel 常驻挂载后传入）；首次激活才展开树并拉取，隐藏不发请求
 			// grants（editable 判定）与 askConfirm（单元格写回确认）下传 PreviewGrid
 			const [sel, setSel] = React.useState(null); // 面板内当前选中（null=未选表，内容区显示引导空态）
@@ -2895,6 +3043,36 @@ window.__ModuleLoader__.load({
 			const [appliedLogic, setAppliedLogic] = React.useState("and"); // 已提交逻辑
 			const [filtersOpen, setFiltersOpen] = React.useState(false); // 筛选窗格展开
 			const openSeq = React.useRef(0); // 请求序号守卫
+			// @引用反馈（降级路径专用）：成功插入时输入框立即可见，无需额外提示
+			const [mentionNote, setMentionNote] = React.useState("");
+			const mentionTimer = React.useRef(null);
+			function showMentionNote(text) {
+				setMentionNote(text);
+				if (mentionTimer.current) window.clearTimeout(mentionTimer.current);
+				mentionTimer.current = window.setTimeout(() => setMentionNote(""), 4000);
+			}
+			// 把 @db: / @col: 记号送入会话输入框；宿主链路缺失或输入框提交中拒插时退化为
+			// 剪贴板复制，复制也失败（如非安全上下文）就地展示记号原文
+			function mentionToChat(token) {
+				if (!ctx) return;
+				if (insertDbMention(ctx, sessionId, token) === "inserted") return;
+				if (navigator.clipboard && navigator.clipboard.writeText) {
+					navigator.clipboard.writeText(token).then(
+						() => showMentionNote(t("mentionCopied")),
+						() => showMentionNote(token),
+					);
+				} else showMentionNote(token);
+			}
+			// 面包屑「@添加到对话」：当前表以 @db: 记号插入
+			function mentionSelToChat() {
+				if (!sel) return;
+				mentionToChat(buildDbMention(sel.connId, sel.db, sel.schemaName, sel.table.name));
+			}
+			// 结构页字段行「@」：该列以 @col: 记号插入
+			function mentionColumnToChat(column) {
+				if (!sel) return;
+				mentionToChat(buildDbColMention(sel.connId, sel.db, sel.schemaName, sel.table.name, column));
+			}
 
 			// 权限过滤（单一事实源）：数据浏览只呈现本项目已授权的连接。
 			// 服务端对未授权连接一律拒绝（manager.authorize），若仍在树里展示，用户点开每个库/表都只会
@@ -2996,9 +3174,19 @@ window.__ModuleLoader__.load({
 				}
 				if (view === "structure") {
 					if (!schema.length) return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } }, t("emptyStructure"));
+					// 末列为行内 @ 按钮（React 元素单元格，resultTable 原样渲染）：该字段以 @col: 记号进对话。
+					// 按钮平时隐藏（侧边栏同款悬停浮现，见 .dbt-rowactions），悬浮行上才出现
 					return resultTable(
-						[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment")],
-						schema.map((col) => [col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || ""]),
+						[t("column"), t("dataType"), t("nullable"), t("keyCol"), t("defaultVal"), t("comment"), ""],
+						schema.map((col) => [
+							col.name, col.dataType, col.nullable ? "YES" : "NO", col.key || "", col.default === null || col.default === undefined ? "" : String(col.default), col.comment || "",
+							React.createElement("span", { className: "dbt-rowactions", key: col.name },
+								React.createElement("button", {
+									className: "dbt-mention-btn",
+									title: t("mentionColHint"), "aria-label": t("mentionColHint") + "：" + col.name,
+									onClick: () => mentionColumnToChat(col.name),
+								}, "@")),
+						]),
 						undefined, "dbt-browse-tablewrap");
 				}
 				if (!preview || !preview.rows || preview.rows.length === 0) {
@@ -3215,6 +3403,15 @@ window.__ModuleLoader__.load({
 					sel ? React.createElement("span", { className: "dbt-crumb-seg", title: sel.schemaName ? sel.db + "." + sel.schemaName : sel.db }, sel.schemaName ? sel.db + "." + sel.schemaName : sel.db) : null,
 					sel ? React.createElement("span", { className: "dbt-crumb-sep" }, "›") : null,
 					sel ? React.createElement("strong", { className: "dbt-crumb-seg" }, sel.table.name) : React.createElement("span", null, t("browseCrumbEmpty")),
+					// @表引用：把当前表以 @db: 记号送入会话输入框（对话里助手按工具说明直接读表）。
+					// 平时隐藏（侧边栏同款悬停浮现），悬浮面包屑行上才出现
+					sel ? React.createElement("span", { className: "dbt-rowactions" },
+						React.createElement("button", {
+							className: "dbt-mention-btn",
+							title: t("mentionHint"), "aria-label": t("mentionHint"),
+							onClick: mentionSelToChat,
+						}, "@")) : null,
+					mentionNote ? React.createElement("span", { className: "dbt-muted", style: { flex: "none", maxWidth: 260 }, role: "status" }, mentionNote) : null,
 					hiddenGranted > 0 ? React.createElement("span", { className: "dbt-muted", style: { marginLeft: "auto", flex: "none" }, title: t("browseHiddenGrant", { n: hiddenGranted }) }, t("browseHiddenGrant", { n: hiddenGranted })) : null),
 				// 3) 结构/数据分段 + 内容区（flex:1 吃满剩余高度）
 				grantedConns.length === 0 ? null : React.createElement(
@@ -4659,6 +4856,7 @@ window.__ModuleLoader__.load({
 						v === "browse"
 							? React.createElement(BrowsePane, {
 								ctx: props.ctx, conns, projectPath, grants, askConfirm,
+								sessionId: sessionKey, // @表引用插入目标会话（与 project-context 解析同一会话标识）
 								active: view === "browse", refreshTick: treeRefresh,
 								onGoGrants: () => setView("grants"), // 空态引导直达授权页，避免用户自己找入口
 							})
@@ -4806,6 +5004,25 @@ window.__ModuleLoader__.load({
 					return ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: TAB_ID }, DbToolTitle);
 				});
 			}, "dsh-db-tool: register tab title");
+
+			// @db: 表引用 / @col: 字段引用接入宿主对话文本管线：识别规则 + 两个 chip 渲染席位。
+			// uiConversation 是可选服务（不在 inject 里）：官方契约（framework/service 文档「Optional: omit
+			// inject and query with ctx.get() at the use site」）下，未声明 inject 的服务属性在 vendored
+			// cordis 的 Context 代理上是「读取即抛」——裸写 ctx.uiConversation 会把整个 apply 打成
+			// "cannot get property "uiConversation" without inject"，插件 fiber 直接 failed，右侧栏
+			// 完全不显示（1.9.23 真机实测）。可选服务必须走 ctx.get() 查询：缺失返回 undefined，
+			// 整体跳过（记号退化为普通文本，不影响输入框插入）。极旧宿主连 ctx.get 都没有时同样跳过。
+			const uiConversation = typeof ctx.get === "function" ? ctx.get("uiConversation") : undefined;
+			if (uiConversation && uiConversation.userText) {
+				ctx.effect(function () {
+					return uiConversation.userText.register(DB_MENTION_RULE);
+				}, "dsh-db-tool: register db mention rule");
+				for (const chip of [["db-table", DbTableChip], ["db-column", DbColumnChip]]) {
+					ctx.effect(function () {
+						return ctx.slots.register({ name: "conversation.user.text.node", key: chip[0] }, chip[1]);
+					}, "dsh-db-tool: register " + chip[0] + " mention chip");
+				}
+			}
 		}
 		exports.apply = apply;
 		exports.inject = inject;
@@ -4824,6 +5041,8 @@ window.__ModuleLoader__.load({
 			ManageView, GrantsView,
 			BrowseTree, BrowsePane, PreviewGrid,
 			FILTER_OPS, FILTER_VALUELESS, FILTER_TWO_VALUES,
+			DB_MENTION_NS, COL_MENTION_NS, encodeMentionSegment, decodeMentionSegment, buildDbMention, buildDbColMention, parseDbMention, parseDbColMention,
+			DB_MENTION_RULE, mentionRuleMatch, DbTableChip, DbColumnChip, insertDbMention,
 		};
 		return module.exports;
 	},

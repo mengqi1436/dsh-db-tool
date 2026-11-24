@@ -2,6 +2,47 @@
 
 ## 未发布
 
+本版把项目授权视图改为连接管理同款的卡片样式：按数据库类型分组、每张连接一张授权卡，授权模式选择更大更直观；授权链路（seg 点击 → PUT/DELETE `/grants`）与 ro/rw 语义完全不变。
+
+### 变更(项目授权)
+
+- **授权视图卡片化（对齐连接管理）**：连接行式列表（`dbt-group/dbt-listrow` 一张 inset grouped 卡）改为按数据库类型分组小节（`dbt-kindgroup`，节头 = 类型简称 + 数量，组序按 DB_KINDS）+ 自适应卡片网格（`dbt-conncards/dbt-conncard`，auto-fill + minmax 随侧栏宽度自适应列数与卡片大小）。每张连接一张授权卡：头行为 kind 胶囊（带数据库图标）+ 连接名 + 模式徽标（读写=绿描边胶囊、只读=灰描边胶囊，`aria-hidden`，seg 仍是权威状态源），地址副行展示 safeUrl / host:port（单行省略 + title 全文，帮助区分同名连接），底部为整卡宽三段均分的授权 seg（未授权/只读/读写；`flex:1 1 0` + `width:100%` + `box-sizing:border-box` 内联覆盖，目标更大更易点选，窄卡长英文文案单行省略优雅降级）。样式全部复用既有 `--dbt-*` token 与连接管理卡片类，无新增 CSS 规则与配色源；空授权引导文案「每行」改「每张卡片」（中英同步），状态摘要行、`busy=grant` 禁用与空连接引导不变。
+- 前后对照取证：`assets/grant-cards/`（亮/暗 × Before/After × 500px@2x，真实 `dist/` + 双版本真实 `client.js` + 真实 PG/SQLite 示例库；DOM 机器校验卡片分组/seg 整卡宽/aria 契约，像素机器校验画布 token 值与文字像素占比 > 0）。
+
+### 测试
+
+- `tests/client/grant-cards.spec.ts` 新增 8 条：授权视图不再渲染 `dbt-group/dbt-listrow`、分组小节 + 卡片网格结构（组序/节头/数量）、卡片头行（kind 胶囊带 svg 图标、PG 简称、ro/rw 徽标 aria-hidden 且未授权无徽标）、地址副行（safeUrl / host:port 回退 + title 全文）、seg 整卡宽三段均分与 radiogroup/aria-checked 契约、状态行（空授权引导文案 / 计数摘要 / 无连接空态无网格）、授权链路（PUT 带 projectPath+connId+mode、DELETE 仅 projectPath+connId、成功后 reload、busy=grant 全量禁用）。
+- `tests/client/conn-cards.spec.ts` 契约同步：连接管理与项目授权各有一处 `dbt-conncards/dbt-conncard`（计数 1→2），`dbt-kindchip` 全仓仍两处（连接卡片头行 + 授权卡片头行）；`dbt-group/listrow` 留给控制台/传输等视图。
+
+## 1.9.24
+
+本版修复 1.9.23 在真机宿主上右侧栏完全不显示的回归：apply() 改用官方文档指定的可选服务查询写法（ctx.get("uiConversation")，缺失即整体跳过、记号退化为普通文本），不再声明进 inject；同时把 skills/db-admin/SKILL.md frontmatter description 中破坏 YAML 解析的 @db:/@col: 记号改写为无冒号表述。
+
+
+### 修复(右侧栏)
+
+- **修复 1.9.23 在真机宿主上右侧栏完全不显示的回归**：`apply()` 里裸读 `ctx.uiConversation`（可选服务，未声明进 `inject`），而 vendored cordis 的 Context 代理对未声明 inject、也未 provide 的服务属性是「读取即抛」（`cannot get property "uiConversation" without inject`）——异常冒出 `apply` 后插件 fiber 直接 failed，页签类型、正文/标题席位、引导卡片全部注册不上，引导页没有「数据库」入口，真机宿主启动日志报 `web boot: warning: 1 entry did not activate`。改回官方文档指定的可选服务查询写法（`framework/service`：「Optional: omit inject and query with ctx.get() at the use site」）：`ctx.get("uiConversation")` 缺失返回 `undefined` 时整体跳过，记号退化为普通文本，语义与原注释一致；极旧宿主连 `ctx.get` 都没有时同样跳过。`inject` 仍不声明 `uiConversation`——声明会把不提供该服务的旧宿主变成整插件永久 pending，比跳过引用功能严重得多。本地普通对象桩读未声明属性只是 `undefined`，此前永远复现不了该故障；`tests/client/sidebar-registration.spec.ts` 新增「严格 ctx」契约组（Proxy 桩按 vendored cordis 同语义对未声明服务属性抛错），锁定：`apply` 在严格 ctx 下注册完整、宿主缺 `uiConversation` 时零 mention 注册不抛错、`exports.inject` 不含 `uiConversation`；`tests/client/table-mention.spec.ts` 的 `makeApplyCtx` 改为按 `ctx.get()` 契约供数（桩不再挂 `uiConversation` 属性，回退到属性读取的写法会直接拿不到服务）。
+### 修复(技能)
+
+- `skills/db-admin/SKILL.md` frontmatter description 中的 `@db:/@col:` 记号含 ASCII 冒号+空格，破坏 YAML 纯量解析（任何标准 YAML 解析器报 mapping values are not allowed here，技能加载时 frontmatter 读不出），改写为无冒号的 `@db 与 @col 表/字段引用记号`；正文不受影响。
+
+### 文档(技能)
+
+- `skills/db-admin/SKILL.md` 补齐 1.9.22 / 1.9.23 的模型侧行为：新增「表/字段引用（@db: / @col:）」一节（记号来自数据浏览面板的面包屑/结构页行入口，不是文件路径；`@db:` 段位解析为 conn_id + database（第 3 段存在时传 "库名.模式"）+ 表名、`@col:` 末段为列名；段内 %XX 先解码；结构不确定先 `schema`，取值用 `query` / `preview`；引用不绕过授权与确认）；`schema` 说明补「表与视图一起列出」（SQL 系视图 type `VIEW`、PG 系物化视图等原样标注、MongoDB `collection`/`view`、MongoDB 视图结构页不含索引）与「清单按账号权限过滤」（PG/GaussDB CONNECT/USAGE+SELECT、SQL Server HAS_DBACCESS/SELECT，清单里没有 ≠ 不存在）；九库方言速查 Oracle / 达梦元数据入口改为表+视图一次取全；侧边栏数据浏览面板行补视图、权限过滤、总行数、分页快跳、跨列内容搜索与 @ 引用入口（`/api/preview` 支持 `search` / `total` 参数）。
+
+## 1.9.23
+
+本版新增数据浏览的表/字段 @ 引用：面包屑与结构页每字段行各有一个行悬停浮现的 @ 入口，把表以 `@db:`、列以 `@col:` 记号插入对话输入框，对话中渲染为独立引用 chip，模型侧据约定用 query / preview / schema 实时读取该表或该列。
+
+### 新增(数据浏览)
+
+- **@表/字段引用（数据浏览 → 对话）**：面包屑行与结构页每个字段行各有一个 @ 引用入口，把当前表以 `@db:<连接id>/<库名>[/<模式>]/<表名>`、该列以 `@col:<连接id>/<库名>[/<模式>]/<表名>/<列名>` 记号插入当前会话输入框。入口为侧边栏同款「行悬停浮现」的紧凑图标钮：平时整组隐藏（`display:none`），悬停所在行 / 键盘聚焦按钮时浮现（`@media (hover: hover)` + `:focus-within`），触屏（`hover: none`）恒显；按钮 24px 命中区 + 14px @ 字形，静置 tertiary / 悬停 primary，配色走宿主 alias token（`--dsw-alias-label-*`，缺失回退插件变量）。插入均经宿主 conversation.input 通道进光标处并聚焦；宿主链路缺失或输入框提交中拒插时退化为剪贴板复制并就地提示。对话文本中的两类记号经宿主 UserText 管线渲染为独立引用 chip——本插件注册 `db-mention` 识别规则（order 25 早于宿主文件/目录引用规则 30，同起点命中时低序胜出，`@db:` / `@col:` 不再被误认成指向不存在文件的文件引用）并按命名空间分流到 `db-table` / `db-column` 两个 `conversation.user.text.node` 渲染席位（chip 只展示，不挂点击行为）。段内空白与 `/` 以 URL 转义（%XX）保持单 token；旧宿主缺 `uiConversation` 服务时记号退化为普通文本，不影响插入。
+- **`DatabaseManager` 工具说明新增表/字段引用解读约定**：`@db:` 与 `@col:` 记号的段位语义（3/4 段为表、4/5 段为列，database 传 "库.模式"）、「不是文件路径、不要用文件读取工具」与 %XX 解码要求，使对话收到引用后可直接用 query / preview / schema 实时读取该表或该列。
+
+### 测试
+
+- `tests/client/table-mention.spec.ts` 新增 31 条：记号编解码 round-trip（@db: 三段/四段、@col: 四段/五段、%XX 转义与非法序列）、`DB_MENTION_RULE` 识别契约（词法边界、from 偏移、尾标点、裸 `@db:`/`@col:` 与非 `@db:` token 不捕获、order 25 早于宿主文件规则的同起点胜出、@db:/@col: 混合文本分流）、chip 渲染（表名/表.列 + 原文 title、无点击行为）、`insertDbMention` 宿主链路（插入 "token + 空格" 并聚焦 / scope 不匹配与链路缺失 unsupported / 输入框拒插 busy 不聚焦 / 链路抛错降级）、BrowsePane 集成（mysql 两层与 PG 三层选中表后面包屑按钮插入正确表记号、结构页每字段行按钮插入正确列记号、未选中不渲染按钮）、apply() 注册契约（有 `uiConversation` 注册规则与两个 chip 席位且随 disposer 撤销、无则不注册）。
+
 本版给数据预览加上对齐 Navicat「Filter & Sort」的字段筛选：逐字段条件 + 多字段 AND/OR 联合。
 
 ### 新增(数据浏览)
