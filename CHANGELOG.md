@@ -5,6 +5,9 @@
 ### 修复(右侧栏)
 
 - **修复 1.9.23 在真机宿主上右侧栏完全不显示的回归**：`apply()` 里裸读 `ctx.uiConversation`（可选服务，未声明进 `inject`），而 vendored cordis 的 Context 代理对未声明 inject、也未 provide 的服务属性是「读取即抛」（`cannot get property "uiConversation" without inject`）——异常冒出 `apply` 后插件 fiber 直接 failed，页签类型、正文/标题席位、引导卡片全部注册不上，引导页没有「数据库」入口，真机宿主启动日志报 `web boot: warning: 1 entry did not activate`。改回官方文档指定的可选服务查询写法（`framework/service`：「Optional: omit inject and query with ctx.get() at the use site」）：`ctx.get("uiConversation")` 缺失返回 `undefined` 时整体跳过，记号退化为普通文本，语义与原注释一致；极旧宿主连 `ctx.get` 都没有时同样跳过。`inject` 仍不声明 `uiConversation`——声明会把不提供该服务的旧宿主变成整插件永久 pending，比跳过引用功能严重得多。本地普通对象桩读未声明属性只是 `undefined`，此前永远复现不了该故障；`tests/client/sidebar-registration.spec.ts` 新增「严格 ctx」契约组（Proxy 桩按 vendored cordis 同语义对未声明服务属性抛错），锁定：`apply` 在严格 ctx 下注册完整、宿主缺 `uiConversation` 时零 mention 注册不抛错、`exports.inject` 不含 `uiConversation`；`tests/client/table-mention.spec.ts` 的 `makeApplyCtx` 改为按 `ctx.get()` 契约供数（桩不再挂 `uiConversation` 属性，回退到属性读取的写法会直接拿不到服务）。
+### 修复(技能)
+
+- `skills/db-admin/SKILL.md` frontmatter description 中的 `@db:/@col:` 记号含 ASCII 冒号+空格，破坏 YAML 纯量解析（任何标准 YAML 解析器报 mapping values are not allowed here，技能加载时 frontmatter 读不出），改写为无冒号的 `@db 与 @col 表/字段引用记号`；正文不受影响。
 
 ### 文档(技能)
 
