@@ -2,6 +2,10 @@
 
 ## 未发布
 
+### 修复(右侧栏)
+
+- **修复 1.9.23 在真机宿主上右侧栏完全不显示的回归**：`apply()` 里裸读 `ctx.uiConversation`（可选服务，未声明进 `inject`），而 vendored cordis 的 Context 代理对未声明 inject、也未 provide 的服务属性是「读取即抛」（`cannot get property "uiConversation" without inject`）——异常冒出 `apply` 后插件 fiber 直接 failed，页签类型、正文/标题席位、引导卡片全部注册不上，引导页没有「数据库」入口，真机宿主启动日志报 `web boot: warning: 1 entry did not activate`。改回官方文档指定的可选服务查询写法（`framework/service`：「Optional: omit inject and query with ctx.get() at the use site」）：`ctx.get("uiConversation")` 缺失返回 `undefined` 时整体跳过，记号退化为普通文本，语义与原注释一致；极旧宿主连 `ctx.get` 都没有时同样跳过。`inject` 仍不声明 `uiConversation`——声明会把不提供该服务的旧宿主变成整插件永久 pending，比跳过引用功能严重得多。本地普通对象桩读未声明属性只是 `undefined`，此前永远复现不了该故障；`tests/client/sidebar-registration.spec.ts` 新增「严格 ctx」契约组（Proxy 桩按 vendored cordis 同语义对未声明服务属性抛错），锁定：`apply` 在严格 ctx 下注册完整、宿主缺 `uiConversation` 时零 mention 注册不抛错、`exports.inject` 不含 `uiConversation`；`tests/client/table-mention.spec.ts` 的 `makeApplyCtx` 改为按 `ctx.get()` 契约供数（桩不再挂 `uiConversation` 属性，回退到属性读取的写法会直接拿不到服务）。
+
 ### 文档(技能)
 
 - `skills/db-admin/SKILL.md` 补齐 1.9.22 / 1.9.23 的模型侧行为：新增「表/字段引用（@db: / @col:）」一节（记号来自数据浏览面板的面包屑/结构页行入口，不是文件路径；`@db:` 段位解析为 conn_id + database（第 3 段存在时传 "库名.模式"）+ 表名、`@col:` 末段为列名；段内 %XX 先解码；结构不确定先 `schema`，取值用 `query` / `preview`；引用不绕过授权与确认）；`schema` 说明补「表与视图一起列出」（SQL 系视图 type `VIEW`、PG 系物化视图等原样标注、MongoDB `collection`/`view`、MongoDB 视图结构页不含索引）与「清单按账号权限过滤」（PG/GaussDB CONNECT/USAGE+SELECT、SQL Server HAS_DBACCESS/SELECT，清单里没有 ≠ 不存在）；九库方言速查 Oracle / 达梦元数据入口改为表+视图一次取全；侧边栏数据浏览面板行补视图、权限过滤、总行数、分页快跳、跨列内容搜索与 @ 引用入口（`/api/preview` 支持 `search` / `total` 参数）。

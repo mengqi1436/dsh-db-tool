@@ -4762,10 +4762,16 @@ window.__ModuleLoader__.load({
 			}, "dsh-db-tool: register tab title");
 
 			// @db: 表引用 / @col: 字段引用接入宿主对话文本管线：识别规则 + 两个 chip 渲染席位。
-			// uiConversation 为可选服务，旧宿主缺失时整体跳过（记号在对话里退化为普通文本，不影响输入框插入）。
-			if (ctx.uiConversation && ctx.uiConversation.userText) {
+			// uiConversation 是可选服务（不在 inject 里）：官方契约（framework/service 文档「Optional: omit
+			// inject and query with ctx.get() at the use site」）下，未声明 inject 的服务属性在 vendored
+			// cordis 的 Context 代理上是「读取即抛」——裸写 ctx.uiConversation 会把整个 apply 打成
+			// "cannot get property "uiConversation" without inject"，插件 fiber 直接 failed，右侧栏
+			// 完全不显示（1.9.23 真机实测）。可选服务必须走 ctx.get() 查询：缺失返回 undefined，
+			// 整体跳过（记号退化为普通文本，不影响输入框插入）。极旧宿主连 ctx.get 都没有时同样跳过。
+			const uiConversation = typeof ctx.get === "function" ? ctx.get("uiConversation") : undefined;
+			if (uiConversation && uiConversation.userText) {
 				ctx.effect(function () {
-					return ctx.uiConversation.userText.register(DB_MENTION_RULE);
+					return uiConversation.userText.register(DB_MENTION_RULE);
 				}, "dsh-db-tool: register db mention rule");
 				for (const chip of [["db-table", DbTableChip], ["db-column", DbColumnChip]]) {
 					ctx.effect(function () {

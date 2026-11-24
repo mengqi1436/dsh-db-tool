@@ -572,19 +572,22 @@ function makeApplyCtx(withConversation: boolean) {
 			return () => {};
 		},
 	};
-	if (withConversation) {
-		ctx.uiConversation = {
-			userText: {
-				register(rule: any) {
-					state.rules.push(rule);
-					return () => {
-						const i = state.rules.indexOf(rule);
-						if (i >= 0) state.rules.splice(i, 1);
-					};
-				},
+	// uiConversation 是可选服务：官方契约（framework/service「Optional: omit inject and query with
+	// ctx.get() at the use site」）下用 ctx.get() 在使用点查询——未声明 inject 的服务属性在 vendored
+	// cordis 的 Context 代理上裸读取即抛 "cannot get property ... without inject"，桩不挂该属性，
+	// 只按 get() 供数，回退到属性读取的写法在这里会直接拿不到服务。
+	const conversation = withConversation ? {
+		userText: {
+			register(rule: any) {
+				state.rules.push(rule);
+				return () => {
+					const i = state.rules.indexOf(rule);
+					if (i >= 0) state.rules.splice(i, 1);
+				};
 			},
-		};
-	}
+		},
+	} : undefined;
+	ctx.get = (name: string) => (name === 'uiConversation' ? conversation : undefined);
 	return { ctx, state };
 }
 

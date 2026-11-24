@@ -266,6 +266,70 @@ describe('官方右侧栏注册契约', () => {
 	});
 });
 
+describe('严格 ctx 契约（vendored cordis：未声明 inject 的服务属性读取即抛）', () => {
+	// 真机宿主的 Context 是代理：读一个未声明 inject、也未被 provide 的服务属性会直接抛
+	// `cannot get property "<prop>" without inject`。1.9.23 曾在 apply 里裸读 ctx.uiConversation
+	// （可选服务），真机上整个 apply 抛错、插件 fiber failed，右侧栏完全不显示；
+	// 本地普通对象桩读不到只是 undefined，永远复现不了，故这里用同语义代理桩锁死契约。
+	function makeStrictCtx(uiConversation: any) {
+		const base = makeCtx();
+		const rules: any[] = [];
+		const strict: any = uiConversation && {
+			userText: {
+				register(rule: any) {
+					rules.push(rule);
+					return () => {
+						const i = rules.indexOf(rule);
+						if (i >= 0) rules.splice(i, 1);
+					};
+				},
+			},
+		};
+		base.ctx.get = (name: string) => (name === 'uiConversation' ? strict : undefined);
+		const declared = new Set(['locale', 'sidebarRightTabs', 'slots', 'get', 'effect']);
+		const ctx = new Proxy(base.ctx, {
+			get(target: any, prop: any) {
+				if (typeof prop !== 'string' || declared.has(prop) || prop in target) return target[prop];
+				throw new Error(`cannot get property "${String(prop)}" without inject`);
+			},
+		});
+		return { ctx, state: base.state, rules };
+	}
+
+	it('可选服务 uiConversation 必须经 ctx.get() 查询：严格 ctx 下 apply 不抛错且注册完整', () => {
+		const { ctx, state, rules } = makeStrictCtx({ userText: { register() { return () => {}; } } });
+		expect(() => mod.apply(ctx)).not.toThrow();
+		expect(state.types).toHaveLength(1);
+		expect(state.seats.filter((s) => s.name === 'sidebar.right.pane.tab' || s.name === 'sidebar.right.pane.tab.title')).toHaveLength(2);
+		expect(rules).toHaveLength(1);
+		expect(state.seats.filter((s) => s.name === 'conversation.user.text.node')).toHaveLength(2);
+	});
+
+	it('桩自检：同一严格 ctx 上裸读未声明服务属性确实抛错（保证本组测试有判废力）', () => {
+		const { ctx } = makeStrictCtx(undefined);
+		expect(() => (ctx as any).uiConversation).toThrow('cannot get property "uiConversation" without inject');
+	});
+
+	it('宿主不提供 uiConversation（get 返回 undefined）：apply 照常完成，mention 相关零注册', () => {
+		const { ctx, state, rules } = makeStrictCtx(undefined);
+		expect(() => mod.apply(ctx)).not.toThrow();
+		expect(state.types).toHaveLength(1);
+		expect(rules).toHaveLength(0);
+		expect(state.seats.filter((s) => s.name === 'conversation.user.text.node')).toHaveLength(0);
+	});
+
+	it('极旧宿主连 ctx.get 都没有：apply 不抛错（1.9.23 起的可选功能整体跳过）', () => {
+		const { ctx, state } = makeCtx();
+		// makeCtx 无 get、无 uiConversation——等价于最老宿主
+		expect(() => mod.apply(ctx)).not.toThrow();
+		expect(state.types).toHaveLength(1);
+	});
+
+	it('exports.inject 不得声明 uiConversation（可选服务，声明会让缺它的旧宿主整插件卡 pending）', () => {
+		expect(mod.inject).not.toContain('uiConversation');
+	});
+});
+
 describe('正文降级与项目路径解析', () => {
 	it('useTabInfo 抛错时不冒到宿主，渲染降级态（宿主会把冒出的异常永久除名该席位）', () => {
 		const { ctx, state } = makeCtx();
