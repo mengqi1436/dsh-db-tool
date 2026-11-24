@@ -1,5 +1,22 @@
 # Changelog — dsh-db-tool
 
+## 未发布
+
+本版修复连接保存链路的两处「配置测试成功、保存后不生效」：Redis 分字段库号被静默丢弃（保存后永远连 db0），以及字符串端口保存后编辑回填/卡片端口消失（前端 v1.8.1 起端口原样发字符串的遗留回归）。
+
+### 修复(Redis)
+
+- **分字段保存的库号（database）静默丢弃，保存后永远连 db0**：`buildUrl` 只认 `typeof database === 'number'`，而前端所有字段原样发字符串（v1.8.1 起），填 `2` 存的是字符串 `'2'` → URL 不拼 `/2` → 连接静默落在 db0。测试连接测不出（PING 不分库），保存后浏览/操作的是错误逻辑库。现与端口同口径：合法数字串转 number 拼入 URL，`0`/留空=默认 db0 不拼路径段，非负整数以外的值 fail-closed 抛中文错误（不再静默回退）。数据传输的 Redis 读/写连接同样经 `buildUrl`，一并修复。
+
+### 修复(连接管理)
+
+- **字符串端口保存后编辑回填与卡片端口消失**：前端 v1.8.1 起端口原样发字符串（fail-closed 校验移到适配器侧 `validPort`），但 `toMeta` 只回显 `typeof port === 'number'` 的端口——分字段保存的连接 `meta.port` 缺失，编辑弹窗端口空白、连接卡片丢端口、传输页端口显示「—」，被误读为「保存没保存上」。现把合法数字串（1-65535 整数）投影为 number 回显，已存老记录同样修复；非法值仍省略不回显假值（连接时由适配器报错）。
+
+### 测试
+
+- `tests/adapters-nosql-ent/redis.spec.ts` 新增 4 条：`buildUrl` 字符串库号 `'2'`/`'15'` 拼入 URL 且与数字等效、留空/`0` 不拼路径段、非法库号（`'abc'`/`-1`/`1.5`/`true`）抛中文错误、`createRedisAdapter` 非法库号在 connect 前抛错（不触网）。
+- `tests/store/connections.spec.ts` 新增 1 条：字符串端口 `'14330'`/`'6379'` 经 create/update/list/get 回显为 number，非法端口 `'abc'` 不回显假值。
+
 ## 1.9.24
 
 本版修复 1.9.23 在真机宿主上右侧栏完全不显示的回归：apply() 改用官方文档指定的可选服务查询写法（ctx.get("uiConversation")，缺失即整体跳过、记号退化为普通文本），不再声明进 inject；同时把 skills/db-admin/SKILL.md frontmatter description 中破坏 YAML 解析的 @db:/@col: 记号改写为无冒号表述。
