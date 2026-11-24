@@ -1,0 +1,100 @@
+{
+  "dark-before": {
+    "checks": {
+      "tabs": 7,
+      "kindgroup": 0,
+      "grid": 0,
+      "cards": 0,
+      "groupRows": 4,
+      "groupCard": 1,
+      "chips": 4,
+      "segs": 4,
+      "radios": 12,
+      "summary": 1,
+      "names": 4,
+      "rowSegWidth": 164
+    },
+    "errors": []
+  },
+  "light-before": {
+    "checks": {
+      "tabs": 7,
+      "kindgroup": 0,
+      "grid": 0,
+      "cards": 0,
+      "groupRows": 4,
+      "groupCard": 1,
+      "chips": 4,
+      "segs": 4,
+      "radios": 12,
+      "summary": 1,
+      "names": 4,
+      "rowSegWidth": 164
+    },
+    "errors": []
+  },
+  "dark-after": {
+    "checks": {
+      "tabs": 7,
+      "kindgroup": 4,
+      "grid": 4,
+      "cards": 4,
+      "groupRows": 0,
+      "groupCard": 0,
+      "chips": 4,
+      "segs": 4,
+      "radios": 12,
+      "summary": 1,
+      "names": 4,
+      "segWidth": 204,
+      "cardInnerWidth": 204,
+      "segStretchesCard": true,
+      "pgChecked": "读写",
+      "pgBadge": 1,
+      "subRows": 4,
+      "kindHeads": [
+        "mysql\n1",
+        "PG\n1",
+        "sqlite\n1",
+        "redis\n1"
+      ]
+    },
+    "errors": []
+  },
+  "light-after": {
+    "checks": {
+      "tabs": 7,
+      "kindgroup": 4,
+      "grid": 4,
+      "cards": 4,
+      "groupRows": 0,
+      "groupCard": 0,
+      "chips": 4,
+      "segs": 4,
+      "radios": 12,
+      "summary": 1,
+      "names": 4,
+      "segWidth": 204,
+      "cardInnerWidth": 204,
+      "segStretchesCard": true,
+      "pgChecked": "读写",
+      "pgBadge": 1,
+      "subRows": 4,
+      "kindHeads": [
+        "mysql\n1",
+        "PG\n1",
+        "sqlite\n1",
+        "redis\n1"
+      ]
+    },
+    "errors": []
+  },
+  "dark-after-interacted": {
+    "checkedAfterClick": "只读",
+    "roBadgeShown": 1
+  },
+  "light-after-interacted": {
+    "checkedAfterClick": "只读",
+    "roBadgeShown": 1
+  }
+}

@@ -2,6 +2,18 @@
 
 ## 未发布
 
+本版把项目授权视图改为连接管理同款的卡片样式：按数据库类型分组、每张连接一张授权卡，授权模式选择更大更直观；授权链路（seg 点击 → PUT/DELETE `/grants`）与 ro/rw 语义完全不变。
+
+### 变更(项目授权)
+
+- **授权视图卡片化（对齐连接管理）**：连接行式列表（`dbt-group/dbt-listrow` 一张 inset grouped 卡）改为按数据库类型分组小节（`dbt-kindgroup`，节头 = 类型简称 + 数量，组序按 DB_KINDS）+ 自适应卡片网格（`dbt-conncards/dbt-conncard`，auto-fill + minmax 随侧栏宽度自适应列数与卡片大小）。每张连接一张授权卡：头行为 kind 胶囊（带数据库图标）+ 连接名 + 模式徽标（读写=绿描边胶囊、只读=灰描边胶囊，`aria-hidden`，seg 仍是权威状态源），地址副行展示 safeUrl / host:port（单行省略 + title 全文，帮助区分同名连接），底部为整卡宽三段均分的授权 seg（未授权/只读/读写；`flex:1 1 0` + `width:100%` + `box-sizing:border-box` 内联覆盖，目标更大更易点选，窄卡长英文文案单行省略优雅降级）。样式全部复用既有 `--dbt-*` token 与连接管理卡片类，无新增 CSS 规则与配色源；空授权引导文案「每行」改「每张卡片」（中英同步），状态摘要行、`busy=grant` 禁用与空连接引导不变。
+- 前后对照取证：`assets/grant-cards/`（亮/暗 × Before/After × 500px@2x，真实 `dist/` + 双版本真实 `client.js` + 真实 PG/SQLite 示例库；DOM 机器校验卡片分组/seg 整卡宽/aria 契约，像素机器校验画布 token 值与文字像素占比 > 0）。
+
+### 测试
+
+- `tests/client/grant-cards.spec.ts` 新增 8 条：授权视图不再渲染 `dbt-group/dbt-listrow`、分组小节 + 卡片网格结构（组序/节头/数量）、卡片头行（kind 胶囊带 svg 图标、PG 简称、ro/rw 徽标 aria-hidden 且未授权无徽标）、地址副行（safeUrl / host:port 回退 + title 全文）、seg 整卡宽三段均分与 radiogroup/aria-checked 契约、状态行（空授权引导文案 / 计数摘要 / 无连接空态无网格）、授权链路（PUT 带 projectPath+connId+mode、DELETE 仅 projectPath+connId、成功后 reload、busy=grant 全量禁用）。
+- `tests/client/conn-cards.spec.ts` 契约同步：连接管理与项目授权各有一处 `dbt-conncards/dbt-conncard`（计数 1→2），`dbt-kindchip` 全仓仍两处（连接卡片头行 + 授权卡片头行）；`dbt-group/listrow` 留给控制台/传输等视图。
+
 本版修复连接保存链路的两处「配置测试成功、保存后不生效」：Redis 分字段库号被静默丢弃（保存后永远连 db0），以及字符串端口保存后编辑回填/卡片端口消失（前端 v1.8.1 起端口原样发字符串的遗留回归）。
 
 ### 修复(Redis)

@@ -6,7 +6,8 @@
  *     （dbt-conncards / dbt-conncard），auto-fill + minmax 让列数与卡片大小随侧栏宽度自适应；
  *  2) 连通状态圆点：灰=未测试 / 黄闪=测试中 / 绿=成功 / 红=失败，装饰性冗余编码（aria-hidden）；
  *  3) 一键测试：一次点击并发（上限 4）测完全部连接，每卡状态各自就位，结束后顶部给计数汇总；
- *  4) 授权视图不受影响：仍走 dbt-group/dbt-listrow 行式布局，dbt-kindchip 全仓仍只有两处；
+ *  4) 授权视图同款卡片化：项目授权复用 dbt-conncards/dbt-conncard 卡片语言（分组/网格各两处），
+ *     dbt-kindchip 全仓仍只有两处（连接卡片 + 授权卡片头行）；
  *  5) 连接卡片按数据库类型分组（dbt-kindgroup 小节，组序按 DB_KINDS、空组不渲染），
  *     PostgreSQL 展示统一用简称 PG（kindLabel 映射，数据层 kind 值不变）。
  */
@@ -198,11 +199,11 @@ describe('1 卡片网格样式（源码断言）', () => {
 		expect(src).toContain('@keyframes dbt-pulse{');
 	});
 
-	it('连接管理改用卡片网格，不再渲染 inset grouped 行（dbt-group/listrow 留给授权等其他视图）', () => {
-		// 网格容器与卡片本体各出现一次（容器在 ManageView 分组 map 内，卡片在 list.map 回调内）
-		expect((src.match(/className: "dbt-conncards"/g) ?? []).length).toBe(1);
-		expect((src.match(/className: "dbt-conncard", key: c\.id/g) ?? []).length).toBe(1);
-		// kind 胶囊全仓仍两处：连接卡片 + 授权行（既有契约不变）
+	it('连接管理与项目授权都用卡片网格，不再渲染 inset grouped 行（dbt-group/listrow 留给控制台/传输等视图）', () => {
+		// 网格容器与卡片本体各两处：连接管理 map 内 + 项目授权 grantCard 内（授权卡片化复用同一网格/卡片语言）
+		expect((src.match(/className: "dbt-conncards"/g) ?? []).length).toBe(2);
+		expect((src.match(/className: "dbt-conncard", key: c\.id/g) ?? []).length).toBe(2);
+		// kind 胶囊全仓仍两处：连接卡片头行 + 授权卡片头行（既有契约不变）
 		const chips = src.match(/className: "dbt-kindchip"/g) ?? [];
 		expect(chips.length).toBe(2);
 	});
