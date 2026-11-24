@@ -132,9 +132,20 @@ export function buildUrl(fields: Record<string, unknown> | undefined, ssl?: bool
   const port = validPort(fields?.port, 6379, 'redis');
   const user = typeof fields?.user === 'string' && fields.user !== '' ? encodeURIComponent(fields.user) : '';
   const pass = typeof fields?.password === 'string' ? `:${encodeURIComponent(fields.password)}@` : '';
-  const db = typeof fields?.database === 'number' && fields.database !== 0 ? `/${fields.database}` : '';
+  // 前端原样发字符串库号（与端口同口径）：合法数字串转 number；非法值 fail-closed 抛错。
+  // 历史 typeof==='number' 门把字符串库号（如 '2'）静默丢弃回退 db0——测试能通（ping 不分库），
+  // 保存后连错库，正是「配置测试成功、保存后不生效」的根因。0/留空 = 默认 db0，不拼路径段。
+  const rawDb = fields?.database;
+  let dbPath = '';
+  if (rawDb !== undefined && rawDb !== null && rawDb !== '') {
+    const n = typeof rawDb === 'number' ? rawDb : typeof rawDb === 'string' ? Number(rawDb) : NaN;
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`redis 连接的 database 取值非法：${JSON.stringify(rawDb)}（须为非负整数库号；留空才使用默认库 db0）`);
+    }
+    if (n !== 0) dbPath = `/${n}`;
+  }
   const scheme = ssl || connSsl(fields) ? 'rediss' : 'redis';
-  return `${scheme}://${user}${pass}${host}:${port}${db}`;
+  return `${scheme}://${user}${pass}${host}:${port}${dbPath}`;
 }
 
 function connSsl(fields: Record<string, unknown> | undefined): boolean {

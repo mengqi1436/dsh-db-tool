@@ -214,7 +214,13 @@ function toMeta(rec: ConnRecord, hasPassword = false): ConnectionMeta {
       serviceType, ociLibDir } =
       rec.fields;
     if (typeof host === 'string') meta.host = host;
-    if (typeof port === 'number') meta.port = port;
+    // 端口回显：前端 v1.8.1 起原样发字符串端口（fail-closed 校验在适配器侧 validPort），
+    // 这里把合法数字串投影为 number 供编辑回填/卡片展示；非法值省略（不回显假值，连接时报错）。
+    // 历史 typeof==='number' 门让字符串端口的连接保存后编辑框端口空白，被误读为「没保存上」。
+    if (typeof port === 'number' || (typeof port === 'string' && /^\d+$/.test(port))) {
+      const n = Number(port);
+      if (Number.isInteger(n) && n > 0 && n <= 65535) meta.port = n;
+    }
     if (typeof user === 'string') meta.user = user;
     if (typeof database === 'string') meta.database = database;
     if (typeof tlsMinVersion === 'string') meta.tlsMinVersion = tlsMinVersion;
