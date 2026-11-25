@@ -1,0 +1,362 @@
+{
+  "light/before-2-grants-interactedgrants-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接"
+  },
+  "light/before-2-grants-interactedinteracted-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接",
+    "interacted": {
+      "badgeText": "只读",
+      "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+      "cardBorderColor": "rgba(60, 60, 67, 0.18)",
+      "summary": "操作完成已授权 3/4 个连接"
+    }
+  },
+  "light/after-2-grants-interactedgrants-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(60, 60, 67, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-danger, #ff453a)",
+        "cardBorderColor": "rgb(255, 59, 48)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgb(52, 199, 89)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(60, 60, 67, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接"
+  },
+  "light/after-2-grants-interactedinteracted-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(60, 60, 67, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-danger, #ff453a)",
+        "cardBorderColor": "rgb(255, 59, 48)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgb(52, 199, 89)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(60, 60, 67, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接",
+    "interacted": {
+      "badgeText": "只读",
+      "badgeColor": "var(--dbt-success, #30d158)",
+      "cardBorderColor": "rgb(52, 199, 89)",
+      "summary": "操作完成已授权 3/4 个连接"
+    }
+  },
+  "dark/before-2-grants-interactedgrants-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接"
+  },
+  "dark/before-2-grants-interactedinteracted-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": null,
+        "badgeColor": null,
+        "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接",
+    "interacted": {
+      "badgeText": "只读",
+      "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+      "cardBorderColor": "rgba(120, 120, 128, 0.24)",
+      "summary": "操作完成已授权 3/4 个连接"
+    }
+  },
+  "dark/after-2-grants-interactedgrants-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(235, 235, 245, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-danger, #ff453a)",
+        "cardBorderColor": "rgb(255, 69, 58)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgb(48, 209, 88)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(235, 235, 245, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接"
+  },
+  "dark/after-2-grants-interactedinteracted-w500.png": {
+    "kindgroups": 8,
+    "cards": [
+      {
+        "name": "订单 MySQL",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(235, 235, 245, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      },
+      {
+        "name": "生产 PG",
+        "badgeText": "读写",
+        "badgeColor": "var(--dbt-danger, #ff453a)",
+        "cardBorderColor": "rgb(255, 69, 58)",
+        "segChecked": [
+          "读写"
+        ]
+      },
+      {
+        "name": "本地示例 SQLite",
+        "badgeText": "只读",
+        "badgeColor": "var(--dbt-success, #30d158)",
+        "cardBorderColor": "rgb(48, 209, 88)",
+        "segChecked": [
+          "只读"
+        ]
+      },
+      {
+        "name": "缓存 Redis",
+        "badgeText": "未授权",
+        "badgeColor": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+        "cardBorderColor": "rgba(235, 235, 245, 0.6)",
+        "segChecked": [
+          "未授权"
+        ]
+      }
+    ],
+    "summary": "已授权 2/4 个连接",
+    "interacted": {
+      "badgeText": "只读",
+      "badgeColor": "var(--dbt-success, #30d158)",
+      "cardBorderColor": "rgb(48, 209, 88)",
+      "summary": "操作完成已授权 3/4 个连接"
+    }
+  }
+}

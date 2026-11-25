@@ -1,0 +1,90 @@
+{
+  "light/after-1-grants-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0369
+  },
+  "light/after-2-grants-interacted-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0374
+  },
+  "light/before-1-grants-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0288
+  },
+  "light/before-2-grants-interacted-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0292
+  },
+  "dark/after-1-grants-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      21,
+      21,
+      23
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0392
+  },
+  "dark/after-2-grants-interacted-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      21,
+      21,
+      23
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0396
+  },
+  "dark/before-1-grants-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      21,
+      21,
+      23
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0311
+  },
+  "dark/before-2-grants-interacted-w500.png": {
+    "width": 1000,
+    "height": 1548,
+    "corner": [
+      21,
+      21,
+      23
+    ],
+    "cornerOk": true,
+    "textPixelRatio": 0.0315
+  }
+}
