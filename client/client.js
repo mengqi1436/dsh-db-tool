@@ -895,8 +895,8 @@ window.__ModuleLoader__.load({
 			styleEl = document.createElement("style");
 			styleEl.textContent = [
 				"/* ===== Apple-style Design Tokens（dark 基线，light 经 media query 反转；.dbt-browse-root 并入以承载内嵌浏览面板与单元格浮层） ===== */",
-				".dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#0a84ff);--dbt-bg:transparent;--dbt-surface:rgba(120,120,128,.12);--dbt-surface-strong:rgba(120,120,128,.18);--dbt-separator:rgba(120,120,128,.24);--dbt-text:rgba(235,235,245,.92);--dbt-text-secondary:rgba(235,235,245,.6);--dbt-danger:#ff453a;--dbt-success:#30d158;--dbt-warning:#ffd60a;--dbt-dialog-bg:rgba(40,40,44,.85);--dbt-th-bg:rgba(30,30,32,.72);--dbt-seg-active:rgba(255,255,255,.14);--dbt-shadow:0 8px 32px rgba(0,0,0,.28);--dbt-radius-card:12px;--dbt-radius-ctrl:8px;--dbt-radius-pill:6px;--dbt-caption:11px;--dbt-caption-xs:10px;--dbt-ctrl-h:28px;--dbt-row-h:32px;--dbt-chip-h:18px;--dbt-ease:cubic-bezier(.25,.1,.25,1);--dbt-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;}",
-				"@media (prefers-color-scheme: light){.dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#007aff);--dbt-surface:rgba(120,120,128,.08);--dbt-surface-strong:rgba(120,120,128,.14);--dbt-separator:rgba(60,60,67,.18);--dbt-text:rgba(30,30,32,.92);--dbt-text-secondary:rgba(60,60,67,.6);--dbt-danger:#ff3b30;--dbt-success:#34c759;--dbt-warning:#ff9f0a;--dbt-dialog-bg:rgba(252,252,252,.9);--dbt-th-bg:rgba(255,255,255,.72);--dbt-seg-active:rgba(255,255,255,.9);--dbt-shadow:0 8px 32px rgba(0,0,0,.12);}}",
+				".dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#0a84ff);--dbt-bg:transparent;--dbt-surface:rgba(120,120,128,.12);--dbt-surface-strong:rgba(120,120,128,.18);--dbt-separator:rgba(120,120,128,.24);--dbt-text:rgba(235,235,245,.92);--dbt-text-secondary:rgba(235,235,245,.6);--dbt-danger:#ff453a;--dbt-success:#30d158;--dbt-warning:#ffd60a;--dbt-dialog-bg:rgba(40,40,44,.85);--dbt-th-bg:rgba(30,30,32,.72);--dbt-seg-active:rgba(255,255,255,.14);--dbt-shadow:0 8px 32px rgba(0,0,0,.28);--dbt-canvas-solid:#151517;--dbt-radius-card:12px;--dbt-radius-ctrl:8px;--dbt-radius-pill:6px;--dbt-caption:11px;--dbt-caption-xs:10px;--dbt-ctrl-h:28px;--dbt-row-h:32px;--dbt-chip-h:18px;--dbt-ease:cubic-bezier(.25,.1,.25,1);--dbt-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;}",
+				"@media (prefers-color-scheme: light){.dbt-panel,.dbt-browse-root{--dbt-accent:var(--dsh-accent,#007aff);--dbt-surface:rgba(120,120,128,.08);--dbt-surface-strong:rgba(120,120,128,.14);--dbt-separator:rgba(60,60,67,.18);--dbt-text:rgba(30,30,32,.92);--dbt-text-secondary:rgba(60,60,67,.6);--dbt-danger:#ff3b30;--dbt-success:#34c759;--dbt-warning:#ff9f0a;--dbt-dialog-bg:rgba(252,252,252,.9);--dbt-th-bg:rgba(255,255,255,.72);--dbt-seg-active:rgba(255,255,255,.9);--dbt-shadow:0 8px 32px rgba(0,0,0,.12);--dbt-canvas-solid:#ffffff;}}",
 				// 浏览面板根自持文字色：PiP 独立文档挂 body 后无侧栏祖先 color 可继承（内嵌/浮窗两态共用）
 				".dbt-browse-root{color:var(--dbt-text);}",
 				"/* ===== 根容器 ===== */",
@@ -940,7 +940,7 @@ window.__ModuleLoader__.load({
 				".dbt-table th,.dbt-table td{border:none;border-bottom:1px solid var(--dbt-separator);padding:7px 10px;text-align:left;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
 				".dbt-table th{position:sticky;top:0;z-index:1;background:var(--dbt-th-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);font-weight:600;font-size:12px;}",
 				".dbt-table td{font-family:var(--dbt-mono);}",
-				".dbt-tablewrap{border:none;border-radius:var(--dbt-radius-card);overflow:auto;max-height:320px;background:var(--dbt-surface);}",
+				".dbt-tablewrap{border:none;border-radius:var(--dbt-radius-card);overflow:auto;max-height:320px;background:var(--dsw-alias-bg-base,var(--dbt-canvas-solid));}",
 				"/* ===== 结果网格（SQL 控制台）：可排序表头按钮（毛玻璃 sticky 表头复用 .dbt-table th，不另设） ===== */",
 				".dbt-grid-sort{border:none;background:transparent;color:inherit;font:inherit;font-weight:600;font-size:12px;padding:0;margin:0;cursor:pointer;display:block;width:100%;text-align:left;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
 				".dbt-grid-sort:focus-visible{outline:2px solid var(--dbt-accent);outline-offset:-1px;border-radius:2px;}",
@@ -1056,20 +1056,26 @@ window.__ModuleLoader__.load({
 				".dbt-browse-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}",
 				".dbt-browse-tablewrap{flex:1 1 auto;min-height:120px;overflow:auto;border:none;border-radius:var(--dbt-radius-card);background:var(--dbt-surface);}",
 				// 页脚：与工具栏同一控件高度体系，内部按钮/文字垂直居中对齐
-				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:8px;min-height:calc(var(--dbt-ctrl-h,28px) + 16px);box-sizing:border-box;padding:8px 12px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);flex-wrap:wrap;}",
+				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:6px;min-height:36px;box-sizing:border-box;padding:4px 8px;background:var(--dsw-alias-bg-base,var(--dbt-canvas-solid));border-radius:var(--dbt-radius-ctrl);flex-wrap:nowrap;overflow-x:auto;}",
 				// 分页快跳与内容搜索输入：填充式等高控件（同 .dbt-row input 视觉），窄面板可换行
 				".dbt-browse-footer input{flex:none;height:var(--dbt-ctrl-h,28px);box-sizing:border-box;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:0 10px;font-size:12px;font-family:inherit;}",
 				".dbt-browse-footer input:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
 				".dbt-browse-jump{width:64px;text-align:center;appearance:textfield;-moz-appearance:textfield;}",
 				".dbt-browse-jump::-webkit-outer-spin-button,.dbt-browse-jump::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}",
 				// 字段筛选窗格（Navicat「Filter & Sort」式条件行）
-				".dbt-filter-pane{border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;}",
-				".dbt-filter-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}",
+				// Navicat 构建器密度：窗格不挤占数据区（条件行区限高内部滚动）、行单行不换行、控件定宽对齐
+				".dbt-filter-pane{border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:6px;display:flex;flex-direction:column;gap:4px;font-size:12px;background:var(--dsw-alias-bg-base,var(--dbt-canvas-solid));}",
+				".dbt-filter-rows{display:flex;flex-direction:column;gap:4px;max-height:150px;overflow:auto;}",
+				".dbt-filter-row{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;}",
 				".dbt-filter-row select,.dbt-filter-row input{height:24px;box-sizing:border-box;border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-ctrl);background:var(--dbt-surface);color:inherit;font-size:12px;padding:0 4px;}",
-				".dbt-filter-row select{max-width:160px;}",
-				".dbt-filter-row input{flex:1 1 140px;min-width:100px;max-width:260px;}",
+				".dbt-filter-row select{width:140px;flex:0 1 auto;min-width:0;}",
+				".dbt-filter-row input{flex:1 1 120px;min-width:80px;}",
 				".dbt-filter-row.dbt-filter-off{opacity:.45;}",
-				".dbt-filter-row .dbt-filter-logic{width:92px;flex:none;}",
+				".dbt-filter-row .dbt-filter-logic{width:80px;flex:none;}",
+				".dbt-filter-row .dbt-btn{padding:0 8px;flex:none;}",
+				// 分页条单行紧凑（窄面板横向滚动兜底）：按钮 24px 高、短内距，避免多行换行压占数据区
+				".dbt-browse-footer .dbt-btn{height:24px;padding:0 8px;font-size:12px;flex:none;}",
+				".dbt-browse-footer .dbt-muted{white-space:nowrap;}",
 				".dbt-colfilter{border:none;background:transparent;color:inherit;cursor:pointer;padding:0 2px;margin-left:2px;font-size:10px;line-height:1;opacity:.55;}",
 				".dbt-colfilter.active{opacity:1;font-weight:700;}",
 				"@media (hover:hover) and (pointer:fine){.dbt-colfilter:hover{opacity:1;}}",
@@ -3139,6 +3145,8 @@ window.__ModuleLoader__.load({
 				const list = rows.map(({ column, op, value, value2 }) => ({ column, op, value, value2 }));
 				const logics = rows.slice(0, -1).map((r) => (r.logic === "or" ? "or" : "and"));
 				setAppliedFilters(list); setAppliedLogic(filterLogic); setAppliedLogics(logics);
+				// 应用后收起窗格并清空草稿：数据区回到最大可视（生效条件数在「筛选 · N」按钮与列头漏斗高亮上体现；再点开自动带回已提交条件）
+				setFilters([]); setFiltersOpen(false);
 				openTable(sel, 1, { filters: { list, logic: filterLogic, logics }, withTotal: true });
 			};
 			const clearFilters = () => {
@@ -3282,7 +3290,8 @@ window.__ModuleLoader__.load({
 						React.createElement("button", { className: "dbt-btn primary", disabled: busy === "open" || filters.length === 0, onClick: applyFilters }, t("filterApply")),
 						React.createElement("button", { className: "dbt-btn", disabled: busy === "open", onClick: clearFilters }, t("filterClear")),
 					),
-					// 条件行：复选框(启停) / 字段 / 操作符 / 值（between 双值；in 提示逗号分隔）/ 行间 AND-OR / 删除
+					// 条件行区（限高内部滚动，不挤占数据区）：复选框(启停) / 字段 / 操作符 / 值（between 双值；in 提示逗号分隔）/ 行间 AND-OR / 删除
+					React.createElement("div", { className: "dbt-filter-rows" },
 					filters.map((f, i) => {
 						const colOpts = schema.some((c) => c.name === f.column) ? schema : schema.concat([{ name: f.column }]);
 						return React.createElement("div", { className: "dbt-filter-row" + (f.enabled === false ? " dbt-filter-off" : ""), key: i },
@@ -3320,6 +3329,7 @@ window.__ModuleLoader__.load({
 							React.createElement("button", { className: "dbt-btn", onClick: () => removeFilterRow(i), "aria-label": t("close") }, "×"),
 						);
 					}),
+					),
 				) : null;
 				return React.createElement(
 					"div",

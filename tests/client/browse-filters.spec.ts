@@ -308,6 +308,9 @@ describe('3 应用/清除/翻页请求契约', () => {
 		expect(u.searchParams.get('logics')).toBeNull(); // 单行无连接符
 		expect(u.searchParams.get('total')).toBe('1');
 		expect(u.searchParams.get('offset')).toBe('0');
+		// 应用后收起窗格并清空草稿：数据区不被遮挡（「筛选 · 1」按钮可重新展开并带回已提交条件）
+		const paneAfter = paneOf(reactStub.rerender(T.BrowsePane, paneProps()));
+		expect(paneAfter).toBeUndefined();
 	});
 
 	it('多行混合连接符：logics 数组逐行上报；未勾选行被排除', () => {
