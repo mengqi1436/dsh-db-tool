@@ -1,0 +1,2 @@
+[before] paneAfterApply=1 tableTop=556 filterBtn="筛选 · 1"
+[after] paneAfterApply=0 tableTop=474 filterBtn="筛选 · 1"
