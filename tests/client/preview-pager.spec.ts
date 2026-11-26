@@ -161,8 +161,8 @@ describe('1 分页纯函数（lastPageOf / clampJumpPage）', () => {
 /* ---------- 2. 请求契约：search/total 参数与状态联动 ---------- */
 
 // BrowsePane useState 声明序（client.js 同步维护）：sel, view, schema, preview, page,
-// total, search, searchInput, jumpInput, busy, loadErr, filters, appliedFilters,
-// filterLogic, appliedLogic, filtersOpen —— 注入即得「已选表 + 数据预览」形态
+// total, jumpInput, busy, loadErr, filters, appliedFilters, filterLogic, appliedLogic,
+// appliedLogics, filtersOpen —— 注入即得「已选表 + 数据预览」形态
 const SEL = { connId: 'c-ok', db: 'app', schemaName: null, table: { name: 'users', type: 'TABLE' } };
 
 function renderPaneWithState(opts: { total?: any; search?: string; kind?: string } = {}) {
@@ -175,11 +175,15 @@ function renderPaneWithState(opts: { total?: any; search?: string; kind?: string
 	reactStub.slots.set('s3', { columns: ['id'], rows: [[1]], rowCount: 1 }); // preview
 	reactStub.slots.set('s4', 3); // page
 	reactStub.slots.set('s5', 'total' in opts ? opts.total : 123); // total
-	reactStub.slots.set('s6', opts.search ?? ''); // search
-	reactStub.slots.set('s7', opts.search ?? ''); // searchInput（提交后输入框保留关键字）
-	reactStub.slots.set('s8', ''); // jumpInput
-	reactStub.slots.set('s9', ''); // busy
-	reactStub.slots.set('s10', ''); // loadErr
+	reactStub.slots.set('s6', ''); // jumpInput
+	reactStub.slots.set('s7', ''); // busy
+	reactStub.slots.set('s8', ''); // loadErr
+	reactStub.slots.set('s9', []); // filters
+	reactStub.slots.set('s10', []); // appliedFilters
+	reactStub.slots.set('s11', 'and'); // filterLogic
+	reactStub.slots.set('s12', 'and'); // appliedLogic
+	reactStub.slots.set('s13', []); // appliedLogics
+	reactStub.slots.set('s14', false); // filtersOpen
 	return reactStub.rerender(T.BrowsePane, paneProps(opts.kind));
 }
 
@@ -197,43 +201,41 @@ function paneProps(kind?: string) {
 
 describe('2 openTable 请求契约（search/total 参数）', () => {
 	it('源码：preview 请求携带 search/filters 与 total 参数，翻页沿用已存 total 不重复 COUNT', () => {
-		expect(src).toContain('search: kw || undefined, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, logics: fl && fl.logics && fl.logics.length ? JSON.stringify(fl.logics) : undefined, total: withTotal ? 1 : undefined');
+		expect(src).toContain('filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, logics: fl && fl.logics && fl.logics.length ? JSON.stringify(fl.logics) : undefined, total: withTotal ? 1 : undefined');
 		// 响应处理：仅在本次请求了计数时才更新 total（翻页响应无 total，不得清空已存值）
 		expect(src).toContain('if (withTotal) setTotal(prev && prev.total != null ? prev.total : null)');
 	});
 
-	it('翻页（下一页）复用已提交搜索且不重拉计数', () => {
-		const pane = renderPaneWithState({ search: 'alice' });
+	it('翻页（下一页）不重拉计数且不携带 search 参数', () => {
+		const pane = renderPaneWithState({});
 		const footer = byClass(pane, 'dbt-browse-footer')[0];
 		expect(footer).toBeTruthy();
 		const next = collect(footer).find((e) => e.type === 'button' && flatText(e).includes('下一页'))!;
 		expect(next).toBeTruthy();
 		next.props.onClick();
-		expect(seenPreviewUrls.some((u) => u.includes('search=alice'))).toBe(true);
-		expect(seenPreviewUrls.some((u) => u.includes('search=alice') && u.includes('total=1'))).toBe(false);
-		const off = new URL(seenPreviewUrls.find((u) => u.includes('search=alice'))!, 'http://x').searchParams;
-		expect(off.get('offset')).toBe('150'); // page 3 → 第 4 页
-	});
-
-	it('提交搜索回到第 1 页并请求匹配总数（total=1）', () => {
-		const pane = renderPaneWithState({ search: '', total: 500 });
-		const input = collect(pane).find((e) => e.props.className === 'dbt-browse-search')!;
-		expect(input).toBeTruthy();
-		input.props.onKeyDown({ key: 'Enter', currentTarget: { value: '  bob#  ' } });
 		const u = new URL(seenPreviewUrls[seenPreviewUrls.length - 1]!, 'http://x');
-		expect(u.searchParams.get('search')).toBe('bob#');
-		expect(u.searchParams.get('total')).toBe('1');
-		expect(u.searchParams.get('offset')).toBe('0');
-	});
-
-	it('清除搜索复位为全量视图并重新拉表格总行数', () => {
-		const pane = renderPaneWithState({ search: 'alice' });
-		const clear = collect(pane).find((e) => e.type === 'button' && flatText(e).includes('清除'))!;
-		expect(clear).toBeTruthy();
-		clear.props.onClick();
-		const u = new URL(seenPreviewUrls[seenPreviewUrls.length - 1]!, 'http://x');
+		expect(u.searchParams.get('offset')).toBe('150'); // page 3 → 第 4 页
+		expect(u.searchParams.get('total')).toBeNull();
 		expect(u.searchParams.get('search')).toBeNull();
-		expect(u.searchParams.get('total')).toBe('1');
+	});
+
+	it('跨列搜索框已移除：分页条不再渲染搜索输入（内容查找统一走逐字段筛选）', () => {
+		const pane = renderPaneWithState({ search: '', total: 500 });
+		expect(collect(pane).some((e) => e.props.className === 'dbt-browse-search')).toBe(false);
+		expect(src).not.toContain('dbt-browse-search');
+	});
+
+	it('页码快跳沿用手动跳页且不重拉计数', () => {
+		const pane = renderPaneWithState({ total: 500 });
+		const input = collect(pane).find((e) => e.props.className === 'dbt-browse-jump')!;
+		expect(input).toBeTruthy();
+		input.props.onChange({ target: { value: '2' } });
+		const pane2 = reactStub.rerender(T.BrowsePane, paneProps());
+		const input2 = collect(pane2).find((e) => e.props.className === 'dbt-browse-jump')!;
+		input2.props.onKeyDown({ key: 'Enter', currentTarget: { value: '2' } });
+		const u = new URL(seenPreviewUrls[seenPreviewUrls.length - 1]!, 'http://x');
+		expect(u.searchParams.get('offset')).toBe('50');
+		expect(u.searchParams.get('total')).toBeNull(); // 翻页沿用已存计数
 	});
 });
 
@@ -282,13 +284,13 @@ describe('3 分页条结构', () => {
 		expect(off.get('offset')).toBe('100');
 	});
 
-	it('搜索零匹配：空态明示无匹配并提供清除入口（分页条不渲染时也能退出搜索）', () => {
+	it('筛选零匹配：空态明示无匹配并提供清除入口（分页条不渲染时也能退出筛选）', () => {
 		reactStub.slots.clear();
 		reactStub.render(T.BrowsePane, paneProps());
 		reactStub.slots.set('s0', SEL);
 		reactStub.slots.set('s1', 'preview');
 		reactStub.slots.set('s3', { columns: ['id'], rows: [], rowCount: 0 }); // 零行
-		reactStub.slots.set('s6', 'alice'); // 搜索激活
+		reactStub.slots.set('s10', [{ column: 'name', op: 'contains', value: 'alice' }]); // 筛选激活
 		const pane = reactStub.rerender(T.BrowsePane, paneProps());
 		expect(flatText(pane)).toContain('无匹配数据');
 		const clear = collect(pane).find((e) => e.type === 'button' && flatText(e).includes('清除'));
@@ -299,8 +301,8 @@ describe('3 分页条结构', () => {
 /* ---------- 4. i18n 与样式契约 ---------- */
 
 describe('4 i18n 与样式契约（中英双份）', () => {
-	const KEYS = ['firstPage', 'lastPage', 'pageTotal', 'pageMatch', 'jumpPrefix', 'jumpSuffix', 'pageJumpAria', 'cellSearchPlaceholder', 'cellSearchClear', 'searchNoMatch'];
-	it('新增分页/搜索文案中英双份齐全', () => {
+	const KEYS = ['firstPage', 'lastPage', 'pageTotal', 'pageMatch', 'jumpPrefix', 'jumpSuffix', 'pageJumpAria', 'filterTitle', 'filterApply', 'cellSearchClear', 'searchNoMatch'];
+	it('新增分页/筛选文案中英双份齐全', () => {
 		for (const k of KEYS) {
 			expect(src, `zh 缺少 ${k}`).toMatch(new RegExp('\\b' + k + ': "[^"]+"'));
 		}
@@ -312,9 +314,9 @@ describe('4 i18n 与样式契约（中英双份）', () => {
 		}
 	});
 
-	it('分页快跳与搜索框样式类已定义', () => {
+	it('分页快跳与筛选窗格样式类已定义', () => {
 		expect(src).toContain('.dbt-browse-jump{');
-		expect(src).toContain('.dbt-browse-search{');
+		expect(src).toContain('.dbt-filter-pane{');
 		expect(src).toContain('.dbt-browse-footer input{');
 	});
 });
