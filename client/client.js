@@ -1074,7 +1074,9 @@ window.__ModuleLoader__.load({
 				".dbt-filter-row .dbt-filter-logic{width:80px;flex:none;}",
 				".dbt-filter-row .dbt-btn{padding:0 8px;flex:none;}",
 				// 分页条单行紧凑（窄面板横向滚动兜底）：按钮 24px 高、短内距，避免多行换行压占数据区
-				".dbt-browse-footer .dbt-btn{height:24px;padding:0 8px;font-size:12px;flex:none;}",
+				".dbt-browse-footer .dbt-btn{height:24px;min-width:28px;padding:0 6px;font-size:12px;flex:none;justify-content:center;}",
+				".dbt-browse-crumb .dbt-btn{height:24px;padding:0 8px;font-size:12px;flex:none;margin-left:0;}",
+				".dbt-browse-root .dbt-browse-tablewrap{border-radius:0;}",
 				".dbt-browse-footer .dbt-muted{white-space:nowrap;}",
 				".dbt-colfilter{border:none;background:transparent;color:inherit;cursor:pointer;padding:0 2px;margin-left:2px;font-size:10px;line-height:1;opacity:.55;}",
 				".dbt-colfilter.active{opacity:1;font-weight:700;}",
@@ -3091,6 +3093,24 @@ window.__ModuleLoader__.load({
 				return (conns || []).filter((c) => c && ids.has(c.id));
 			}, [conns, grants]);
 			const hiddenGranted = (conns || []).length - grantedConns.length;
+			// 筛选开关并入面包屑行右侧（零新增高度）：不设独立工具条，任何状态下都不新增横条遮挡数据
+			const crumbConn = sel ? (grantedConns.find((c) => c.id === sel.connId) || conns.find((c) => c.id === sel.connId)) : null;
+			const filterToggle = crumbConn && crumbConn.kind !== "redis" && view === "preview" && !loadErr ? React.createElement("button", {
+				className: "dbt-btn" + (appliedFilters.length > 0 ? " primary" : ""),
+				style: { marginLeft: hiddenGranted > 0 ? "8px" : "auto", flex: "none" },
+				title: t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : ""),
+				disabled: busy === "open",
+				onClick: () => {
+					const opening = !filtersOpen;
+					setFiltersOpen(opening);
+					if (opening && filters.length === 0) {
+						// 展开时带回当前条件：优先已提交条件（Navicat 语义：窗格展示生效条件），否则补一空行便于直接输入
+						if (appliedFilters.length > 0) {
+							setFilters(appliedFilters.map((f) => ({ ...f, logic: filterLogic, enabled: true }))); setFilterLogic(appliedLogic);
+						} else setFilters([{ column: (schema[0] || {}).name || "", op: "contains", value: "", logic: filterLogic, enabled: true }]);
+					}
+				},
+			}, "▽ " + t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : "")) : null;
 			// 面包屑用的连接显示名（拿不到就回落 id，不编造）
 			const connNameOf = (connId) => {
 				const c = (conns || []).find((x) => x.id === connId);
@@ -3226,11 +3246,12 @@ window.__ModuleLoader__.load({
 				};
 				// 分页条作为 children 传入：渲染顺序 表格 → 分页 → 详情栏（详情栏钉在面板最底部）。
 				// 有 total（SQL 系/mongo）：首页/末页/页码快跳/总数；无 total（redis 等 KV 型）：仅翻页。
+				// 底部记录导航条（Navicat Record Bar 同构）：图标按钮 |◀ ◀ ▶ ▶| + 页码快跳 + 记录总数右对齐
 				const footer = sel && view === "preview" && !loadErr ? React.createElement(
 					"div",
 					{ className: "dbt-browse-footer" },
-					hasTotal ? React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, 1, pageOpts()) }, t("firstPage")) : null,
-					React.createElement("button", { className: "dbt-btn", disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1, pageOpts()) }, "‹ " + t("prevPage")),
+					hasTotal ? React.createElement("button", { className: "dbt-btn", title: t("firstPage"), "aria-label": t("firstPage"), disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, 1, pageOpts()) }, "|◀") : null,
+					React.createElement("button", { className: "dbt-btn", title: t("prevPage"), "aria-label": t("prevPage"), disabled: page <= 1 || busy === "open", onClick: () => openTable(sel, page - 1, pageOpts()) }, "◀"),
 					hasTotal ? React.createElement(
 						// 页码快跳：受控输入 + 回车提交（钳制到 [1, lastPage]）；失焦还原为跟随当前页
 						"span",
@@ -3252,27 +3273,15 @@ window.__ModuleLoader__.load({
 					) : React.createElement("span", { className: "dbt-muted" }, t("pageInfo", { page })),
 					React.createElement("button", {
 						className: "dbt-btn",
+						title: t("nextPage"),
+						"aria-label": t("nextPage"),
 						disabled: (hasTotal ? page >= lastPage : (preview && preview.truncated) === false) || busy === "open",
 						onClick: () => openTable(sel, page + 1, pageOpts()),
-					}, t("nextPage") + " ›"),
-					hasTotal ? React.createElement("button", { className: "dbt-btn", disabled: page >= lastPage || busy === "open", onClick: () => openTable(sel, lastPage, pageOpts()) }, t("lastPage")) : null,
+					}, "▶"),
+					hasTotal ? React.createElement("button", { className: "dbt-btn", title: t("lastPage"), "aria-label": t("lastPage"), disabled: page >= lastPage || busy === "open", onClick: () => openTable(sel, lastPage, pageOpts()) }, "▶|") : null,
 					React.createElement("span", { className: "dbt-muted" }, hasTotal ? (appliedFilters.length > 0 ? t("pageMatch", { n: total }) : t("pageTotal", { n: total })) : null),
 					React.createElement("span", { style: { flex: 1 } }),
 					preview && preview.truncated ? React.createElement("span", { className: "dbt-muted" }, t("previewTruncated")) : null,
-					supportsFilters ? React.createElement("button", {
-						className: "dbt-btn",
-						disabled: busy === "open",
-						onClick: () => {
-							const opening = !filtersOpen;
-							setFiltersOpen(opening);
-							if (opening && filters.length === 0) {
-								// 展开时带回当前条件：优先已提交条件（Navicat 语义：窗格展示生效条件），否则补一空行便于直接输入
-								if (appliedFilters.length > 0) {
-									setFilters(appliedFilters.map((f) => ({ ...f, logic: filterLogic, enabled: true }))); setFilterLogic(appliedLogic);
-								} else setFilters([{ column: (schema[0] || {}).name || "", op: "contains", value: "", logic: filterLogic, enabled: true }]);
-							}
-						},
-					}, t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : "")) : null,
 				) : null;
 				// 字段筛选窗格（Navicat「Filter & Sort」构建器布局）：工具条（添加条件/应用/清除）
 				// + 条件行「复选框 / 字段 / 操作符 / 值 / 行间 AND-OR / 删除」，行复选框启停条件，
@@ -3396,7 +3405,8 @@ window.__ModuleLoader__.load({
 							onClick: mentionSelToChat,
 						}, "@")) : null,
 					mentionNote ? React.createElement("span", { className: "dbt-muted", style: { flex: "none", maxWidth: 260 }, role: "status" }, mentionNote) : null,
-					hiddenGranted > 0 ? React.createElement("span", { className: "dbt-muted", style: { marginLeft: "auto", flex: "none" }, title: t("browseHiddenGrant", { n: hiddenGranted }) }, t("browseHiddenGrant", { n: hiddenGranted })) : null),
+					hiddenGranted > 0 ? React.createElement("span", { className: "dbt-muted", style: { marginLeft: "auto", flex: "none" }, title: t("browseHiddenGrant", { n: hiddenGranted }) }, t("browseHiddenGrant", { n: hiddenGranted })) : null,
+					filterToggle),
 				// 3) 结构/数据分段 + 内容区（flex:1 吃满剩余高度）
 				grantedConns.length === 0 ? null : React.createElement(
 					"div",

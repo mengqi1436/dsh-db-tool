@@ -193,18 +193,17 @@ describe('1 能力面与筛选窗格结构', () => {
 		expect([...T.FILTER_TWO_VALUES]).toEqual(['between', 'not_between']);
 	});
 
-	it('mysql：分页条有「筛选」入口；redis：无筛选入口（KV 型无行级筛选语义）', () => {
+	it('mysql：面包屑行有「筛选」入口（零新增高度）；redis：无筛选入口（KV 型无行级筛选语义）', () => {
 		const mysqlPane = renderPaneWithState();
-		const foot = byClass(mysqlPane, 'dbt-browse-footer')[0];
-		expect(collect(foot).some((e) => e.type === 'button' && flatText(e).includes('筛选'))).toBe(true);
+		const crumb = byClass(mysqlPane, 'dbt-browse-crumb')[0];
+		expect(collect(crumb).some((e) => e.type === 'button' && flatText(e).includes('筛选'))).toBe(true);
 		const redisPane = renderPaneWithState({ kind: 'redis' });
-		const foot2 = byClass(redisPane, 'dbt-browse-footer')[0];
-		expect(collect(foot2).some((e) => e.type === 'button' && flatText(e).includes('筛选'))).toBe(false);
+		expect(collect(byClass(redisPane, 'dbt-browse-crumb')[0]).some((e) => e.type === 'button' && flatText(e).includes('筛选'))).toBe(false);
 	});
 
 	it('点「筛选」展开窗格并补一空行（Navicat 构建器布局）：工具条 + 行复选框 + 字段/操作符下拉', () => {
 		const pane = renderPaneWithState();
-		const toggle = collect(byClass(pane, 'dbt-browse-footer')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
+		const toggle = collect(byClass(pane, 'dbt-browse-crumb')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
 		toggle.props.onClick();
 		const paneEl = paneOf(reactStub.rerender(T.BrowsePane, paneProps()))!;
 		expect(paneEl).toBeTruthy();
@@ -239,7 +238,7 @@ describe('1 能力面与筛选窗格结构', () => {
 
 	it('between 操作符出现第二个输入（上界）；is_null 无值输入', () => {
 		const pane = renderPaneWithState();
-		const toggle = collect(byClass(pane, 'dbt-browse-footer')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
+		const toggle = collect(byClass(pane, 'dbt-browse-crumb')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
 		toggle.props.onClick();
 		const paneEl = paneOf(reactStub.rerender(T.BrowsePane, paneProps()))!;
 		const opSelect = collect(paneEl).filter((e) => e.type === 'select')
@@ -345,7 +344,7 @@ describe('3 应用/清除/翻页请求契约', () => {
 	it('翻页沿用已提交筛选且不重拉计数（无 total=1）', () => {
 		const pane = renderPaneWithState({ applied: [{ column: 'name', op: 'contains', value: 'a' }] });
 		const foot = byClass(pane, 'dbt-browse-footer')[0];
-		const next = collect(foot).find((e) => e.type === 'button' && flatText(e).includes('下一页'))!;
+		const next = collect(foot).find((e) => e.type === 'button' && e.props['aria-label'] === '下一页')!;
 		next.props.onClick();
 		const u = lastPreviewUrl();
 		expect(JSON.parse(u.searchParams.get('filters')!)).toEqual([{ column: 'name', op: 'contains', value: 'a' }]);
@@ -356,7 +355,7 @@ describe('3 应用/清除/翻页请求契约', () => {
 		const pane = renderPaneWithState({ applied: [{ column: 'name', op: 'contains', value: 'a' }, { column: 'id', op: 'ge', value: '1' }] });
 		const foot = byClass(pane, 'dbt-browse-footer')[0];
 		expect(flatText(foot)).toContain('匹配 123 行');
-		const filterBtn = collect(foot).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
+		const filterBtn = collect(pane).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
 		expect(flatText(filterBtn)).toContain('2');
 	});
 
