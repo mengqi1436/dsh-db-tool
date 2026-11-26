@@ -210,7 +210,7 @@ describe('2 openTable 请求契约（search/total 参数）', () => {
 		const pane = renderPaneWithState({});
 		const footer = byClass(pane, 'dbt-browse-footer')[0];
 		expect(footer).toBeTruthy();
-		const next = collect(footer).find((e) => e.type === 'button' && flatText(e).includes('下一页'))!;
+		const next = collect(footer).find((e) => e.type === 'button' && e.props['aria-label'] === '下一页')!;
 		expect(next).toBeTruthy();
 		next.props.onClick();
 		const u = new URL(seenPreviewUrls[seenPreviewUrls.length - 1]!, 'http://x');
@@ -242,13 +242,14 @@ describe('2 openTable 请求契约（search/total 参数）', () => {
 /* ---------- 3. 分页条结构（有 total / 无 total） ---------- */
 
 describe('3 分页条结构', () => {
-	it('有 total：渲染 首页/末页/页码快跳输入/总行数', () => {
+	it('有 total：渲染 首页/末页图标 + 页码快跳输入 + 总行数（Navicat 记录条同构）', () => {
 		const pane = renderPaneWithState({ total: 123 });
 		const footer = byClass(pane, 'dbt-browse-footer')[0];
-		const texts = collect(footer).filter((e) => e.type === 'button').map((e) => flatText(e));
-		expect(texts.some((s) => s.includes('首页'))).toBe(true);
-		expect(texts.some((s) => s.includes('末页'))).toBe(true);
-		expect(texts.some((s) => s.includes('下一页'))).toBe(true);
+		const labels = collect(footer).filter((e) => e.type === 'button').map((e) => e.props['aria-label'] || flatText(e));
+		expect(labels).toContain('首页');
+		expect(labels).toContain('末页');
+		expect(labels).toContain('下一页');
+		expect(labels).toContain('上一页');
 		expect(collect(footer).some((e) => e.props.className === 'dbt-browse-jump')).toBe(true);
 		expect(flatText(footer)).toContain('共 123 行');
 	});
@@ -256,7 +257,7 @@ describe('3 分页条结构', () => {
 	it('末页直达最后一页（123 行 → 第 3 页）', () => {
 		const pane = renderPaneWithState({ total: 123 });
 		const footer = byClass(pane, 'dbt-browse-footer')[0];
-		const last = collect(footer).find((e) => e.type === 'button' && flatText(e).includes('末页'))!;
+		const last = collect(footer).find((e) => e.type === 'button' && e.props['aria-label'] === '末页')!;
 		last.props.onClick();
 		const off = new URL(seenPreviewUrls[seenPreviewUrls.length - 1]!, 'http://x').searchParams;
 		expect(off.get('offset')).toBe('100');
@@ -266,7 +267,7 @@ describe('3 分页条结构', () => {
 		const pane = renderPaneWithState({ total: null, kind: 'redis' });
 		const footer = byClass(pane, 'dbt-browse-footer')[0];
 		expect(collect(footer).some((e) => e.props.className === 'dbt-browse-jump')).toBe(false);
-		expect(collect(footer).some((e) => e.type === 'button' && flatText(e).includes('末页'))).toBe(false);
+		expect(collect(footer).some((e) => e.type === 'button' && e.props['aria-label'] === '末页')).toBe(false);
 		expect(flatText(footer)).toContain('第 3 页');
 		expect(collect(pane).some((e) => e.props.className === 'dbt-browse-search')).toBe(false);
 	});
