@@ -1,0 +1,6 @@
+[before] scene1 footer: 首页 | ‹ 上一页 | 第 | / 3 页 | 下一页 › | 末页 | 共 123 行 | 筛选
+[before] scene1 searchBox=1 filterBtn=1 colfilter=6
+[before] applied footer: 首页 | ‹ 上一页 | 第 | / 1 页 | 下一页 › | 末页 | 匹配 15 行 | 筛选 · 1
+[after] scene1 footer: 首页 | ‹ 上一页 | 第 | / 3 页 | 下一页 › | 末页 | 共 123 行 | 筛选
+[after] scene1 searchBox=0 filterBtn=1 colfilter=6
+[after] applied footer: 首页 | ‹ 上一页 | 第 | / 1 页 | 下一页 › | 末页 | 匹配 15 行 | 筛选 · 1

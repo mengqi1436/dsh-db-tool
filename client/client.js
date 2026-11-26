@@ -225,7 +225,6 @@ window.__ModuleLoader__.load({
 			pageTotal: "共 {n} 行",
 			pageMatch: "匹配 {n} 行",
 			pageJumpAria: "跳转到指定页",
-			cellSearchPlaceholder: "搜索字段内容，回车执行",
 			cellSearchClear: "清除",
 			searchNoMatch: "无匹配数据",
 			// 字段筛选（Navicat「Filter & Sort」对齐：逐字段条件 + 多字段联合）
@@ -525,7 +524,6 @@ window.__ModuleLoader__.load({
 			pageTotal: "{n} rows",
 			pageMatch: "{n} matches",
 			pageJumpAria: "Jump to page",
-			cellSearchPlaceholder: "Search cell content, press Enter",
 			cellSearchClear: "Clear",
 			searchNoMatch: "No matching rows",
 			// Per-column filters (Navicat "Filter & Sort" aligned)
@@ -1064,7 +1062,6 @@ window.__ModuleLoader__.load({
 				".dbt-browse-footer input:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
 				".dbt-browse-jump{width:64px;text-align:center;appearance:textfield;-moz-appearance:textfield;}",
 				".dbt-browse-jump::-webkit-outer-spin-button,.dbt-browse-jump::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}",
-				".dbt-browse-search{width:180px;}",
 				// 字段筛选窗格（Navicat「Filter & Sort」式条件行）
 				".dbt-filter-pane{border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;}",
 				".dbt-filter-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}",
@@ -3029,18 +3026,17 @@ window.__ModuleLoader__.load({
 			const [schema, setSchema] = React.useState([]);
 			const [preview, setPreview] = React.useState(null); // QueryResult
 			const [page, setPage] = React.useState(1);
-			const [total, setTotal] = React.useState(null); // 全量行数（表格总行数或搜索匹配行数；null=未知 → 无总页数模式）
-			const [search, setSearch] = React.useState(""); // 已提交的内容搜索关键字（""=未搜索）
-			const [searchInput, setSearchInput] = React.useState(""); // 搜索框输入值（提交前）
+			const [total, setTotal] = React.useState(null); // 全量行数（表格总行数或筛选匹配行数；null=未知 → 无总页数模式）
 			const [jumpInput, setJumpInput] = React.useState(""); // 页码跳转输入值（提交前，""=跟随当前页）
 			const [busy, setBusy] = React.useState("");
 			const [loadErr, setLoadErr] = React.useState(""); // 内容区加载失败（就地显示 + 重试）
 			// 字段筛选（Navicat「Filter & Sort」对齐）：draft=窗格编辑中；applied=已提交生效。
-			// 与内容搜索互斥：提交筛选清空搜索，提交搜索清空筛选（服务端两种谓词不叠加）。
+			// 内容查找统一走逐字段筛选（列头漏斗 / 筛选窗格），不再提供跨列搜索框。
 			const [filters, setFilters] = React.useState([]); // 草稿条件行 [{column, op, value, value2?}]
 			const [appliedFilters, setAppliedFilters] = React.useState([]); // 已提交条件
 			const [filterLogic, setFilterLogic] = React.useState("and"); // 草稿条件间逻辑 and|or
-			const [appliedLogic, setAppliedLogic] = React.useState("and"); // 已提交逻辑
+			const [appliedLogic, setAppliedLogic] = React.useState("and"); // 已提交逻辑（logics 缺省回退）
+			const [appliedLogics, setAppliedLogics] = React.useState([]); // 已提交逐行连接符
 			const [filtersOpen, setFiltersOpen] = React.useState(false); // 筛选窗格展开
 			const openSeq = React.useRef(0); // 请求序号守卫
 			// @引用反馈（降级路径专用）：成功插入时输入框立即可见，无需额外提示
@@ -3093,28 +3089,25 @@ window.__ModuleLoader__.load({
 			}, [grantedConns]); // eslint-disable-line
 
 			// 请求序号守卫（沿用面板）：快速切表/翻页时丢弃晚到旧响应，防止旧数据覆盖新选中项。
-			// opts.search 缺省 = 切表/重试（重置搜索 + 拉总行数）；给值（含 ""）= 翻页/提交搜索；
-			// opts.filters = { list, logic } 已提交字段筛选（与 search 互斥，提交方各自清空对方）；
+			// opts.filters = { list, logic, logics } 已提交字段筛选（Navicat 式逐字段条件）；
 			// opts.withTotal 仅在明确给值时生效（翻页沿用已存 total 省一次 COUNT；缺省且未给
-			// search/filters = 新表加载 → 拉计数）。
+			// filters = 新表加载 → 拉计数）。
 			const openTable = React.useCallback((s, pg, opts) => {
 				if (!s || !projectPath) return;
 				const o = opts || {};
-				const kw = o.search !== undefined ? o.search : "";
 				const fl = o.filters && Array.isArray(o.filters.list) && o.filters.list.length > 0 ? o.filters : null;
-				const withTotal = o.withTotal !== undefined ? !!o.withTotal : (o.search === undefined && !fl);
+				const withTotal = o.withTotal !== undefined ? !!o.withTotal : !fl;
 				// PG 系跨库：database 传 "库名.schema"；其它库传库名
 				const dbRef = s.schemaName ? s.db + "." + s.schemaName : s.db;
 				const seq = ++openSeq.current;
 				setBusy("open"); setLoadErr("");
 				Promise.all([
 					api("schema" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name })),
-					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE, search: kw || undefined, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, logics: fl && fl.logics && fl.logics.length ? JSON.stringify(fl.logics) : undefined, total: withTotal ? 1 : undefined })),
+					api("preview" + qs({ project: projectPath, connId: s.connId, database: dbRef, table: s.table.name, limit: PAGE_SIZE, offset: ((pg || 1) - 1) * PAGE_SIZE, filters: fl ? JSON.stringify(fl.list) : undefined, logic: fl ? fl.logic : undefined, logics: fl && fl.logics && fl.logics.length ? JSON.stringify(fl.logics) : undefined, total: withTotal ? 1 : undefined })),
 				])
 					.then(([sch, prev]) => {
 						if (seq !== openSeq.current) return; // 旧请求晚到，丢弃
 						setSchema(sch || []); setPreview(prev); setPage(pg || 1);
-						setSearch(kw);
 						if (withTotal) setTotal(prev && prev.total != null ? prev.total : null); // 适配器无 countRows（如 redis）保持 null
 					})
 					// 面板内错误就地显示（不走面板顶部错误区）
@@ -3123,14 +3116,14 @@ window.__ModuleLoader__.load({
 			}, [projectPath]);
 			React.useEffect(() => {
 				// 切表/重选：筛选草稿与生效条件一并复位（筛选只对当前表有语义）
-				setFilters([]); setAppliedFilters([]); setFilterLogic("and"); setAppliedLogic("and"); setFiltersOpen(false);
+				setFilters([]); setAppliedFilters([]); setAppliedLogics([]); setFilterLogic("and"); setAppliedLogic("and"); setFiltersOpen(false);
 				if (sel) openTable(sel, 1);
-				else { setSearch(""); setSearchInput(""); setJumpInput(""); setTotal(null); } // 取消选中（切项目/授权收窄）同步清空搜索态
+				else { setJumpInput(""); setTotal(null); } // 取消选中（切项目/授权收窄）同步清空内容区状态
 			}, [sel]); // eslint-disable-line
 			React.useEffect(() => { setJumpInput(""); }, [page]); // 翻页后跳转输入回到「跟随当前页」
 
 			// 字段筛选（Navicat「Filter & Sort」式窗格）：草稿行编辑 / 应用 / 清除。
-			// 应用与内容搜索互斥：提交筛选清空搜索，提交搜索清空筛选（服务端两种谓词不叠加）。
+			// 应用内容查找统一走逐字段筛选（列头漏斗 / 筛选窗格），不再提供跨列搜索框。
 			// 行复选框未勾选的条件不参与提交（Navicat 构建器启停语义）；全部取消勾选 = 清除筛选。
 			const applyFilters = () => {
 				if (!sel || !sel.connId) return;
@@ -3138,13 +3131,12 @@ window.__ModuleLoader__.load({
 				if (rows.length === 0) { clearFilters(); return; }
 				const list = rows.map(({ column, op, value, value2 }) => ({ column, op, value, value2 }));
 				const logics = rows.slice(0, -1).map((r) => (r.logic === "or" ? "or" : "and"));
-				setAppliedFilters(list); setAppliedLogic(filterLogic);
-				setSearch(""); setSearchInput("");
+				setAppliedFilters(list); setAppliedLogic(filterLogic); setAppliedLogics(logics);
 				openTable(sel, 1, { filters: { list, logic: filterLogic, logics }, withTotal: true });
 			};
 			const clearFilters = () => {
 				const had = appliedFilters.length > 0;
-				setFilters([]); setAppliedFilters([]); setFiltersOpen(false);
+				setFilters([]); setAppliedFilters([]); setAppliedLogics([]); setFiltersOpen(false);
 				if (had) openTable(sel, 1); // 有生效条件才重拉（复位为全量视图并恢复表格总行数）
 			};
 			const addFilterFor = (col) => {
@@ -3190,8 +3182,8 @@ window.__ModuleLoader__.load({
 						undefined, "dbt-browse-tablewrap");
 				}
 				if (!preview || !preview.rows || preview.rows.length === 0) {
-					// 搜索/筛选激活且零匹配：明示「无匹配」并就地给清除入口（否则分页条不渲染，无法退出）
-					if (search || appliedFilters.length > 0) {
+					// 筛选激活且零匹配：明示「无匹配」并就地给清除入口（否则分页条不渲染，无法退出）
+					if (appliedFilters.length > 0) {
 						return React.createElement("div", { className: "dbt-browse-empty", style: { flex: 1 } },
 							React.createElement("div", null, t("searchNoMatch")),
 							React.createElement("button", { className: "dbt-btn", onClick: () => {
@@ -3204,13 +3196,11 @@ window.__ModuleLoader__.load({
 				// Navicat 式单元格网格：kind/可编辑性由当前连接与授权决定（rw=可编辑），保存后重拉当前页
 				const conn = grantedConns.find((c) => c.id === sel.connId) || conns.find((c) => c.id === sel.connId);
 				const grant = (grants || []).find((g) => g.connId === sel.connId);
-				// 内容搜索能力面：redis 为 KV 型（服务端无行级搜索语义），不显示搜索框；其余库已实现 searchRows
-				const supportsSearch = !!conn && conn.kind !== "redis";
-				// 字段筛选与内容搜索同一能力面（服务端 filterRows 同为非 Redis 实现）
-				const supportsFilters = supportsSearch;
-				// 翻页沿用已提交状态：搜索态带 search，筛选态带 filters（两者互斥）
-				const activeFilters = appliedFilters.length > 0 ? { list: appliedFilters, logic: appliedLogic } : null;
-				const pageOpts = () => (search ? { search } : activeFilters ? { filters: activeFilters } : {});
+				// 字段筛选能力面：redis 为 KV 型（服务端无行级筛选语义），不显示筛选入口；其余库已实现 filterRows
+				// 翻页沿用已提交筛选条件
+				const supportsFilters = !!conn && conn.kind !== "redis";
+				const activeFilters = appliedFilters.length > 0 ? { list: appliedFilters, logic: appliedLogic, logics: appliedLogics } : null;
+				const pageOpts = () => (activeFilters ? { filters: activeFilters } : { withTotal: false });
 				const hasTotal = total != null && total >= 0;
 				const lastPage = hasTotal ? lastPageOf(total, PAGE_SIZE) : null;
 				const jumpCommit = () => {
@@ -3251,7 +3241,7 @@ window.__ModuleLoader__.load({
 						onClick: () => openTable(sel, page + 1, pageOpts()),
 					}, t("nextPage") + " ›"),
 					hasTotal ? React.createElement("button", { className: "dbt-btn", disabled: page >= lastPage || busy === "open", onClick: () => openTable(sel, lastPage, pageOpts()) }, t("lastPage")) : null,
-					React.createElement("span", { className: "dbt-muted" }, hasTotal ? (search || appliedFilters.length > 0 ? t("pageMatch", { n: total }) : t("pageTotal", { n: total })) : null),
+					React.createElement("span", { className: "dbt-muted" }, hasTotal ? (appliedFilters.length > 0 ? t("pageMatch", { n: total }) : t("pageTotal", { n: total })) : null),
 					React.createElement("span", { style: { flex: 1 } }),
 					preview && preview.truncated ? React.createElement("span", { className: "dbt-muted" }, t("previewTruncated")) : null,
 					supportsFilters ? React.createElement("button", {
@@ -3268,29 +3258,6 @@ window.__ModuleLoader__.load({
 							}
 						},
 					}, t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : "")) : null,
-					supportsSearch ? React.createElement("input", {
-						className: "dbt-browse-search",
-						type: "text",
-						placeholder: t("cellSearchPlaceholder"),
-						value: searchInput,
-						disabled: busy === "open",
-						"aria-label": t("cellSearchPlaceholder"),
-						onChange: (e) => setSearchInput(e.target.value),
-						onKeyDown: (e) => {
-							if (e.key !== "Enter") return;
-							const kw = e.currentTarget.value.trim();
-							if (kw) {
-								// 与字段筛选互斥：提交搜索清空已生效条件
-								setFilters([]); setAppliedFilters([]); setFiltersOpen(false);
-								openTable(sel, 1, { search: kw, withTotal: true });
-							} else if (search) { setSearchInput(""); openTable(sel, 1, { search: "", withTotal: true }); }
-						},
-					}) : null,
-					supportsSearch && (searchInput.trim() !== "" || search !== "") ? React.createElement("button", {
-						className: "dbt-btn",
-						disabled: busy === "open",
-						onClick: () => { setSearchInput(""); if (search) openTable(sel, 1, { search: "", withTotal: true }); },
-					}, t("cellSearchClear")) : null,
 				) : null;
 				// 字段筛选窗格（Navicat「Filter & Sort」构建器布局）：工具条（添加条件/应用/清除）
 				// + 条件行「复选框 / 字段 / 操作符 / 值 / 行间 AND-OR / 删除」，行复选框启停条件，

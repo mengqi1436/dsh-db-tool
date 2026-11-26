@@ -129,8 +129,8 @@ beforeAll(() => {
 /* ---------- 状态注入 ---------- */
 
 // BrowsePane useState 声明序（client.js 同步维护）：sel, view, schema, preview, page,
-// total, search, searchInput, jumpInput, busy, loadErr, filters, appliedFilters,
-// filterLogic, appliedLogic, filtersOpen
+// total, jumpInput, busy, loadErr, filters, appliedFilters, filterLogic, appliedLogic,
+// appliedLogics, filtersOpen
 const SEL = { connId: 'c-ok', db: 'app', schemaName: null, table: { name: 'users', type: 'TABLE' } };
 const SCHEMA = [
 	{ name: 'id', dataType: 'int', nullable: false, key: 'PRI' },
@@ -147,16 +147,15 @@ function renderPaneWithState(opts: { kind?: string; draft?: any[]; applied?: any
 	reactStub.slots.set('s3', { columns: ['id'], rows: [[1]], rowCount: 1 }); // preview
 	reactStub.slots.set('s4', 1); // page
 	reactStub.slots.set('s5', 123); // total
-	reactStub.slots.set('s6', ''); // search
-	reactStub.slots.set('s7', ''); // searchInput
-	reactStub.slots.set('s8', ''); // jumpInput
-	reactStub.slots.set('s9', ''); // busy
-	reactStub.slots.set('s10', ''); // loadErr
-	reactStub.slots.set('s11', opts.draft ?? opts.applied?.slice() ?? []); // filters（草稿）
-	reactStub.slots.set('s12', opts.applied?.slice() ?? []); // appliedFilters
-	reactStub.slots.set('s13', opts.appliedLogic ?? 'and'); // filterLogic
-	reactStub.slots.set('s14', opts.appliedLogic ?? 'and'); // appliedLogic
-	reactStub.slots.set('s15', opts.open ?? false); // filtersOpen
+	reactStub.slots.set('s6', ''); // jumpInput
+	reactStub.slots.set('s7', ''); // busy
+	reactStub.slots.set('s8', ''); // loadErr
+	reactStub.slots.set('s9', opts.draft ?? opts.applied?.slice() ?? []); // filters（草稿）
+	reactStub.slots.set('s10', opts.applied?.slice() ?? []); // appliedFilters
+	reactStub.slots.set('s11', opts.appliedLogic ?? 'and'); // filterLogic
+	reactStub.slots.set('s12', opts.appliedLogic ?? 'and'); // appliedLogic
+	reactStub.slots.set('s13', []); // appliedLogics
+	reactStub.slots.set('s14', opts.open ?? false); // filtersOpen
 	return reactStub.rerender(T.BrowsePane, paneProps(opts.kind));
 }
 
@@ -308,7 +307,6 @@ describe('3 应用/清除/翻页请求契约', () => {
 		expect(u.searchParams.get('logic')).toBe('and');
 		expect(u.searchParams.get('logics')).toBeNull(); // 单行无连接符
 		expect(u.searchParams.get('total')).toBe('1');
-		expect(u.searchParams.get('search')).toBeNull();
 		expect(u.searchParams.get('offset')).toBe('0');
 	});
 
@@ -349,7 +347,6 @@ describe('3 应用/清除/翻页请求契约', () => {
 		const u = lastPreviewUrl();
 		expect(JSON.parse(u.searchParams.get('filters')!)).toEqual([{ column: 'name', op: 'contains', value: 'a' }]);
 		expect(u.searchParams.get('total')).toBeNull();
-		expect(u.searchParams.get('search')).toBeNull();
 	});
 
 	it('筛选计数展示「匹配 n 行」；筛选入口带生效条件数', () => {
