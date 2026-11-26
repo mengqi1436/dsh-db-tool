@@ -1,38 +1,38 @@
 {
   "after-dark-1-page1.png": {
-    "textPixelRatio": 0.0182
+    "textPixelRatio": 0.0197
   },
   "after-dark-2-pane.png": {
-    "textPixelRatio": 0.0218
+    "textPixelRatio": 0.022
   },
   "after-dark-3-applied.png": {
-    "textPixelRatio": 0.0199
+    "textPixelRatio": 0.0198
   },
   "after-light-1-page1.png": {
-    "textPixelRatio": 0.0252
+    "textPixelRatio": 0.0263
   },
   "after-light-2-pane.png": {
-    "textPixelRatio": 0.034
+    "textPixelRatio": 0.0334
   },
   "after-light-3-applied.png": {
     "textPixelRatio": 0.0267
   },
   "before-dark-1-page1.png": {
-    "textPixelRatio": 0.0183
+    "textPixelRatio": 0.0182
   },
   "before-dark-2-pane.png": {
-    "textPixelRatio": 0.0243
+    "textPixelRatio": 0.0218
   },
   "before-dark-3-applied.png": {
-    "textPixelRatio": 0.0164
+    "textPixelRatio": 0.0199
   },
   "before-light-1-page1.png": {
-    "textPixelRatio": 0.025
+    "textPixelRatio": 0.0252
   },
   "before-light-2-pane.png": {
-    "textPixelRatio": 0.0359
+    "textPixelRatio": 0.034
   },
   "before-light-3-applied.png": {
-    "textPixelRatio": 0.0235
+    "textPixelRatio": 0.0267
   }
 }

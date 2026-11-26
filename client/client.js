@@ -1075,8 +1075,7 @@ window.__ModuleLoader__.load({
 				".dbt-filter-row .dbt-btn{padding:0 8px;flex:none;}",
 				// 分页条单行紧凑（窄面板横向滚动兜底）：按钮 24px 高、短内距，避免多行换行压占数据区
 				".dbt-browse-footer .dbt-btn{height:24px;min-width:28px;padding:0 6px;font-size:12px;flex:none;justify-content:center;}",
-				".dbt-browse-gridbar{display:flex;align-items:center;gap:8px;flex:none;}",
-				".dbt-browse-gridbar .dbt-btn{height:24px;padding:0 8px;font-size:12px;}",
+				".dbt-browse-crumb .dbt-btn{height:24px;padding:0 8px;font-size:12px;flex:none;margin-left:0;}",
 				".dbt-browse-root .dbt-browse-tablewrap{border-radius:0;}",
 				".dbt-browse-footer .dbt-muted{white-space:nowrap;}",
 				".dbt-colfilter{border:none;background:transparent;color:inherit;cursor:pointer;padding:0 2px;margin-left:2px;font-size:10px;line-height:1;opacity:.55;}",
@@ -3094,6 +3093,24 @@ window.__ModuleLoader__.load({
 				return (conns || []).filter((c) => c && ids.has(c.id));
 			}, [conns, grants]);
 			const hiddenGranted = (conns || []).length - grantedConns.length;
+			// 筛选开关并入面包屑行右侧（零新增高度）：不设独立工具条，任何状态下都不新增横条遮挡数据
+			const crumbConn = sel ? (grantedConns.find((c) => c.id === sel.connId) || conns.find((c) => c.id === sel.connId)) : null;
+			const filterToggle = crumbConn && crumbConn.kind !== "redis" && view === "preview" && !loadErr ? React.createElement("button", {
+				className: "dbt-btn" + (appliedFilters.length > 0 ? " primary" : ""),
+				style: { marginLeft: hiddenGranted > 0 ? "8px" : "auto", flex: "none" },
+				title: t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : ""),
+				disabled: busy === "open",
+				onClick: () => {
+					const opening = !filtersOpen;
+					setFiltersOpen(opening);
+					if (opening && filters.length === 0) {
+						// 展开时带回当前条件：优先已提交条件（Navicat 语义：窗格展示生效条件），否则补一空行便于直接输入
+						if (appliedFilters.length > 0) {
+							setFilters(appliedFilters.map((f) => ({ ...f, logic: filterLogic, enabled: true }))); setFilterLogic(appliedLogic);
+						} else setFilters([{ column: (schema[0] || {}).name || "", op: "contains", value: "", logic: filterLogic, enabled: true }]);
+					}
+				},
+			}, "▽ " + t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : "")) : null;
 			// 面包屑用的连接显示名（拿不到就回落 id，不编造）
 			const connNameOf = (connId) => {
 				const c = (conns || []).find((x) => x.id === connId);
@@ -3323,29 +3340,9 @@ window.__ModuleLoader__.load({
 					}),
 					),
 				) : null;
-				// 网格上方工具条（Navicat 数据编辑器同构）：筛选开关紧贴网格上方，不在底部记录条里
-				const gridToolbar = supportsFilters && view === "preview" && !loadErr ? React.createElement(
-					"div",
-					{ className: "dbt-browse-gridbar" },
-					React.createElement("button", {
-						className: "dbt-btn" + (appliedFilters.length > 0 ? " primary" : ""),
-						disabled: busy === "open",
-						onClick: () => {
-							const opening = !filtersOpen;
-							setFiltersOpen(opening);
-							if (opening && filters.length === 0) {
-								// 展开时带回当前条件：优先已提交条件（Navicat 语义：窗格展示生效条件），否则补一空行便于直接输入
-								if (appliedFilters.length > 0) {
-									setFilters(appliedFilters.map((f) => ({ ...f, logic: filterLogic, enabled: true }))); setFilterLogic(appliedLogic);
-								} else setFilters([{ column: (schema[0] || {}).name || "", op: "contains", value: "", logic: filterLogic, enabled: true }]);
-							}
-						},
-					}, "▽ " + t("filterTitle") + (appliedFilters.length > 0 ? " · " + appliedFilters.length : "")),
-				) : null;
 				return React.createElement(
 					"div",
 					{ style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 } },
-					gridToolbar,
 					filterPane,
 					React.createElement(PreviewGrid, {
 						preview, schema,
@@ -3408,7 +3405,8 @@ window.__ModuleLoader__.load({
 							onClick: mentionSelToChat,
 						}, "@")) : null,
 					mentionNote ? React.createElement("span", { className: "dbt-muted", style: { flex: "none", maxWidth: 260 }, role: "status" }, mentionNote) : null,
-					hiddenGranted > 0 ? React.createElement("span", { className: "dbt-muted", style: { marginLeft: "auto", flex: "none" }, title: t("browseHiddenGrant", { n: hiddenGranted }) }, t("browseHiddenGrant", { n: hiddenGranted })) : null),
+					hiddenGranted > 0 ? React.createElement("span", { className: "dbt-muted", style: { marginLeft: "auto", flex: "none" }, title: t("browseHiddenGrant", { n: hiddenGranted }) }, t("browseHiddenGrant", { n: hiddenGranted })) : null,
+					filterToggle),
 				// 3) 结构/数据分段 + 内容区（flex:1 吃满剩余高度）
 				grantedConns.length === 0 ? null : React.createElement(
 					"div",

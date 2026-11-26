@@ -193,17 +193,17 @@ describe('1 能力面与筛选窗格结构', () => {
 		expect([...T.FILTER_TWO_VALUES]).toEqual(['between', 'not_between']);
 	});
 
-	it('mysql：网格上方工具条有「筛选」入口；redis：无筛选入口（KV 型无行级筛选语义）', () => {
+	it('mysql：面包屑行有「筛选」入口（零新增高度）；redis：无筛选入口（KV 型无行级筛选语义）', () => {
 		const mysqlPane = renderPaneWithState();
-		const bar = byClass(mysqlPane, 'dbt-browse-gridbar')[0];
-		expect(collect(bar).some((e) => e.type === 'button' && flatText(e).includes('筛选'))).toBe(true);
+		const crumb = byClass(mysqlPane, 'dbt-browse-crumb')[0];
+		expect(collect(crumb).some((e) => e.type === 'button' && flatText(e).includes('筛选'))).toBe(true);
 		const redisPane = renderPaneWithState({ kind: 'redis' });
-		expect(byClass(redisPane, 'dbt-browse-gridbar')).toHaveLength(0);
+		expect(collect(byClass(redisPane, 'dbt-browse-crumb')[0]).some((e) => e.type === 'button' && flatText(e).includes('筛选'))).toBe(false);
 	});
 
 	it('点「筛选」展开窗格并补一空行（Navicat 构建器布局）：工具条 + 行复选框 + 字段/操作符下拉', () => {
 		const pane = renderPaneWithState();
-		const toggle = collect(byClass(pane, 'dbt-browse-gridbar')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
+		const toggle = collect(byClass(pane, 'dbt-browse-crumb')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
 		toggle.props.onClick();
 		const paneEl = paneOf(reactStub.rerender(T.BrowsePane, paneProps()))!;
 		expect(paneEl).toBeTruthy();
@@ -238,7 +238,7 @@ describe('1 能力面与筛选窗格结构', () => {
 
 	it('between 操作符出现第二个输入（上界）；is_null 无值输入', () => {
 		const pane = renderPaneWithState();
-		const toggle = collect(byClass(pane, 'dbt-browse-gridbar')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
+		const toggle = collect(byClass(pane, 'dbt-browse-crumb')[0]).find((e) => e.type === 'button' && flatText(e).includes('筛选'))!;
 		toggle.props.onClick();
 		const paneEl = paneOf(reactStub.rerender(T.BrowsePane, paneProps()))!;
 		const opSelect = collect(paneEl).filter((e) => e.type === 'select')

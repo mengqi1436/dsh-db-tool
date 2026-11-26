@@ -1,0 +1,1 @@
+[after] footer=468x36 lines~1 tableTop=474 tableBottom=2153 viewportH=774 footerBg=rgb(255, 255, 255)
