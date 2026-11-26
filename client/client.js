@@ -1056,7 +1056,7 @@ window.__ModuleLoader__.load({
 				".dbt-browse-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}",
 				".dbt-browse-tablewrap{flex:1 1 auto;min-height:120px;overflow:auto;border:none;border-radius:var(--dbt-radius-card);background:var(--dbt-surface);}",
 				// 页脚：与工具栏同一控件高度体系，内部按钮/文字垂直居中对齐
-				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:8px;min-height:calc(var(--dbt-ctrl-h,28px) + 16px);box-sizing:border-box;padding:8px 12px;background:var(--dbt-surface);border-radius:var(--dbt-radius-ctrl);flex-wrap:wrap;}",
+				".dbt-browse-footer{flex:none;display:flex;align-items:center;gap:6px;min-height:36px;box-sizing:border-box;padding:4px 8px;background:var(--dsw-alias-bg-base,var(--dbt-canvas-solid));border-radius:var(--dbt-radius-ctrl);flex-wrap:nowrap;overflow-x:auto;}",
 				// 分页快跳与内容搜索输入：填充式等高控件（同 .dbt-row input 视觉），窄面板可换行
 				".dbt-browse-footer input{flex:none;height:var(--dbt-ctrl-h,28px);box-sizing:border-box;background:var(--dbt-surface-strong);border:none;color:inherit;border-radius:var(--dbt-radius-ctrl);padding:0 10px;font-size:12px;font-family:inherit;}",
 				".dbt-browse-footer input:focus{outline:2px solid var(--dbt-accent);outline-offset:-1px;}",
@@ -1073,6 +1073,9 @@ window.__ModuleLoader__.load({
 				".dbt-filter-row.dbt-filter-off{opacity:.45;}",
 				".dbt-filter-row .dbt-filter-logic{width:80px;flex:none;}",
 				".dbt-filter-row .dbt-btn{padding:0 8px;flex:none;}",
+				// 分页条单行紧凑（窄面板横向滚动兜底）：按钮 24px 高、短内距，避免多行换行压占数据区
+				".dbt-browse-footer .dbt-btn{height:24px;padding:0 8px;font-size:12px;flex:none;}",
+				".dbt-browse-footer .dbt-muted{white-space:nowrap;}",
 				".dbt-colfilter{border:none;background:transparent;color:inherit;cursor:pointer;padding:0 2px;margin-left:2px;font-size:10px;line-height:1;opacity:.55;}",
 				".dbt-colfilter.active{opacity:1;font-weight:700;}",
 				"@media (hover:hover) and (pointer:fine){.dbt-colfilter:hover{opacity:1;}}",
