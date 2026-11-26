@@ -1063,13 +1063,16 @@ window.__ModuleLoader__.load({
 				".dbt-browse-jump{width:64px;text-align:center;appearance:textfield;-moz-appearance:textfield;}",
 				".dbt-browse-jump::-webkit-outer-spin-button,.dbt-browse-jump::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}",
 				// 字段筛选窗格（Navicat「Filter & Sort」式条件行）
-				".dbt-filter-pane{border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;}",
-				".dbt-filter-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}",
+				// Navicat 构建器密度：窗格不挤占数据区（条件行区限高内部滚动）、行单行不换行、控件定宽对齐
+				".dbt-filter-pane{border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-card);padding:6px;display:flex;flex-direction:column;gap:4px;font-size:12px;}",
+				".dbt-filter-rows{display:flex;flex-direction:column;gap:4px;max-height:200px;overflow:auto;}",
+				".dbt-filter-row{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;}",
 				".dbt-filter-row select,.dbt-filter-row input{height:24px;box-sizing:border-box;border:1px solid var(--dbt-separator);border-radius:var(--dbt-radius-ctrl);background:var(--dbt-surface);color:inherit;font-size:12px;padding:0 4px;}",
-				".dbt-filter-row select{max-width:160px;}",
-				".dbt-filter-row input{flex:1 1 140px;min-width:100px;max-width:260px;}",
+				".dbt-filter-row select{width:140px;flex:0 1 auto;min-width:0;}",
+				".dbt-filter-row input{flex:1 1 120px;min-width:80px;}",
 				".dbt-filter-row.dbt-filter-off{opacity:.45;}",
-				".dbt-filter-row .dbt-filter-logic{width:92px;flex:none;}",
+				".dbt-filter-row .dbt-filter-logic{width:80px;flex:none;}",
+				".dbt-filter-row .dbt-btn{padding:0 8px;flex:none;}",
 				".dbt-colfilter{border:none;background:transparent;color:inherit;cursor:pointer;padding:0 2px;margin-left:2px;font-size:10px;line-height:1;opacity:.55;}",
 				".dbt-colfilter.active{opacity:1;font-weight:700;}",
 				"@media (hover:hover) and (pointer:fine){.dbt-colfilter:hover{opacity:1;}}",
@@ -3282,7 +3285,8 @@ window.__ModuleLoader__.load({
 						React.createElement("button", { className: "dbt-btn primary", disabled: busy === "open" || filters.length === 0, onClick: applyFilters }, t("filterApply")),
 						React.createElement("button", { className: "dbt-btn", disabled: busy === "open", onClick: clearFilters }, t("filterClear")),
 					),
-					// 条件行：复选框(启停) / 字段 / 操作符 / 值（between 双值；in 提示逗号分隔）/ 行间 AND-OR / 删除
+					// 条件行区（限高内部滚动，不挤占数据区）：复选框(启停) / 字段 / 操作符 / 值（between 双值；in 提示逗号分隔）/ 行间 AND-OR / 删除
+					React.createElement("div", { className: "dbt-filter-rows" },
 					filters.map((f, i) => {
 						const colOpts = schema.some((c) => c.name === f.column) ? schema : schema.concat([{ name: f.column }]);
 						return React.createElement("div", { className: "dbt-filter-row" + (f.enabled === false ? " dbt-filter-off" : ""), key: i },
@@ -3320,6 +3324,7 @@ window.__ModuleLoader__.load({
 							React.createElement("button", { className: "dbt-btn", onClick: () => removeFilterRow(i), "aria-label": t("close") }, "×"),
 						);
 					}),
+					),
 				) : null;
 				return React.createElement(
 					"div",
