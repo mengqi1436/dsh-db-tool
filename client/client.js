@@ -2386,32 +2386,39 @@ window.__ModuleLoader__.load({
 					await props.reload();
 				});
 			}
-			// 模式徽标：语义色描边胶囊（rw=系统绿成功语义、ro=次级灰中性），颜色+文字双编码；
+			// 授权语义色（三态，与授权模式一一同色）：未授权=灰（中性/不可用）、只读=绿（安全）、
+			// 读写=红（可写=高风险，与语句确认弹窗目标条 rw=danger 同语义）；复用既有 token，light 反转自动跟随
+			const MODE_TONES = {
+				"": "var(--dbt-text-secondary, rgba(235,235,245,.6))",
+				ro: "var(--dbt-success, #30d158)",
+				rw: "var(--dbt-danger, #ff453a)",
+			};
+			// 模式徽标：语义色描边胶囊（颜色+文字双编码），三态都渲染（未授权也显灰徽标，不再留空）；
 			// 描边胶囊复用 NULL chip 语言（11px/600、1px 8px、999px），light 模式自动跟 token 反转
 			function modeBadge(m) {
-				if (m !== "ro" && m !== "rw") return null;
-				const color = m === "rw" ? "var(--dbt-success, #30d158)" : "var(--dbt-text-secondary, rgba(235,235,245,.6))";
+				if (!(m in MODE_TONES)) return null;
 				return React.createElement("span", {
 					"aria-hidden": "true",
 					style: {
 						flex: "none",
-						border: "1px solid " + color,
-						color: color,
+						border: "1px solid " + MODE_TONES[m],
+						color: MODE_TONES[m],
 						borderRadius: "999px",
 						padding: "1px 8px",
 						fontSize: "var(--dbt-caption, 11px)",
 						fontWeight: 600,
 						lineHeight: 1.45,
 					},
-				}, m === "rw" ? t("modeBadgeRw") : t("modeBadgeRo"));
+				}, m === "rw" ? t("modeBadgeRw") : m === "ro" ? t("modeBadgeRo") : t("modeNone"));
 			}
 			// 授权卡片（对齐连接管理卡片语言）：头行 kind 胶囊（带数据库图标）+ 名称 + 模式徽标，
-			// 地址副行帮助区分同名连接；seg 为权威状态源，徽标 aria-hidden 免重复播报
+			// 地址副行帮助区分同名连接；整卡描边与徽标同色（三态着色，一眼可辨授权等级）；
+			// seg 为权威状态源，徽标 aria-hidden 免重复播报
 			function grantCard(c) {
 				const m = modeOf(c.id);
 				return React.createElement(
 					"div",
-					{ className: "dbt-conncard", key: c.id },
+					{ className: "dbt-conncard", key: c.id, style: { borderColor: MODE_TONES[m] } },
 					React.createElement(
 						"div",
 						{ className: "dbt-conncard-head" },

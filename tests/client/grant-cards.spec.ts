@@ -4,7 +4,8 @@
  * 覆盖（授权视图从 inset grouped 行改为连接管理同款卡片）：
  *  1) 渲染结构：不再渲染 dbt-group/dbt-listrow 行；按数据库类型分组小节（dbt-kindgroup）+
  *     auto-fill 卡片网格（dbt-conncards/dbt-conncard），PG 显示简称；
- *  2) 卡片头行：kind 胶囊（带数据库图标 svg）+ 名称 + 模式徽标（ro/rw 才有，aria-hidden）；
+ *  2) 卡片头行：kind 胶囊（带数据库图标 svg）+ 名称 + 模式徽标（三态着色：未授权灰/只读绿/读写红，
+ *     卡片描边与徽标同色，aria-hidden）；
  *  3) 地址副行：safeUrl / host:port 单行省略 + title 全文；
  *  4) 授权 seg：整卡宽三段均分（role=radiogroup/aria-checked 契约不变），当前模式高亮；
  *  5) 授权链路不变：seg 点击 → PUT/DELETE /grants → reload；busy=grant 时禁用；
@@ -182,19 +183,31 @@ describe('1 渲染结构：授权视图卡片化（对齐连接管理）', () =>
 		expect(heads).toEqual(['mysql1', 'PG1', 'redis1']);
 	});
 
-	it('卡片头行：kind 胶囊带数据库图标 + 名称 + 模式徽标（ro/rw 才有徽标且 aria-hidden）', () => {
+	it('卡片头行：kind 胶囊带数据库图标 + 名称 + 模式徽标（三态着色，卡片描边同色，aria-hidden）', () => {
 		const pane = renderGrants({ grants: [{ connId: 'c-pg', mode: 'rw' }, { connId: 'c-my', mode: 'ro' }] });
 		const cardOf = (name: string) => byClass(pane, 'dbt-conncard').find((c) => flatText(c).includes(name))!;
 		const chipOf = (card: El) => collect(card).find((e) => typeof e.props.className === 'string' && e.props.className.includes('dbt-kindchip'))!;
 		// kind 胶囊带图标（svg 子元素）与简称
 		expect(flatText(chipOf(cardOf('生产 PG')))).toContain('PG');
 		expect(chipOf(cardOf('生产 PG')).children.some((c: any) => c && c.type === 'svg')).toBe(true);
-		// 徽标：pg=rw 绿「读写」、my=ro 灰「只读」、rd=未授权无徽标；徽标均为 aria-hidden（seg 是权威状态源）
-		const isBadge = (e: El) => e.type === 'span' && e.props['aria-hidden'] === 'true' && (flatText(e) === '读写' || flatText(e) === '只读');
+		// 徽标三态着色：pg=rw 红「读写」、my=ro 绿「只读」、rd=未授权 灰「未授权」；徽标均 aria-hidden（seg 是权威状态源）
+		const badgeTexts = ['未授权', '只读', '读写'];
+		const isBadge = (e: El) => e.type === 'span' && e.props['aria-hidden'] === 'true' && badgeTexts.includes(flatText(e));
 		const badges = collect(pane).filter(isBadge);
-		expect(badges.map(flatText).sort()).toEqual(['只读', '读写']);
-		// 未授权卡：无徽标（seg 里的「未授权」radio 仍照常渲染）
-		expect(collect(cardOf('缓存 Redis')).find(isBadge)).toBeUndefined();
+		expect(badges.map(flatText).sort()).toEqual(['只读', '未授权', '读写']);
+		// 颜色+文字双编码逐卡断言：未授权=灰、只读=绿、读写=红
+		const badgeOf = (name: string) => collect(cardOf(name)).find(isBadge)!;
+		expect(badgeOf('生产 PG').props.style.color).toBe('var(--dbt-danger, #ff453a)');
+		expect(badgeOf('生产 PG').props.style.border).toBe('1px solid var(--dbt-danger, #ff453a)');
+		expect(flatText(badgeOf('生产 PG'))).toBe('读写');
+		expect(badgeOf('订单 MySQL').props.style.color).toBe('var(--dbt-success, #30d158)');
+		expect(flatText(badgeOf('订单 MySQL'))).toBe('只读');
+		expect(badgeOf('缓存 Redis').props.style.color).toBe('var(--dbt-text-secondary, rgba(235,235,245,.6))');
+		expect(flatText(badgeOf('缓存 Redis'))).toBe('未授权');
+		// 整卡描边与徽标同色（三态着色）
+		expect(cardOf('生产 PG').props.style.borderColor).toBe('var(--dbt-danger, #ff453a)');
+		expect(cardOf('订单 MySQL').props.style.borderColor).toBe('var(--dbt-success, #30d158)');
+		expect(cardOf('缓存 Redis').props.style.borderColor).toBe('var(--dbt-text-secondary, rgba(235,235,245,.6))');
 	});
 
 	it('地址副行：safeUrl / host:port 单行省略 + title 全文，帮助区分同名连接', () => {
