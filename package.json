@@ -81,7 +81,7 @@
     "@types/node": "latest",
     "esbuild": "^0.28.0",
     "mongodb": "^7.6.0",
-    "mssql": "12.7.14",
+    "mssql": "12.8.1",
     "semver": "^7.7.0",
     "sql-formatter": "^15.9.0",
     "stryker-cli": "^1.1.0",
